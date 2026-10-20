@@ -1,6 +1,13 @@
 <div align="center">
 
+<img src="ui/assets/icon.svg" alt="" width="96" height="96">
+
 # Media Saver
+
+**Instagram Reels and YouTube videos or Shorts, saved as MP4 or MP3, from one portable Windows app.**
+
+[![Download](https://img.shields.io/badge/Download-MediaSaver.exe-5d8dff?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe)
+[![Release](https://img.shields.io/github/v/release/softoblivion/media-saver?display_name=release&label=latest&style=for-the-badge)](https://github.com/softoblivion/media-saver/releases/latest)
 
 ![Platform](https://img.shields.io/badge/platform-Windows_10_|_11-0078D6?logo=windows&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
@@ -8,17 +15,11 @@
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?logo=html5&logoColor=white)
 ![CSS](https://img.shields.io/badge/CSS-663399?logo=css&logoColor=white)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?logo=powershell&logoColor=white)
-![Status](https://img.shields.io/badge/status-stable-brightgreen)
-[![Version](https://img.shields.io/github/v/release/softoblivion/media-saver?display_name=release&label=version)](https://github.com/softoblivion/media-saver/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-A Windows desktop app that saves Instagram Reels and YouTube videos or Shorts at the best quality the site
-currently serves, as MP4 or MP3. Paste any amount of text with links, get clean canonical URLs, a preview of every
-queued link and a download queue. The download engines refresh themselves on every launch, and the app updates
-itself from GitHub Releases. One portable `.exe` that keeps everything in a folder next to itself; Liquid Glass
-interface rendered with WebView2.
-
 <img src="docs/assets/screenshot.png" alt="Media Saver main window" width="860">
+
+<sub>Paste any text with links · pick MP4 or MP3 and the quality · press Download. Engines and the app keep themselves up to date.</sub>
 
 </div>
 
@@ -26,26 +27,48 @@ interface rendered with WebView2.
 
 ## Contents
 
+- [Why Media Saver](#why-media-saver)
+- [Quick start](#quick-start)
 - [Features](#features)
 - [How it works](#how-it-works)
-- [Installation](#installation)
 - [Usage](#usage)
 - [Settings](#settings)
 - [Link cleaning rules](#link-cleaning-rules)
 - [Data and privacy](#data-and-privacy)
 - [Updates](#updates)
+- [FAQ](#faq)
 - [Building from source](#building-from-source)
 - [Project structure](#project-structure)
 - [Third-party components](#third-party-components)
 - [Disclaimer](#disclaimer)
 - [License](#license)
 
+## Why Media Saver
+
+- **Best quality, no guesswork.** Every format the site offers is compared by resolution, frame rate and bitrate; video and audio are merged into one MP4, or the best audio track becomes an MP3.
+- **Links in, files out.** Messages, lists, glued-together URLs, Markdown, `.txt` files: everything is extracted, cleaned to canonical links and de-duplicated before it hits the queue.
+- **Keeps working when the sites change.** `yt-dlp`, `gallery-dl` and FFmpeg refresh themselves on every launch; the app itself updates from GitHub Releases after a size and SHA-256 check.
+- **Portable.** One `MediaSaver.exe`, one folder next to it. Move the folder, move the app. Nothing is written to the user profile.
+
+## Quick start
+
+1. Download [`MediaSaver.exe`](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe) and put it into a folder of its own, for example `D:\Apps\MediaSaver\`.
+2. Run it. The first start fetches the download engines (about 40 MB; FFmpeg only when none is on `PATH`).
+3. Paste links, press **Download**. Files land in `Downloads\` next to the exe.
+
+**Requirements:** Windows 10 (1809+) or Windows 11 with the Microsoft Edge WebView2 Runtime (preinstalled on Windows 11
+and on up-to-date Windows 10). No installer, no admin rights.
+
+> [!NOTE]
+> The executable is not code-signed, so Windows SmartScreen may warn on first start (**More info → Run anyway**).
+
 ## Features
 
 | | |
 |---|---|
-| **Two platforms** | Instagram Reels and video posts; YouTube videos and Shorts. A mode switch in the window; each mode keeps its own queue view. |
-| **MP4 or MP3** | A global default and a per-item override on queued cards. MP4 picks the highest resolution, then frame rate, then bitrate from every format the site offers and merges video and audio; MP3 extracts the best audio track. |
+| **Two platforms** | Instagram Reels and video posts; YouTube videos and Shorts. A mode switch in the title bar; each mode keeps its own queue view and its own quality setting. |
+| **MP4 or MP3** | A global default and a per-item override on queued cards. MP4 picks the highest resolution, then frame rate, then bitrate and merges video and audio; MP3 extracts the best audio track at the best available bitrate. |
+| **Quality per platform** | Instagram: Low (≤ 480p), Medium (≤ 720p), Max. YouTube: 360p, 720p, Max (up to 4K). Chosen in the main window, right above Download. |
 | **Editor-ready video** | Optional H.264 mode: prefers an AVC stream at the top resolution; when only VP9 / AV1 exists there, re-encodes with x264 CRF 16 so the file opens in Premiere Pro and After Effects without conversion. |
 | **Batch input** | Accepts messages, lists and glued-together links; extracts, cleans and de-duplicates them before queuing. Drag and drop of text and `.txt` files, `Ctrl+V` anywhere in the window. |
 | **Previews** | Thumbnail, title, author and duration appear on a queued card before the download starts. |
@@ -53,7 +76,6 @@ interface rendered with WebView2.
 | **Self-updating app** | New releases are detected on launch or on request, downloaded into the data folder, verified by size and SHA-256 and installed on restart. |
 | **Self-healing downloads** | An extractor-type failure triggers one forced engine update and an automatic retry. Rate limits back off and retry. |
 | **In-app sign-in** | Reels that require an account are handled through Instagram's own login page in a separate window; only the resulting session cookies are stored locally. |
-| **Portable** | Settings, history, engines, logs and updates live in `media-saver_data\` next to `MediaSaver.exe`; videos go to `Downloads\` next to it. Move the folder, move the app. |
 | **Liquid Glass UI** | SVG displacement-map refraction, specular rims, spring physics, morphing controls, embedded Inter and Geist Mono fonts; animation loops stop when nothing moves. |
 
 ## How it works
@@ -82,35 +104,13 @@ On every launch a background updater runs before any job starts; links can be qu
 
 Without network access the app keeps working with the binaries it already has.
 
-## Installation
-
-1. Download `MediaSaver.exe` from the [latest release](https://github.com/softoblivion/media-saver/releases/latest).
-2. Put it into a folder of its own (for example `D:\Apps\MediaSaver\`) and run it. No installer and no admin
-   rights are needed. The app creates `media-saver_data\` and `Downloads\` next to the exe.
-
-> [!NOTE]
-> The executable is not code-signed, so Windows SmartScreen may show a warning on first start
-> (**More info → Run anyway**).
-
-> [!IMPORTANT]
-> The first start downloads `yt-dlp` and `gallery-dl` (about 40 MB). FFmpeg (about 200 MB archive) is fetched only
-> when no `ffmpeg.exe` is found on `PATH`; it is needed for merging video and audio and for MP3.
-
-> [!TIP]
-> Upgrading from Reels Saver 1.x: the old app kept its data in `%LOCALAPPDATA%\ReelsSaver`. Copy that folder to
-> `<folder of MediaSaver.exe>\media-saver_data` to keep your settings, history and Instagram sign-in; otherwise the app starts
-> fresh.
-
-**Requirements:** Windows 10 (1809+) or Windows 11 with the Microsoft Edge WebView2 Runtime (preinstalled on
-Windows 11 and on up-to-date Windows 10). Developed and tested on Windows 11.
-
 ## Usage
 
-1. Choose the mode: **Instagram** or **YouTube**.
+1. Choose the mode: **Instagram** or **YouTube** (`Alt+1` / `Alt+2`).
 2. Paste one or more links into the input panel, or press `Ctrl+V` anywhere in the window. A link of the other
    platform is shown with a **Switch** action.
 3. Check the cleaned preview: valid, invalid and duplicate links are counted separately. Pick **MP4** or **MP3**
-   and the quality for the current platform (Instagram: Low / Medium / Max; YouTube: 360p / 720p / Max).
+   and the quality for the current platform.
 4. Press **Download** (`Ctrl+Enter`). Each card shows a preview as soon as the site answers, then progress, speed
    and ETA. A queued card can still switch between MP4 and MP3.
 5. Finished cards open the file or reveal it in Explorer.
@@ -123,6 +123,8 @@ use the cookies of a browser chosen in Settings.
 |---|---|
 | `Ctrl+V` | Paste into the input panel from anywhere |
 | `Ctrl+Enter` | Start downloading the cleaned links |
+| `Alt+1` / `Alt+2` | Instagram / YouTube mode |
+| `←` `→` | Move a segmented control (mode, format, quality) |
 | `Esc` | Close the settings sheet or a popover |
 
 ## Settings
@@ -171,8 +173,8 @@ are reported as unsupported.
 
 ## Data and privacy
 
-All runtime data lives in `media-saver_data\` next to `MediaSaver.exe` (override with the `MEDIA_SAVER_HOME` environment
-variable); nothing is written to the user profile:
+All runtime data lives in `media-saver_data\` next to `MediaSaver.exe` (override with the `MEDIA_SAVER_HOME`
+environment variable); nothing is written to the user profile:
 
 | Path | Content |
 |---|---|
@@ -188,15 +190,38 @@ The app never sees or stores the Instagram password: sign-in happens on Instagra
 the cookie file and clears the WebView2 cookies. Network traffic goes only to Instagram, YouTube, GitHub and
 Codeberg (engine and app updates).
 
+> [!TIP]
+> Upgrading from Reels Saver 1.x: the old app kept its data in `%LOCALAPPDATA%\ReelsSaver`. Copy that folder to
+> `<folder of MediaSaver.exe>\media-saver_data` to keep your settings, history and Instagram sign-in; otherwise the
+> app starts fresh.
+
 ## Updates
 
-- Engines: checked on every launch (`auto_update`), or **Update now** in the engine panel.
-- The app: checked on every launch (`check_app_updates`), or **Check for updates** in the engine panel / Settings.
-  A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256 against the `SHA256SUMS`
-  asset of the release, and installed by **Restart to update**: a small helper waits for the app to exit, swaps
-  `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new one started) and relaunches
-  it. If anything fails the current exe stays untouched.
-- Every release ships two assets: `MediaSaver.exe` and `SHA256SUMS`. Release notes: `docs/releases/`.
+- **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
+- **The app:** checked on every launch (`check_app_updates`), or **Check for updates** from the version label next
+  to the engine chip. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
+  against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: a small helper waits for
+  the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new one
+  started) and relaunches it. If anything fails the current exe stays untouched.
+- Every release ships two assets: `MediaSaver.exe` and `SHA256SUMS`. Release notes live in
+  [`docs/releases/`](docs/releases/).
+
+## FAQ
+
+**A 4K YouTube video takes minutes and the file is huge.** With *H.264 for editing* on, VP9 / AV1 sources above
+1080p are re-encoded at CRF 16 for editors. Pick **720p** for a quick AVC file, or switch H.264 off to keep the
+original VP9 / AV1 stream.
+
+**Instagram says it needs a sign-in.** Some reels are served only to accounts. Press **Sign in to Instagram** on the
+card; the login happens on Instagram's own page and the failed jobs retry by themselves.
+
+**YouTube asks to confirm you are not a bot.** Choose a browser under *Browser cookies* in Settings; the engine then
+uses that browser's YouTube session.
+
+**Where is FFmpeg?** It is used for merging and for MP3. The app takes `ffmpeg.exe` from `PATH` when present and
+otherwise downloads a static build into `media-saver_data\bin` on the first launch.
+
+**Can I run two copies?** Yes: each folder is its own installation with its own settings and history.
 
 ## Building from source
 
