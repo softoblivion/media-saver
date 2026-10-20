@@ -1,0 +1,21 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Build output
+build/dist/
+build/work/
+build/_version_info.txt
+release/
+*.spec.bak
+
+# Local-only folders and settings
+legacy/
+
+# Runtime data and scratch
+*.log
+.pytest_cache/
+.mypy_cache/
+

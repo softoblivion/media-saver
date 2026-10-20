@@ -1,0 +1,4 @@
+# Runtime dependencies of the shell (app/core itself is stdlib-only).
+# pywebview's edgechromium backend runs on WebView2 through pythonnet.
+pywebview>=6.2.1,<7
+pythonnet>=3.2.1
