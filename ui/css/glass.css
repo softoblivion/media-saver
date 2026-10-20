@@ -1,6 +1,6 @@
 /* Liquid Glass material layers. The refraction itself is the SVG backdrop filter set by js/glass.js.
-   Layer order inside a lens (bottom -> top): refracted backdrop, tint (background), pointer glow,
-   content, specular rim. */
+   Layer order inside a lens (bottom -> top): refracted backdrop, tint (background), press tint,
+   content, specular rim. Nothing in the material follows the pointer position. */
 
 .lens {
   position: relative;
@@ -14,6 +14,24 @@
   backdrop-filter: blur(14px) saturate(1.6);
   color: var(--ink-1);
   text-shadow: var(--ink-shadow);
+}
+
+/* Press: the gel squish (js/glass.js) plus a uniform, slight lightening of the tint. */
+.lens::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--press-tint);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 420ms var(--ease-out);
+}
+
+.lens.is-pressed::before {
+  opacity: 1;
+  transition-duration: 80ms;
 }
 
 /* Specular rim: a thin ring whose brightness follows the light angle (--la). Two lobes: the lit edge
@@ -45,33 +63,11 @@
   transition: opacity var(--t-med) var(--ease-out);
 }
 
-/* Pointer glow: light spreading from under the cursor; brighter while pressed ("energized"). */
-.lens > .lg-glow,
-.glass-lite > .lg-glow {
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: -1;
-  background:
-    radial-gradient(circle var(--glow-r, 160px) at var(--mx, 50%) var(--my, -30%),
-      rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 45%, transparent 70%);
-  opacity: var(--hot);
-  transition: --hot 420ms var(--ease-out);
-  mix-blend-mode: plus-lighter;
-}
-
-.lens.is-pressed > .lg-glow,
-.lens:active > .lg-glow {
-  --hot: 1.8;
-  transition-duration: 80ms;
-}
-
 .lens.is-pressed > .lg-rim {
   --rim-o: 1;
 }
 
-/* Cheap glass for repeated items: blur-only, same rim and glow. */
+/* Cheap glass for repeated items: blur-only, same rim. */
 .glass-lite {
   position: relative;
   isolation: isolate;

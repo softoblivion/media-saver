@@ -19,7 +19,7 @@ from email.utils import parsedate_to_datetime
 from http.cookies import SimpleCookie
 from typing import Any, Callable, Iterable, Optional
 
-log = logging.getLogger("reels.login")
+log = logging.getLogger("mediasaver.login")
 
 LOGIN_URL = "https://www.instagram.com/accounts/login/"
 WINDOW_TITLE = "Sign in to Instagram"

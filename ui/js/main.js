@@ -5,12 +5,17 @@ import { initBackground, setFocused, activity } from './background.js';
 import { initLight, gel, Lens } from './glass.js';
 import { SPRINGS, springAnimate, reducedMotion } from './motion.js';
 import { icon, appGlyph } from './icons.js';
+import { nItems } from './format.js';
 import { initToasts, toast } from './toast.js';
 import { initEngine } from './engine.js';
 import { initComposer, focusInput } from './composer.js';
 import { initQueue, getJobs, retryLoginFailures } from './queue.js';
 import { initSettings } from './settings.js';
 import { initClipboard } from './clipboard.js';
+import { initUpdate } from './update.js';
+import { initPrefs, getMode, setMode, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
+import { Segmented } from './controls.js';
+import { initQuality } from './quality.js';
 
 function initTitlebar() {
   document.querySelectorAll('.ic-slot[data-icon]').forEach((s) => (s.outerHTML = icon(s.dataset.icon)));
@@ -39,6 +44,28 @@ function initTitlebar() {
   // The frameless window has no native caption: double-click on the drag area toggles maximize.
   document.querySelectorAll('.pywebview-drag-region').forEach((d) =>
     d.addEventListener('dblclick', () => call('window_toggle_maximize').then((r) => setMaximized(!!r)).catch(() => {})));
+}
+
+/** Mode switch in the title bar: it scopes the whole window (composer and queue). */
+function initModeSwitch() {
+  const seg = new Segmented({
+    label: 'Mode',
+    cls: 'seg-tb',
+    options: PLATFORMS.map((p) => ({ value: p, label: PLATFORM_NAME[p], title: `${PLATFORM_NAME[p]} links and queue (Alt+${PLATFORMS.indexOf(p) + 1})` })),
+    value: getMode(),
+    onChange: (v) => setMode(v),
+  });
+  seg.el.id = 'mode-switch';
+  document.getElementById('mode-slot').appendChild(seg.el);
+  onPref('mode', (m) => seg.set(m));
+  // Alt+1 / Alt+2 switch modes from anywhere.
+  addEventListener('keydown', (e) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    const i = ['1', '2'].indexOf(e.key);
+    if (i < 0) return;
+    e.preventDefault();
+    setMode(PLATFORMS[i]);
+  });
 }
 
 function setMaximized(m) {
@@ -87,8 +114,14 @@ async function boot() {
   }
   document.documentElement.dataset.backend = backendMode();
 
+  initPrefs(state.settings);
+  initModeSwitch();
   initEngine(state.engine);
+  initUpdate(state, {
+    activeJobs: () => Array.from(getJobs()).some((j) => ['probing', 'downloading', 'processing'].includes(j.status)),
+  });
   initComposer();
+  initQuality(state.settings);
   initQueue(state);
   initSettings(state);
   initClipboard(state.settings, getJobs);
@@ -105,7 +138,7 @@ async function boot() {
     const now = !!(a && a.logged_in);
     if (now && !loggedIn) {
       const n = retryLoginFailures();
-      if (n) toast('info', `Retrying after sign-in: ${n} ${n === 1 ? 'video' : 'videos'}`);
+      if (n) toast('info', `Retrying after sign-in: ${nItems(n, 'instagram')}`);
     }
     loggedIn = now;
   });

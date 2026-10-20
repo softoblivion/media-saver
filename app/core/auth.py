@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 from .paths import atomic_write_json, atomic_write_text
 
-log = logging.getLogger("reels.core.auth")
+log = logging.getLogger("mediasaver.core.auth")
 
 HEADER = "# Netscape HTTP Cookie File"
 HTTPONLY_PREFIX = "#HttpOnly_"
@@ -52,7 +52,7 @@ def _clean_field(value: Any) -> str:
 
 
 def format_netscape(cookies: Iterable[dict[str, Any]]) -> str:
-    lines = [HEADER, "# Written by Reels Saver. Do not share this file: it contains your login.", ""]
+    lines = [HEADER, "# Written by Media Saver. Do not share this file: it contains your login.", ""]
     for c in cookies:
         name = _clean_field(c.get("name", ""))
         if not name:

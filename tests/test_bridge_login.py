@@ -122,7 +122,7 @@ class ControllerTests(unittest.TestCase):
         def boom(cookies, path):
             raise OSError("disk full")
 
-        with self.assertLogs("reels.login", level="ERROR"):  # also keeps the expected traceback out of the test output
+        with self.assertLogs("mediasaver.login", level="ERROR"):  # also keeps the expected traceback out of the test output
             _, window, engine, toasts, _ = self.run_controller([[morsel_cookie("sessionid", "v")]], writer=boom)
             threading.Event().wait(0.3)
         self.assertEqual(toasts[0][0], "error")

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# One-file, windowed PyInstaller build of Reels Saver. Run through build/build.ps1 (see docs/BUILD.md).
+# One-file, windowed PyInstaller build of Media Saver. Run through build/build.ps1 (see docs/BUILD.md).
 import sys
 from pathlib import Path
 
@@ -22,13 +22,13 @@ _version_file.write_text(
   ffi=FixedFileInfo(filevers={_parts}, prodvers={_parts}, mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
   kids=[
     StringFileInfo([StringTable('040904B0', [
-      StringStruct('CompanyName', 'Reels Saver'),
-      StringStruct('FileDescription', 'Reels Saver'),
+      StringStruct('CompanyName', 'Media Saver'),
+      StringStruct('FileDescription', 'Media Saver'),
       StringStruct('FileVersion', '{__version__}'),
-      StringStruct('InternalName', 'ReelsSaver'),
+      StringStruct('InternalName', 'MediaSaver'),
       StringStruct('LegalCopyright', ''),
-      StringStruct('OriginalFilename', 'ReelsSaver.exe'),
-      StringStruct('ProductName', 'Reels Saver'),
+      StringStruct('OriginalFilename', 'MediaSaver.exe'),
+      StringStruct('ProductName', 'Media Saver'),
       StringStruct('ProductVersion', '{__version__}')])]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]
@@ -74,7 +74,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="ReelsSaver",
+    name="MediaSaver",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

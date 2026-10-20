@@ -9,7 +9,7 @@ from app.core import settings as S
 
 class SettingsTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.mkdtemp(prefix="idl_settings_")
+        self.tmp = tempfile.mkdtemp(prefix="ms_settings_")
         self.path = os.path.join(self.tmp, "settings.json")
 
     def tearDown(self):
@@ -17,35 +17,66 @@ class SettingsTest(unittest.TestCase):
 
     def test_defaults_match_bridge_schema(self):
         d = S.defaults()
-        self.assertEqual(set(d), {"output_dir", "filename_template", "quality", "h264_compat", "skip_existing",
-                                  "concurrency", "update_channel", "auto_update", "auth_mode", "browser_cookies",
-                                  "clipboard_watch", "open_folder_when_done"})
+        self.assertEqual(set(d), {"output_dir", "filename_template", "mode", "format", "quality_instagram",
+                                  "quality_youtube", "h264_compat",
+                                  "skip_existing", "concurrency", "update_channel", "auto_update",
+                                  "check_app_updates", "auth_mode", "browser_cookies", "clipboard_watch",
+                                  "open_folder_when_done"})
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
-        self.assertEqual(d["quality"], "max")
+        self.assertEqual(d["quality_instagram"], "max")
+        self.assertEqual(d["quality_youtube"], "max")
+        self.assertEqual(d["mode"], "instagram")
+        self.assertEqual(d["format"], "mp4")
+        self.assertTrue(d["check_app_updates"])
         self.assertEqual(d["concurrency"], 2)
-        self.assertTrue(d["output_dir"].endswith(os.path.join("Downloads", "Reels Saver")))
+        self.assertTrue(d["output_dir"].endswith("Downloads"))
+
+    def test_output_dir_is_portable(self):
+        from app.core import paths as P
+        old = os.environ.get(P.HOME_ENV)
+        try:
+            os.environ[P.HOME_ENV] = self.tmp
+            self.assertEqual(P.default_root(), os.path.abspath(self.tmp))
+            self.assertEqual(P.default_output_dir(), os.path.join(os.path.abspath(self.tmp), "Downloads"))
+            os.environ.pop(P.HOME_ENV)
+            root = P.default_root()
+            self.assertEqual(os.path.basename(root), "media-saver_data")
+            self.assertEqual(os.path.dirname(root), P.app_dir())
+            self.assertEqual(P.default_output_dir(), os.path.join(P.app_dir(), "Downloads"))
+            for forbidden in (os.environ.get("LOCALAPPDATA", "<unset>"), os.environ.get("APPDATA", "<unset>")):
+                self.assertFalse(root.lower().startswith(forbidden.lower()))
+        finally:
+            if old is not None:
+                os.environ[P.HOME_ENV] = old
+            else:
+                os.environ.pop(P.HOME_ENV, None)
 
     def test_valid_patch(self):
-        new = S.apply_patch(S.defaults(), {"quality": "720", "concurrency": 4, "h264_compat": False,
+        new = S.apply_patch(S.defaults(), {"quality_instagram": "medium", "quality_youtube": "720", "concurrency": 4,
+                                           "h264_compat": False,
                                            "browser_cookies": "firefox", "output_dir": self.tmp,
                                            "filename_template": "{date}_{author}_{shortcode}"})
-        self.assertEqual(new["quality"], "720")
+        self.assertEqual(new["quality_instagram"], "medium")
+        self.assertEqual(new["quality_youtube"], "720")
         self.assertEqual(new["concurrency"], 4)
         self.assertFalse(new["h264_compat"])
         self.assertEqual(new["output_dir"], os.path.normpath(self.tmp))
 
     def test_numeric_quality_is_accepted(self):
-        self.assertEqual(S.apply_patch(S.defaults(), {"quality": 1080})["quality"], "1080")
+        self.assertEqual(S.apply_patch(S.defaults(), {"quality_youtube": 720})["quality_youtube"], "720")
 
     def test_unknown_keys_ignored(self):
-        new = S.apply_patch(S.defaults(), {"nope": 1, "quality": "1080"})
+        new = S.apply_patch(S.defaults(), {"nope": 1, "quality": "1080", "quality_youtube": "360"})  # "quality" is the 1.x key
         self.assertNotIn("nope", new)
-        self.assertEqual(new["quality"], "1080")
+        self.assertNotIn("quality", new)
+        self.assertEqual(new["quality_youtube"], "360")
 
     def test_invalid_values_raise_russian(self):
         bad = [
             {"concurrency": 0}, {"concurrency": 5}, {"concurrency": 2.5}, {"concurrency": True},
-            {"quality": "4k"}, {"h264_compat": "yes"}, {"update_channel": "beta"}, {"auth_mode": "x"},
+            {"quality_instagram": "4k"}, {"quality_instagram": "720"}, {"quality_youtube": "1080"},
+            {"h264_compat": "yes"}, {"update_channel": "beta"}, {"auth_mode": "x"},
+            {"mode": "tiktok"}, {"format": "wav"}, {"check_app_updates": 1},
             {"browser_cookies": "safari"}, {"output_dir": ""}, {"output_dir": "relative\\dir"},
             {"filename_template": ""}, {"filename_template": "{author}"}, {"filename_template": "{foo}_{shortcode}"},
             {"filename_template": "a/b_{shortcode}"}, {"filename_template": "{shortcode}" + "x" * 120},
@@ -63,15 +94,15 @@ class SettingsTest(unittest.TestCase):
 
     def test_save_load_roundtrip_atomic(self):
         store = S.SettingsStore(self.path)
-        new, changed = store.update({"quality": "720", "concurrency": 3})
-        self.assertEqual(changed, {"quality": "max", "concurrency": 2})
+        new, changed = store.update({"quality_youtube": "720", "concurrency": 3})
+        self.assertEqual(changed, {"quality_youtube": "max", "concurrency": 2})
         self.assertFalse(os.path.exists(self.path + ".tmp"))
-        self.assertEqual(S.load(self.path)["quality"], "720")
+        self.assertEqual(S.load(self.path)["quality_youtube"], "720")
         self.assertEqual(S.SettingsStore(self.path).get()["concurrency"], 3)
 
     def test_no_change_no_write(self):
         store = S.SettingsStore(self.path)
-        _, changed = store.update({"quality": "max"})
+        _, changed = store.update({"quality_youtube": "max"})
         self.assertEqual(changed, {})
         self.assertFalse(os.path.exists(self.path))
 
@@ -85,9 +116,9 @@ class SettingsTest(unittest.TestCase):
 
     def test_bad_key_falls_back_per_key(self):
         with open(self.path, "w", encoding="utf-8") as fh:
-            json.dump({"quality": "8k", "concurrency": 3, "legacy": True}, fh)
+            json.dump({"quality_instagram": "8k", "concurrency": 3, "legacy": True}, fh)
         data = S.load(self.path)
-        self.assertEqual(data["quality"], "max")
+        self.assertEqual(data["quality_instagram"], "max")
         self.assertEqual(data["concurrency"], 3)
         self.assertNotIn("legacy", data)
 

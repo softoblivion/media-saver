@@ -20,22 +20,22 @@ from typing import Any, Optional
 from app import __version__, winutil
 from app.bridge import Bridge, EventPump
 
-WINDOW_TITLE = "Reels Saver"
-MUTEX_NAME = "Local\\ReelsSaver.SingleInstance"
+WINDOW_TITLE = "Media Saver"
+MUTEX_NAME = "Local\\MediaSaver.SingleInstance"
 BACKGROUND = "#0b0d14"
 START_SIZE = (1180, 780)  # page viewport in logical pixels
 MIN_SIZE = (940, 640)
 HTTP_PORT_FIRST = 42001  # fixed port keeps the page origin (and its localStorage) stable between launches
 HTTP_PORT_TRIES = 40
 
-SHELL_LOGGERS = {"reels.main", "reels.bridge", "reels.login", "reels.winutil", "reels.crash"}
+SHELL_LOGGERS = {"mediasaver.main", "mediasaver.bridge", "mediasaver.login", "mediasaver.winutil", "mediasaver.crash"}
 
-log = logging.getLogger("reels.main")
+log = logging.getLogger("mediasaver.main")
 _keep_alive: list[Any] = []
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="ReelsSaver", description="Reels Saver")
+    parser = argparse.ArgumentParser(prog="MediaSaver", description="Media Saver")
     parser.add_argument("--debug", action="store_true", help="enable WebView2 dev tools and verbose logging")
     parser.add_argument("--fake", action="store_true", help="use the simulated engine (no network, no core)")
     parser.add_argument("--ui-dir", help="serve the UI from this folder instead of the bundled one")
@@ -75,9 +75,9 @@ def pick_http_port() -> int:
 
 def setup_logging(log_dir: Path, debug: bool) -> None:
     """File log for the shell (core keeps its own app.log). Safe in a windowed exe where sys.stderr is None."""
-    # The core logs on the "reels" logger into app.log; the shell's loggers are "reels.main", "reels.bridge", ... so they
+    # The core logs on the "mediasaver" logger into app.log; the shell's loggers are "mediasaver.main", "mediasaver.bridge", ... so they
     # land there too. shell.log keeps only the shell's own records (plus pywebview's) for easier triage.
-    app_logger = logging.getLogger("reels")
+    app_logger = logging.getLogger("mediasaver")
     app_logger.setLevel(logging.DEBUG if debug else logging.INFO)
     webview_logger = logging.getLogger("pywebview")
     webview_logger.setLevel(logging.DEBUG if debug else logging.WARNING)
@@ -100,10 +100,10 @@ def setup_logging(log_dir: Path, debug: bool) -> None:
         webview_logger.addHandler(handler)
 
     def _excepthook(exc_type, exc, tb):
-        logging.getLogger("reels.crash").critical("unhandled exception", exc_info=(exc_type, exc, tb))
+        logging.getLogger("mediasaver.crash").critical("unhandled exception", exc_info=(exc_type, exc, tb))
 
     def _thread_excepthook(args):
-        logging.getLogger("reels.crash").critical(
+        logging.getLogger("mediasaver.crash").critical(
             "unhandled exception in thread %s", getattr(args.thread, "name", "?"),
             exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
         )
@@ -150,7 +150,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 3
 
     setup_logging(Path(getattr(engine.paths, "logs_dir", None) or Path(engine.paths.root) / "logs"), args.debug)
-    log.info("Reels Saver %s starting (fake=%s, debug=%s, ui=%s)", __version__, args.fake, args.debug, index)
+    log.info("Media Saver %s starting (fake=%s, debug=%s, ui=%s)", __version__, args.fake, args.debug, index)
 
     import webview  # imported late: pulls in pythonnet and WinForms
 
@@ -207,7 +207,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
     finally:
         bridge._shutdown()
-        log.info("Reels Saver stopped")
+        log.info("Media Saver stopped")
         logging.shutdown()
     # Non-daemon .NET / WebView2 helper threads can keep the process alive after the last window is gone.
     os._exit(0)

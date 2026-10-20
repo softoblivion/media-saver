@@ -1,6 +1,8 @@
-// Settings sheet: every Settings field of BRIDGE_API with English labels, the auth block, logs and
-// versions. Grows out of the gear button; changes are saved immediately through set_settings and
-// reverted with a toast when the backend rejects them.
+// Settings sheet: every Settings field of BRIDGE_API with English labels, the Instagram block
+// (shown in Instagram mode only), engine versions and the About block with the app version and
+// updates. Grows out of the gear button; changes are saved immediately through set_settings and
+// reverted with a toast when the backend rejects them. `mode`, `format`, `quality_instagram` and
+// `quality_youtube` are set from the main window (js/mode.js, js/quality.js), not here.
 
 import { call, on } from './api.js';
 import { gel } from './glass.js';
@@ -9,12 +11,14 @@ import { Segmented, Switch, Stepper, Select } from './controls.js';
 import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
 import { toast } from './toast.js';
+import { getMode, getFormat, onPref } from './mode.js';
+import { openUpdatePanel, appVersion } from './update.js';
 
 const TOKENS = [
   { t: '{author}', d: 'author' },
-  { t: '{shortcode}', d: 'video code' },
+  { t: '{shortcode}', d: 'video ID' },
   { t: '{date}', d: 'date' },
-  { t: '{title}', d: 'caption' },
+  { t: '{title}', d: 'title' },
 ];
 const BROWSERS = [
   { value: '', label: 'Don\'t use' },
@@ -24,19 +28,18 @@ const BROWSERS = [
   { value: 'brave', label: 'Brave' },
   { value: 'opera', label: 'Opera' },
 ];
+const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'auto_update', 'check_app_updates'];
 
 let sheet, overlay, body;
 let S = null;          // current Settings
 let auth = null;
 let engine = null;
-let appVersion = '';
 const ctl = {};        // field -> control
 
 export function initSettings(state) {
   S = state.settings;
   auth = state.auth;
   engine = state.engine;
-  appVersion = state.app_version;
   sheet = document.getElementById('settings-sheet');
   overlay = new Overlay(sheet, { modal: true, preset: 'sheet' });
   body = sheet.querySelector('.ov-content');
@@ -55,6 +58,8 @@ export function initSettings(state) {
     engine = e;
     renderVersions();
   });
+  onPref('mode', renderMode);
+  onPref('format', renderExample);
 }
 
 export function openSettings() {
@@ -90,7 +95,7 @@ function build() {
         <h3>Downloads</h3>
         <div class="set-card">
           <div class="set-row set-row-col">
-            <div class="set-label"><span>Videos folder</span></div>
+            <div class="set-label"><span>Downloads folder</span></div>
             <div class="set-path">
               <span class="path-text" data-f="output_dir"></span>
               <button type="button" class="btn btn-s" data-act="choose">${icon('folder')}<span>Change…</span></button>
@@ -103,10 +108,10 @@ function build() {
               <div class="tpl-tokens">${TOKENS.map((x) => `<button type="button" class="token" data-token="${x.t}"><code>${x.t}</code><span>${x.d}</span></button>`).join('')}</div>
             </div>
           </div>
-          ${row('Quality', 'Max is the best Instagram offers', '<span data-slot="quality"></span>')}
-          ${row('H.264 for editing', 'Convert VP9 / AV1 so the file opens right away in Premiere and After Effects', '<span data-slot="h264_compat"></span>')}
+          ${row('H.264 for editing', 'Convert VP9 / AV1 so the file opens right away in Premiere and After Effects; 1440p and 4K take minutes. MP4 only', '<span data-slot="h264_compat"></span>')}
           ${row('Skip downloaded', 'If the file is already in the folder, don\'t download it again', '<span data-slot="skip_existing"></span>')}
-          ${row('Simultaneous downloads', 'How many videos to download in parallel', '<span data-slot="concurrency"></span>')}
+          ${row('Simultaneous downloads', 'How many items download in parallel, for both modes', '<span data-slot="concurrency"></span>')}
+          ${row('Browser cookies', 'A fallback when a site asks to sign in (private or age-restricted videos)', '<span data-slot="browser_cookies"></span>')}
         </div>
       </section>
 
@@ -118,11 +123,19 @@ function build() {
         </div>
       </section>
 
+      <section class="set-group" data-platform="instagram">
+        <h3>Instagram</h3>
+        <div class="set-card">
+          <div class="set-row set-row-col auth-row" data-slot="auth"></div>
+          ${row('When to sign in', 'Auto tries without signing in first, then signs in if refused', '<span data-slot="auth_mode"></span>')}
+        </div>
+      </section>
+
       <section class="set-group">
         <h3>Engine</h3>
         <div class="set-card">
           ${row('Auto-update engine', 'Check yt-dlp, gallery-dl and FFmpeg on every launch', '<span data-slot="auto_update"></span>')}
-          ${row('Update channel', 'Nightly fixes Instagram breakage faster', '<span data-slot="update_channel"></span>')}
+          ${row('Update channel', 'Nightly fixes site breakage faster', '<span data-slot="update_channel"></span>')}
           <div class="set-row set-row-col">
             <div class="versions" data-slot="versions"></div>
           </div>
@@ -130,43 +143,40 @@ function build() {
       </section>
 
       <section class="set-group">
-        <h3>Instagram</h3>
-        <div class="set-card">
-          <div class="set-row set-row-col auth-row" data-slot="auth"></div>
-          ${row('When to sign in', 'Auto tries without signing in first, then signs in if refused', '<span data-slot="auth_mode"></span>')}
-          ${row('Browser cookies', 'A fallback if signing in through the window didn\'t help', '<span data-slot="browser_cookies"></span>')}
-        </div>
-      </section>
-
-      <section class="set-group">
         <h3>About</h3>
         <div class="set-card">
           <div class="set-row">
-            <div class="set-label"><span>Reels Saver <b class="app-ver"></b></span><small>Downloads Instagram Reels in the best quality</small></div>
-            <div class="set-ctl"><button type="button" class="btn btn-s" data-act="logs">${icon('logs')}<span>Open logs</span></button></div>
+            <div class="set-label"><span>Media Saver <b class="app-ver"></b></span><small>Downloads Instagram Reels and YouTube videos as MP4 or MP3</small></div>
+            <div class="set-ctl">
+              <button type="button" class="btn btn-s" data-act="check-updates">${icon('refresh')}<span>Check for updates</span></button>
+            </div>
           </div>
+          ${row('Check for updates on launch', 'Looks for a new version on GitHub every time the app starts', '<span data-slot="check_app_updates"></span>')}
+          ${row('Logs', 'Engine and download logs, for troubleshooting', `<button type="button" class="btn btn-s" data-act="logs">${icon('logs')}<span>Open logs</span></button>`)}
         </div>
       </section>
     </div>`;
 
   const slot = (n) => body.querySelector(`[data-slot="${n}"]`);
   const mkSwitch = (f, label) => {
-    ctl[f] = new Switch({ label, checked: S[f], onChange: (v) => save({ [f]: v }, () => ctl[f].set(!v)) });
+    ctl[f] = new Switch({ label, checked: !!S[f], onChange: (v) => save({ [f]: v }, () => ctl[f].set(!v)) });
     slot(f).replaceWith(ctl[f].el);
   };
-  ctl.quality = new Segmented({
-    label: 'Quality',
-    options: [{ value: 'max', label: 'Max' }, { value: '1080', label: '1080p' }, { value: '720', label: '720p' }],
-    value: S.quality,
-    onChange: (v) => save({ quality: v }),
-  });
-  slot('quality').replaceWith(ctl.quality.el);
   mkSwitch('h264_compat', 'H.264 for editing');
   mkSwitch('skip_existing', 'Skip downloaded');
   ctl.concurrency = new Stepper({ label: 'Simultaneous downloads', value: S.concurrency, min: 1, max: 4, onChange: (v) => save({ concurrency: v }) });
   slot('concurrency').replaceWith(ctl.concurrency.el);
+  ctl.browser_cookies = new Select({ label: 'Browser cookies', options: BROWSERS, value: S.browser_cookies || '', onChange: (v) => save({ browser_cookies: v }) });
+  slot('browser_cookies').replaceWith(ctl.browser_cookies.el);
   mkSwitch('clipboard_watch', 'Watch the clipboard');
   mkSwitch('open_folder_when_done', 'Open folder when done');
+  ctl.auth_mode = new Segmented({
+    label: 'When to sign in',
+    options: [{ value: 'auto', label: 'Auto' }, { value: 'always', label: 'Always' }, { value: 'never', label: 'Never' }],
+    value: S.auth_mode,
+    onChange: (v) => save({ auth_mode: v }),
+  });
+  slot('auth_mode').replaceWith(ctl.auth_mode.el);
   mkSwitch('auto_update', 'Auto-update engine');
   ctl.update_channel = new Segmented({
     label: 'Update channel',
@@ -175,15 +185,7 @@ function build() {
     onChange: (v) => save({ update_channel: v }),
   });
   slot('update_channel').replaceWith(ctl.update_channel.el);
-  ctl.auth_mode = new Segmented({
-    label: 'When to sign in',
-    options: [{ value: 'auto', label: 'Auto' }, { value: 'always', label: 'Always' }, { value: 'never', label: 'Never' }],
-    value: S.auth_mode,
-    onChange: (v) => save({ auth_mode: v }),
-  });
-  slot('auth_mode').replaceWith(ctl.auth_mode.el);
-  ctl.browser_cookies = new Select({ label: 'Browser cookies', options: BROWSERS, value: S.browser_cookies || '', onChange: (v) => save({ browser_cookies: v }) });
-  slot('browser_cookies').replaceWith(ctl.browser_cookies.el);
+  mkSwitch('check_app_updates', 'Check for updates on launch');
 
   // Filename template: save on blur / Enter, tokens insert at the caret.
   const tpl = body.querySelector('[data-f="filename_template"]');
@@ -225,6 +227,11 @@ function build() {
         else if (a) toast('warning', 'The file has no valid Instagram session');
       }
       if (act === 'update') await call('update_engine');
+      if (act === 'check-updates') {
+        // The sheet folds back into the gear, the update panel grows out of the version label.
+        overlay.close();
+        setTimeout(() => openUpdatePanel({ check: true }), 120);
+      }
     } catch (err) {
       toast('error', err.message);
     }
@@ -234,16 +241,27 @@ function build() {
   sync();
   renderAuth();
   renderVersions();
+  renderMode();
+}
+
+function renderMode() {
+  const mode = getMode();
+  body.querySelectorAll('.set-group[data-platform]').forEach((g) => {
+    g.hidden = g.dataset.platform !== mode;
+  });
+  renderExample();
 }
 
 function renderExample() {
-  const tpl = body.querySelector('[data-f="filename_template"]').value || '{author}_{shortcode}';
+  const input = body.querySelector('[data-f="filename_template"]');
+  const tpl = input.value || '{author}_{shortcode}';
+  const yt = getMode() === 'youtube';
   const ex = tpl
-    .replaceAll('{author}', 'studio.lumen')
-    .replaceAll('{shortcode}', 'DAbC123xYz_')
+    .replaceAll('{author}', yt ? 'Lumen Studio' : 'studio.lumen')
+    .replaceAll('{shortcode}', yt ? 'dQ4w9WgXcQ0' : 'DAbC123xYz_')
     .replaceAll('{date}', new Date().toISOString().slice(0, 10))
     .replaceAll('{title}', 'Morning light');
-  body.querySelector('.tpl-example').textContent = `${ex}.mp4`;
+  body.querySelector('.tpl-example').textContent = `${ex}.${getFormat() === 'mp3' ? 'mp3' : 'mp4'}`;
 }
 
 function sync() {
@@ -253,8 +271,7 @@ function sync() {
   const tpl = body.querySelector('[data-f="filename_template"]');
   if (document.activeElement !== tpl) tpl.value = S.filename_template || '';
   renderExample();
-  for (const f of ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'auto_update']) ctl[f].set(S[f]);
-  ctl.quality.set(S.quality);
+  for (const f of SWITCHES) ctl[f].set(f === 'check_app_updates' ? S[f] !== false : !!S[f]);
   ctl.update_channel.set(S.update_channel);
   ctl.auth_mode.set(S.auth_mode || 'auto');
   ctl.concurrency.set(S.concurrency);
@@ -268,14 +285,15 @@ function renderAuth() {
   box.innerHTML = a.logged_in
     ? `<div class="auth-status is-on"><span class="auth-ic">${icon('user')}</span><div><b>Signed in</b><small>${[a.user_id ? `ID ${escapeHtml(a.user_id)}` : '', src, a.saved_at ? `saved ${escapeHtml(dateTime(a.saved_at))}` : ''].filter(Boolean).join(' · ')}</small></div></div>
        <div class="auth-actions"><button type="button" class="btn btn-s" data-act="import">${icon('import')}<span>Import cookies.txt</span></button><button type="button" class="btn btn-s btn-danger" data-act="logout">${icon('logout')}<span>Sign out</span></button></div>`
-    : `<div class="auth-status"><span class="auth-ic">${icon('user')}</span><div><b>Not signed in</b><small>Public Reels download without signing in. Sign in if Instagram asks for authorization.</small></div></div>
+    : `<div class="auth-status"><span class="auth-ic">${icon('user')}</span><div><b>Not signed in</b><small>Public Reels download without signing in. Sign in if Instagram asks for it.</small></div></div>
        <div class="auth-actions"><button type="button" class="btn btn-tinted btn-s" data-act="login">${icon('user')}<span>Sign in to Instagram</span></button><button type="button" class="btn btn-s" data-act="import">${icon('import')}<span>Import cookies.txt</span></button></div>`;
   box.querySelectorAll('.btn').forEach((b) => gel(b));
 }
 
 function renderVersions() {
   const box = body.querySelector('[data-slot="versions"]');
-  body.querySelector('.app-ver').textContent = appVersion ? `v${appVersion}` : '';
+  const v = appVersion();
+  body.querySelector('.app-ver').textContent = v ? `v${v}` : '';
   const c = (engine && engine.components) || {};
   const item = (name, x) => x
     ? `<div class="ver ${x.ok ? '' : 'is-bad'}"><span>${name}</span><b>${escapeHtml(x.version || '—')}</b>${x.updated ? '<em>updated</em>' : ''}</div>`

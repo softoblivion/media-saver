@@ -1,27 +1,55 @@
 // Input capsule: paste area, live clean preview (chips morph original -> clean), counters, tools,
-// Ctrl+V anywhere, drag and drop of text / URLs / .txt files, and the primary "Download" button that
-// morphs into a circle while sending and into a progress pill while the batch downloads.
+// Ctrl+V anywhere, drag and drop of text / URLs / .txt files, the format toggle (MP4 / MP3) and the
+// primary "Download" button that morphs into a circle while sending and into a progress pill while
+// the batch downloads. Everything follows the current mode (js/mode.js): links are cleaned for that
+// platform, links of the other platform get an inline "Switch to ..." action.
 
 import { call, on } from './api.js';
 import { Lens, gel, shake } from './glass.js';
 import { Spring, SPRINGS, clamp, springAnimate, springEasing, whenDone } from './motion.js';
 import { icon } from './icons.js';
-import { escapeHtml, nLinks, plural, speed as fmtSpeed, LINK_ERRORS } from './format.js';
+import { escapeHtml, nLinks, nItems, plural, speed as fmtSpeed, linkError, shortLink } from './format.js';
 import { toast } from './toast.js';
 import { topOverlay } from './overlay.js';
+import { Segmented } from './controls.js';
+import { getMode, getFormat, setMode, setFormat, onPref, otherPlatform, PLATFORM_NAME } from './mode.js';
 
 const MAX_CHIPS = 80;
 const EMPTY = { items: [], clean_text: '', valid: 0, invalid: 0, duplicates: 0 };
 
-let root, input, preview, counters, btn, lens;
+// Mode-aware copy (docs/UI_DESIGN.md section 9).
+const COPY = {
+  instagram: {
+    label: 'Instagram links',
+    placeholder: 'Paste Reels links, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window.',
+    hint: 'Your links will appear here, already cleaned: just <code>instagram.com/reel/code</code>, no tails like <code>?igsh=</code>',
+    empty: 'Paste Reels links. Ctrl+V works anywhere in the window',
+    none: 'No Instagram Reels or post links found here',
+  },
+  youtube: {
+    label: 'YouTube links',
+    placeholder: 'Paste YouTube links to videos or Shorts, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window.',
+    hint: 'Your links will appear here, already cleaned: just <code>youtube.com/watch?v=id</code> or <code>/shorts/id</code>, no tails like <code>&amp;t=</code> or <code>?si=</code>',
+    empty: 'Paste YouTube links. Ctrl+V works anywhere in the window',
+    none: 'No YouTube video or Shorts links found here',
+  },
+};
+
+const KIND_ICON = { reel: 'reel', p: 'post', video: 'video', shorts: 'shorts' };
+
+let root, input, preview, counters, btn, lens, formatSeg;
 let result = EMPTY;
 let seq = 0;
 let debounce = 0;
 const chips = new Map();          // key -> element
-const batch = new Map();          // job id -> job (jobs added from this composer since the batch began)
+// Jobs added from this composer since the batch began, one batch per platform.
+const batches = { instagram: new Map(), youtube: new Map() };
 let btnState = 'empty';
+let doneMode = null;
 let doneTimer = 0;
 let widthSpring = null;
+
+const batch = () => batches[getMode()];
 
 export function initComposer() {
   root = document.getElementById('composer');
@@ -48,12 +76,36 @@ export function initComposer() {
     b.addEventListener('click', () => TOOLS[b.dataset.tool]());
   });
 
+  // "Switch to YouTube" on a chip of the other platform.
+  preview.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-switch]');
+    if (b) setMode(b.dataset.switch);
+  });
+
+  formatSeg = new Segmented({
+    label: 'Format',
+    cls: 'seg-l',
+    options: [
+      { value: 'mp4', label: 'MP4', title: 'Video with sound (MP4)' },
+      { value: 'mp3', label: 'MP3', title: 'Audio only (MP3)' },
+    ],
+    value: getFormat(),
+    onChange: (v) => setFormat(v),
+  });
+  document.getElementById('format-slot').replaceWith(formatSeg.el);
+  formatSeg.el.id = 'format-seg';
+
   initButton();
   initPasteAnywhere();
   initDrop();
   on('job', onJob);
   on('job_removed', ({ id }) => {
-    batch.delete(id);
+    for (const b of Object.values(batches)) b.delete(id);
+    renderButton();
+  });
+  onPref('mode', onModeChange);
+  onPref('format', (f) => {
+    formatSeg.set(f);
     renderButton();
   });
   addEventListener('keydown', (e) => {
@@ -62,8 +114,33 @@ export function initComposer() {
       download();
     }
   });
+  applyCopy();
   autoGrow();
   renderAll();
+}
+
+function applyCopy() {
+  const c = COPY[getMode()];
+  input.placeholder = c.placeholder;
+  input.setAttribute('aria-label', c.label);
+  preview.querySelector('.pv-hint-text').innerHTML = c.hint;
+}
+
+function onModeChange() {
+  applyCopy();
+  // The same text is cleaned again for the new platform: chips are rebuilt, not morphed.
+  for (const el of chips.values()) el.remove();
+  chips.clear();
+  if (btnState === 'done' && doneMode !== getMode()) {
+    clearTimeout(doneTimer);
+    setButton('empty');
+  }
+  clearTimeout(debounce);
+  if (input.value.trim()) refresh();
+  else {
+    result = EMPTY;
+    renderAll();
+  }
 }
 
 /** Insert text at the caret (when focused) or append it on a new line, then refresh at once. */
@@ -102,7 +179,7 @@ async function refresh() {
   let res = EMPTY;
   if (text.trim()) {
     try {
-      res = await call('clean_links', text);
+      res = await call('clean_links', text, getMode());
     } catch (err) {
       toast('error', err.message);
       return;
@@ -120,33 +197,43 @@ function renderAll() {
   renderButton();
 }
 
+/** Links of the other platform in the current result (valid links, counted as invalid). */
+function otherCount() {
+  const seen = new Set();
+  for (const it of result.items) if (it.error === 'other_platform' && it.clean) seen.add(it.clean);
+  return seen.size;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Counters
 
 function renderCounters() {
   const r = result;
   const has = !!input.value.trim();
+  const other = otherCount();
   const set = (name, n, text) => {
     const el = counters.querySelector(`[data-c="${name}"]`);
     const show = name === 'valid' ? has : n > 0;
     el.hidden = !show;
     const t = el.querySelector('b');
+    const label = el.querySelector('span');
+    if (label.textContent !== text) label.textContent = text;
     if (t.textContent !== String(n)) {
       t.textContent = String(n);
-      el.querySelector('span').textContent = text;
       if (show) springAnimate(el, [{ transform: 'scale(1.18)' }, { transform: 'scale(1)' }], SPRINGS.jelly, { fill: 'none' });
     }
   };
   set('valid', r.valid, 'ready');
-  set('invalid', r.invalid, 'invalid');
+  set('invalid', Math.max(0, r.invalid - other), 'invalid');
   set('dup', r.duplicates, plural(r.duplicates, ['duplicate', 'duplicates']));
+  set('other', other, PLATFORM_NAME[otherPlatform(getMode())]);
 }
 
 // ---------------------------------------------------------------------------------------------
 // Preview chips
 
-function shortClean(it) {
-  return `${it.kind === 'p' ? 'p' : 'reel'}/${it.shortcode}`;
+function chipSig(it) {
+  return `${it.clean ? 1 : 0}|${it.error || ''}|${it.platform || ''}`;
 }
 
 function renderPreview() {
@@ -157,8 +244,9 @@ function renderPreview() {
   for (const it of items.slice(0, MAX_CHIPS)) {
     const n = (seenOrig.get(it.original) || 0) + 1;
     seenOrig.set(it.original, n);
-    const dup = !!it.clean && seenClean.has(it.clean);
-    if (it.clean) seenClean.add(it.clean);
+    const usable = it.clean && !it.error;
+    const dup = !!usable && seenClean.has(it.clean);
+    if (usable) seenClean.add(it.clean);
     want.push({ key: `${n}|${it.original}`, it, dup });
   }
   const keep = new Set(want.map((w) => w.key));
@@ -168,10 +256,15 @@ function renderPreview() {
       leave(el);
     }
   }
+  const list = preview.querySelector('.pv-list');
   let prev = null;
   let fresh = 0;
   for (const w of want) {
     let el = chips.get(w.key);
+    if (el && el.__sig !== chipSig(w.it)) {
+      el.remove();
+      el = null;
+    }
     if (!el) {
       el = makeChip(w);
       chips.set(w.key, el);
@@ -180,8 +273,8 @@ function renderPreview() {
       el.classList.toggle('is-dup', w.dup);
       updateNote(el, w);
     }
-    const next = prev ? prev.nextElementSibling : preview.querySelector('.pv-list').firstElementChild;
-    if (next !== el) preview.querySelector('.pv-list').insertBefore(el, next);
+    const next = prev ? prev.nextElementSibling : list.firstElementChild;
+    if (next !== el) list.insertBefore(el, next);
     prev = el;
   }
   const more = preview.querySelector('.pv-more');
@@ -193,16 +286,30 @@ function renderPreview() {
 
 function makeChip({ it, dup }) {
   const el = document.createElement('div');
-  const ok = !!it.clean;
-  el.className = `pv-item ${ok ? 'is-valid' : 'is-invalid'} ${dup ? 'is-dup' : ''}`;
-  el.title = ok ? `${it.original}\n→ ${it.clean}` : it.original;
+  const other = it.error === 'other_platform' && !!it.clean;
+  const ok = !!it.clean && !it.error;
+  el.__sig = chipSig(it);
+  el.className = `pv-item ${ok ? 'is-valid' : other ? 'is-other' : 'is-invalid'} ${dup ? 'is-dup' : ''}`;
+  el.title = it.clean ? `${it.original}\n→ ${it.clean}` : it.original;
   const orig = it.original.replace(/^https?:\/\/(www\.)?/i, '');
+  const ic = it.clean ? KIND_ICON[it.kind] || 'link' : 'link';
+  if (other) {
+    const name = PLATFORM_NAME[it.platform] || 'the other mode';
+    el.innerHTML = `
+      <div class="pv-chip">
+        <span class="pv-ic">${icon(ic)}</span>
+        <span class="pv-text"><span class="pv-orig">${escapeHtml(shortLink(it))}</span></span>
+      </div>
+      <button type="button" class="btn btn-s pv-switch" data-switch="${escapeHtml(it.platform)}">${icon('swap')}<span>Switch to ${escapeHtml(name)}</span></button>`;
+    gel(el.querySelector('.pv-switch'));
+    return el;
+  }
   el.innerHTML = `
     <div class="pv-chip">
-      <span class="pv-ic">${icon(ok ? (it.kind === 'p' ? 'post' : 'reel') : 'link')}</span>
+      <span class="pv-ic">${icon(ic)}</span>
       <span class="pv-text">
         <span class="pv-orig">${escapeHtml(orig)}</span>
-        ${ok ? `<span class="pv-clean">${escapeHtml(shortClean(it))}</span>` : ''}
+        ${ok ? `<span class="pv-clean">${escapeHtml(shortLink(it))}</span>` : ''}
       </span>
     </div>
     <span class="pv-note"></span>`;
@@ -212,8 +319,9 @@ function makeChip({ it, dup }) {
 
 function updateNote(el, { it, dup }) {
   const note = el.querySelector('.pv-note');
+  if (!note) return;
   let text;
-  if (!it.clean) text = LINK_ERRORS[it.error] || 'invalid';
+  if (!it.clean || it.error) text = linkError(it);
   else if (dup) text = 'duplicate';
   else {
     const cut = it.original.length - it.clean.length;
@@ -225,6 +333,7 @@ function updateNote(el, { it, dup }) {
 function enter(el, i) {
   const delay = Math.min(i, 10) * 34;
   const valid = el.classList.contains('is-valid');
+  const invalid = el.classList.contains('is-invalid');
   const text = el.querySelector('.pv-text');
   const orig = el.querySelector('.pv-orig');
   const clean = el.querySelector('.pv-clean');
@@ -236,7 +345,7 @@ function enter(el, i) {
     ], SPRINGS.bouncy, { delay, fill: 'backwards' });
     el.style.opacity = '';
     if (!valid || !clean) {
-      if (!valid) setTimeout(() => shake(el.querySelector('.pv-chip')), delay + 140);
+      if (invalid) setTimeout(() => shake(el.querySelector('.pv-chip')), delay + 140);
       return;
     }
     // Morph: the chip shows the original link first, then flows into the clean short form.
@@ -318,10 +427,11 @@ let sending = false;
 
 export async function download() {
   if (sending) return;
+  const mode = getMode();
   if (!input.value.trim()) {
     focusInput();
     shake(root);
-    return toast('info', 'Paste Reels links. Ctrl+V works anywhere in the window');
+    return toast('info', COPY[mode].empty);
   }
   if (!result.valid) {
     // Clean result may be stale: refresh once before giving up.
@@ -329,18 +439,26 @@ export async function download() {
     await refresh();
     if (!result.valid) {
       shake(root);
-      return toast('warning', 'No Instagram Reels or post links found here');
+      const n = otherCount();
+      if (n) {
+        const o = otherPlatform(mode);
+        return toast('warning', `${n === 1 ? 'This is a' : 'These are'} ${PLATFORM_NAME[o]} ${plural(n, ['link', 'links'])}`,
+          { action: { label: `Switch to ${PLATFORM_NAME[o]}`, run: () => setMode(o) }, ms: 6000 });
+      }
+      return toast('warning', COPY[mode].none);
     }
   }
   sending = true;
   setButton('sending');
+  const format = getFormat();
   try {
     const text = input.value;
-    const res = await call('enqueue', text);
+    const res = await call('enqueue', text, mode, format);
     const added = res.added || [];
     const dups = (res.skipped || []).filter((s) => s.reason === 'duplicate').length;
-    if (!batchActive()) batch.clear();
-    for (const j of added) batch.set(j.id, j);
+    const b = batches[mode];
+    if (!batchActive(b)) b.clear();
+    for (const j of added) b.set(j.id, j);
     flyOut();
     input.value = '';
     autoGrow();
@@ -348,7 +466,7 @@ export async function download() {
     setTimeout(renderAll, 260);
     if (added.length) {
       const more = dups ? ` · ${dups} already in the queue` : '';
-      toast('success', `Queued ${added.length} ${plural(added.length, ['video', 'videos'])}${more}`);
+      toast('success', `Queued ${nItems(added.length, mode, format)}${more}`);
     } else if (dups) {
       toast('info', dups === 1 ? 'This link is already in the queue' : 'These links are already in the queue');
     }
@@ -377,24 +495,27 @@ function flyOut() {
 
 const ACTIVE = new Set(['queued', 'probing', 'downloading', 'processing']);
 
-function batchActive() {
-  for (const j of batch.values()) if (ACTIVE.has(j.status)) return true;
+function batchActive(b = batch()) {
+  for (const j of b.values()) if (ACTIVE.has(j.status)) return true;
   return false;
 }
 
 function onJob(job) {
-  if (!batch.has(job.id)) return;
-  const was = batchActive();
-  batch.set(job.id, job);
-  const now = batchActive();
+  const b = batches[job.platform] || Object.values(batches).find((m) => m.has(job.id));
+  if (!b || !b.has(job.id)) return;
+  const was = batchActive(b);
+  b.set(job.id, job);
+  const now = batchActive(b);
+  if (b !== batch()) return;
   if (was && !now) {
-    // The whole batch finished.
-    const ok = Array.from(batch.values()).filter((j) => j.status === 'done').length;
-    btn.querySelector('.pm-done-text').textContent = ok === batch.size ? 'Done' : `Done ${ok} of ${batch.size}`;
+    // The whole batch of this mode finished.
+    const ok = Array.from(b.values()).filter((j) => j.status === 'done').length;
+    btn.querySelector('.pm-done-text').textContent = ok === b.size ? 'Done' : `Done ${ok} of ${b.size}`;
+    doneMode = getMode();
     setButton('done');
     clearTimeout(doneTimer);
     doneTimer = setTimeout(() => {
-      batch.clear();
+      b.clear();
       if (btnState === 'done') setButton('empty');
       renderButton();
     }, 2200);
@@ -405,12 +526,11 @@ function onJob(job) {
 
 function initButton() {
   btn.innerHTML = `
-    <span class="pm-fill" aria-hidden="true"></span>
+    <span class="pm-fill" aria-hidden="true"><span class="pm-liquid"></span></span>
     <span class="pm-layer pm-label">${icon('down')}<span class="pm-text">Download</span><kbd>Ctrl+Enter</kbd></span>
     <span class="pm-layer pm-spin" aria-hidden="true"><span class="spinner"></span></span>
     <span class="pm-layer pm-progress"><span class="pm-ptext"></span><span class="pm-pmeta"></span></span>
     <span class="pm-layer pm-done">${icon('check')}<span class="pm-done-text">Done</span></span>`;
-  btn.classList.add('hl');
   gel(btn, { amount: 0.8 });
   btn.addEventListener('click', () => {
     if (btnState === 'ready' || btnState === 'empty') download();
@@ -429,6 +549,12 @@ function setButton(state) {
   btn.dataset.state = state;
   if (state !== 'empty') btn.removeAttribute('aria-disabled');
   btn.setAttribute('aria-busy', String(state === 'sending' || state === 'progress'));
+  if (state === 'progress' && prev !== 'progress') {
+    // The level of a new batch appears where it is; it never drains from the previous batch's value.
+    btn.classList.add('pm-instant');
+    void btn.offsetWidth;
+    btn.classList.remove('pm-instant');
+  }
   const full = btn.parentElement.clientWidth;
   const narrow = btn.offsetHeight || 52;
   if (state === 'sending' && prev !== 'sending') {
@@ -440,22 +566,31 @@ function setButton(state) {
   }
 }
 
+/** "Download 3 Reels", "Download video", "Download 2 as MP3". */
+function readyLabel(n, mode, format) {
+  if (format === 'mp3') return n === 1 ? 'Download as MP3' : `Download ${n} as MP3`;
+  if (mode === 'youtube') return n === 1 ? 'Download video' : `Download ${n} videos`;
+  return n === 1 ? 'Download Reel' : `Download ${n} Reels`;
+}
+
 function renderButton() {
   if (sending) return;
+  const mode = getMode();
   const valid = result.valid;
   if (valid > 0) {
-    btn.querySelector('.pm-text').textContent = valid === 1 ? 'Download video' : `Download ${valid} videos`;
+    btn.querySelector('.pm-text').textContent = readyLabel(valid, mode, getFormat());
     btn.disabled = false;
     if (btnState !== 'ready') setButton('ready');
     return;
   }
   if (btnState === 'done') return;
   if (batchActive()) {
-    const jobs = Array.from(batch.values());
+    const jobs = Array.from(batch().values());
     const doneN = jobs.filter((j) => !ACTIVE.has(j.status)).length;
     const p = jobs.reduce((s, j) => s + (ACTIVE.has(j.status) ? j.progress || 0 : 1), 0) / jobs.length;
     const bps = jobs.reduce((s, j) => s + (j.status === 'downloading' && j.speed_bps ? j.speed_bps : 0), 0);
-    btn.querySelector('.pm-ptext').textContent = jobs.length === 1 ? 'Downloading video' : `Downloading ${Math.min(doneN + 1, jobs.length)} of ${jobs.length}`;
+    const one = jobs[0] && jobs[0].format === 'mp3' ? 'Downloading audio' : mode === 'youtube' ? 'Downloading video' : 'Downloading Reel';
+    btn.querySelector('.pm-ptext').textContent = jobs.length === 1 ? one : `Downloading ${Math.min(doneN + 1, jobs.length)} of ${jobs.length}`;
     btn.querySelector('.pm-pmeta').textContent = bps ? fmtSpeed(bps) : `${Math.round(p * 100)}%`;
     btn.style.setProperty('--p', p.toFixed(4));
     btn.disabled = false;

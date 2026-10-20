@@ -1,4 +1,4 @@
-"""Bridge: contract surface, delegation to the Engine facade, exception -> Russian message. Fake window and engine."""
+"""Bridge: contract surface, delegation to the Engine facade, exception -> English message. Fake window and engine."""
 
 import inspect
 import logging
@@ -8,13 +8,13 @@ from unittest import mock
 
 from app.bridge import Bridge, BridgeError, EventPump, friendly_message
 
-logging.getLogger("reels.bridge").setLevel(logging.CRITICAL)  # the error tests log tracebacks on purpose
+logging.getLogger("mediasaver.bridge").setLevel(logging.CRITICAL)  # the error tests log tracebacks on purpose
 
 CONTRACT_METHODS = {
-    "ready", "clean_links", "enqueue", "cancel", "retry", "remove", "clear_finished", "open_file", "reveal_file",
-    "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings", "update_engine", "login",
-    "logout", "import_cookies_file", "read_clipboard", "copy_text", "open_url", "window_minimize",
-    "window_toggle_maximize", "window_close",
+    "ready", "clean_links", "enqueue", "set_job_format", "cancel", "retry", "remove", "clear_finished", "open_file",
+    "reveal_file", "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings",
+    "update_engine", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
+    "read_clipboard", "copy_text", "open_url", "window_minimize", "window_toggle_maximize", "window_close",
 }
 
 
@@ -60,9 +60,10 @@ class RecordingEngine:
     def __init__(self) -> None:
         self.calls: list = []
         self.paths = FakePaths()
-        self.settings = {"output_dir": "C:\\out", "quality": "max"}
+        self.settings = {"output_dir": "C:\\out", "quality_instagram": "max", "quality_youtube": "max"}
         self.fail_with: BaseException | None = None
         self.job_path = None
+        self.apply_result = True
 
     def _rec(self, name, *args):
         self.calls.append((name, *args))
@@ -73,13 +74,17 @@ class RecordingEngine:
         self._rec("get_state")
         return {"app_version": "1.0.0", "jobs": []}
 
-    def clean_links(self, text):
-        self._rec("clean_links", text)
+    def clean_links(self, text, platform=None):
+        self._rec("clean_links", text, platform)
         return {"items": [], "clean_text": "", "valid": 0, "invalid": 0, "duplicates": 0}
 
-    def enqueue(self, text):
-        self._rec("enqueue", text)
+    def enqueue(self, text, platform=None, fmt=None):
+        self._rec("enqueue", text, platform, fmt)
         return {"added": [], "skipped": []}
+
+    def set_job_format(self, job_id, fmt):
+        self._rec("set_job_format", job_id, fmt)
+        return {"id": job_id, "format": fmt}
 
     def cancel(self, job_id):
         self._rec("cancel", job_id)
@@ -93,8 +98,8 @@ class RecordingEngine:
         self._rec("remove", job_id)
         return True
 
-    def clear_finished(self):
-        self._rec("clear_finished")
+    def clear_finished(self, platform=None):
+        self._rec("clear_finished", platform)
         return 3
 
     def job_file(self, job_id):
@@ -112,6 +117,17 @@ class RecordingEngine:
 
     def update_engine(self):
         self._rec("update_engine")
+
+    def check_updates(self):
+        self._rec("check_updates")
+        return {"stage": "checking", "current": "1.0.0"}
+
+    def download_update(self):
+        self._rec("download_update")
+
+    def apply_update(self):
+        self._rec("apply_update")
+        return self.apply_result
 
     def logout(self):
         self._rec("logout")
@@ -148,9 +164,17 @@ class SurfaceTests(unittest.TestCase):
 
     def test_pywebview_can_read_parameter_names(self):
         bridge, *_ = make_bridge()
-        self.assertEqual(inspect.getfullargspec(bridge.enqueue).args, ["self", "text"])
-        self.assertEqual(inspect.getfullargspec(bridge.cancel).args, ["self", "id"])
-        self.assertEqual(inspect.getfullargspec(bridge.ready).args, ["self"])
+        def arg_names(fn):
+            return inspect.getfullargspec(fn).args
+
+        self.assertEqual(arg_names(bridge.clean_links), ["self", "text", "platform"])
+        self.assertEqual(arg_names(bridge.enqueue), ["self", "text", "platform", "format"])
+        self.assertEqual(arg_names(bridge.clear_finished), ["self", "platform"])
+        self.assertEqual(arg_names(bridge.set_job_format), ["self", "id", "format"])
+        self.assertEqual(arg_names(bridge.cancel), ["self", "id"])
+        self.assertEqual(arg_names(bridge.ready), ["self"])
+        for name in ("check_updates", "download_update", "apply_update"):
+            self.assertEqual(arg_names(getattr(bridge, name)), ["self"], name)
 
 
 class DelegationTests(unittest.TestCase):
@@ -162,13 +186,63 @@ class DelegationTests(unittest.TestCase):
         self.assertIs(bridge.retry("a1"), True)
         self.assertIs(bridge.remove("a1"), True)
         self.assertEqual(bridge.clear_finished(), 3)
-        self.assertEqual(bridge.get_settings()["quality"], "max")
-        self.assertEqual(bridge.set_settings({"quality": "720"})["quality"], "720")
+        self.assertEqual(bridge.get_settings()["quality_youtube"], "max")
+        self.assertEqual(bridge.set_settings({"quality_youtube": "720"})["quality_youtube"], "720")
         self.assertIsNone(bridge.update_engine())
         self.assertEqual(bridge.logout(), {"logged_in": False})
         names = [c[0] for c in engine.calls]
         for expected in ("clean_links", "enqueue", "cancel", "retry", "remove", "clear_finished", "update_engine", "logout"):
             self.assertIn(expected, names)
+
+    def test_platform_and_format_pass_through_as_none_when_omitted(self):
+        bridge, engine, *_ = make_bridge()
+        bridge.clean_links("x")
+        bridge.enqueue("y")
+        bridge.clear_finished()
+        bridge.clean_links("x", "")  # an empty string means default as well
+        bridge.enqueue("y", None, None)
+        self.assertEqual(engine.calls, [
+            ("clean_links", "x", None), ("enqueue", "y", None, None), ("clear_finished", None),
+            ("clean_links", "x", None), ("enqueue", "y", None, None),
+        ])
+
+    def test_platform_and_format_arguments_are_forwarded(self):
+        bridge, engine, *_ = make_bridge()
+        bridge.clean_links("x", "youtube")
+        bridge.enqueue("y", "youtube", "mp3")
+        bridge.clear_finished("instagram")
+        self.assertEqual(engine.calls, [
+            ("clean_links", "x", "youtube"), ("enqueue", "y", "youtube", "mp3"), ("clear_finished", "instagram"),
+        ])
+
+    def test_platform_and_format_must_be_text(self):
+        bridge, *_ = make_bridge()
+        with self.assertRaises(BridgeError):
+            bridge.enqueue("y", 5, None)
+        with self.assertRaises(BridgeError):
+            bridge.clear_finished(["instagram"])
+
+    def test_set_job_format_delegates(self):
+        bridge, engine, *_ = make_bridge()
+        self.assertEqual(bridge.set_job_format("a1", "mp3"), {"id": "a1", "format": "mp3"})
+        self.assertIn(("set_job_format", "a1", "mp3"), engine.calls)
+
+    def test_set_job_format_rejects_a_missing_format(self):
+        bridge, engine, *_ = make_bridge()
+        for bad in (None, ""):
+            with self.assertRaises(BridgeError) as ctx:
+                bridge.set_job_format("a1", bad)
+            self.assertEqual(str(ctx.exception), "Format must be mp4 or mp3.")
+        with self.assertRaises(BridgeError):
+            bridge.set_job_format("a1", 3)
+        self.assertNotIn("set_job_format", [c[0] for c in engine.calls])
+
+    def test_engine_value_errors_for_a_bad_format_reach_the_ui(self):
+        bridge, engine, *_ = make_bridge()
+        engine.fail_with = ValueError("Unknown format: 'avi'")
+        with self.assertRaises(BridgeError) as ctx:
+            bridge.set_job_format("a1", "avi")
+        self.assertEqual(str(ctx.exception), "Unknown format: 'avi'")
 
     def test_ready_returns_state_and_opens_the_pump(self):
         bridge, engine, window, pump, _ = make_bridge()
@@ -228,6 +302,38 @@ class DelegationTests(unittest.TestCase):
             self.assertFalse(winutil.open_url(bad), bad)
 
 
+class AppUpdateTests(unittest.TestCase):
+    def test_check_and_download_delegate(self):
+        bridge, engine, *_ = make_bridge()
+        self.assertEqual(bridge.check_updates()["stage"], "checking")
+        self.assertIsNone(bridge.download_update())
+        self.assertEqual([c[0] for c in engine.calls], ["check_updates", "download_update"])
+
+    def test_apply_update_rejects_when_the_engine_refuses(self):
+        bridge, engine, window, pump, closed = make_bridge()
+        engine.apply_result = False
+        with self.assertRaises(BridgeError) as ctx:
+            bridge.apply_update()
+        self.assertEqual(str(ctx.exception), "The update is not ready to install.")
+        self.assertFalse(closed.wait(0.3))
+        self.assertEqual(window.calls, [])
+        self.assertNotIn("shutdown", [c[0] for c in engine.calls])
+
+    def test_apply_update_closes_the_window_when_the_engine_accepts(self):
+        bridge, engine, window, pump, closed = make_bridge()
+        engine.apply_result = True
+        self.assertIsNone(bridge.apply_update())
+        self.assertTrue(closed.wait(3))
+        self.assertEqual(window.calls, ["hide", "destroy"])  # the same path as window_close
+        self.assertEqual([c for c in engine.calls if c[0] == "shutdown"], [("shutdown",)])
+
+    def test_engine_errors_in_apply_update_become_bridge_errors(self):
+        bridge, engine, *_ = make_bridge()
+        engine.fail_with = OSError(5, "Access is denied")
+        with self.assertRaises(BridgeError):
+            bridge.apply_update()
+
+
 class FileActionTests(unittest.TestCase):
     def test_open_and_reveal_missing_file_toast_and_false(self):
         bridge, engine, window, pump, _ = make_bridge()
@@ -261,7 +367,7 @@ class FileActionTests(unittest.TestCase):
 
         bridge, engine, *_ = make_bridge()
         with tempfile.TemporaryDirectory() as tmp:
-            target = os.path.join(tmp, "new", "Reels Saver")
+            target = os.path.join(tmp, "new", "Media Saver")
             engine.settings["output_dir"] = target
             with mock.patch("app.bridge.winutil.open_path", return_value=True) as op:
                 self.assertTrue(bridge.open_output_dir())

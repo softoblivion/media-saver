@@ -36,6 +36,11 @@ const P = {
   clipboard: '<rect x="5" y="4.5" width="14" height="16" rx="3"/><path d="M9 4.5V4a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 4v.5"/><path d="m9 13 2.2 2.2L15.5 11"/>',
   import: '<path d="M12 3.5v10"/><path d="m8 10 4 4 4-4"/><path d="M5 15.5v2A2 2 0 0 0 7 19.5h10a2 2 0 0 0 2-2v-2"/>',
   bolt: '<path d="M13 3 5.5 13.2h5.6L10.6 21 18.5 10.6h-5.6Z"/>',
+  video: '<rect x="2.5" y="5.5" width="19" height="13" rx="3.5"/><path d="m10.3 9.6 4.2 2.4-4.2 2.4Z"/>',
+  shorts: '<rect x="6.5" y="2.5" width="11" height="19" rx="3.5"/><path d="m10.6 9.6 3.6 2.4-3.6 2.4Z"/>',
+  audio: '<path d="M9 18V6.2l10-2.2v11.8"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="15.8" r="2.5"/>',
+  swap: '<path d="M4.5 8.5h13"/><path d="m14 5 3.5 3.5L14 12"/><path d="M19.5 15.5h-13"/><path d="m10 12-3.5 3.5L10 19"/>',
+  app: '<path d="M12 3.5S6 10 6 14a6 6 0 0 0 12 0c0-4-6-10.5-6-10.5Z"/><path d="M12 10.5v6M9.5 14.5 12 17l2.5-2.5"/>',
 };
 
 export function icon(name, cls = '') {

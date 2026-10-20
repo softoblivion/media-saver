@@ -1,10 +1,13 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-mode="instagram" data-format="mp4">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reels Saver</title>
+  <title>Media Saver</title>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <!-- Embedded fonts, preloaded so the first frame already uses them (css/tokens.css). -->
+  <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/tokens.css">
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/glass.css">
@@ -24,9 +27,12 @@
       <div class="tb-drag pywebview-drag-region"></div>
       <div class="tb-brand">
         <span id="tb-glyph" class="tb-glyph"></span>
-        <span class="tb-name pywebview-drag-region">Reels Saver</span>
+        <span class="tb-name pywebview-drag-region">Media Saver</span>
       </div>
+      <!-- Mode switch (Instagram / YouTube), js/composer.js -->
+      <div id="mode-slot" class="tb-mode"></div>
       <div class="tb-right">
+        <button type="button" id="app-ver" class="ver-label" aria-haspopup="dialog"><span class="ver-dot" aria-hidden="true"></span><span class="ver-text"></span></button>
         <button type="button" id="engine-chip" class="eng-chip" aria-haspopup="dialog"></button>
         <button type="button" id="btn-settings" class="round-lens" aria-label="Settings" aria-haspopup="dialog"></button>
         <div class="win-btns">
@@ -45,13 +51,12 @@
             <span class="counter c-valid" data-c="valid" hidden><b>0</b><span>ready</span></span>
             <span class="counter c-invalid" data-c="invalid" hidden><b>0</b><span>invalid</span></span>
             <span class="counter c-dup" data-c="dup" hidden><b>0</b><span>duplicates</span></span>
+            <span class="counter c-other" data-c="other" hidden><b>0</b><span>other</span></span>
           </div>
         </div>
 
         <div class="cmp-well">
-          <textarea id="links-input" class="cmp-input" spellcheck="false" autocomplete="off"
-            aria-label="Reels links"
-            placeholder="Paste Reels links, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window."></textarea>
+          <textarea id="links-input" class="cmp-input" spellcheck="false" autocomplete="off" aria-label="Links"></textarea>
           <div class="cmp-drop" aria-hidden="true"><span>Drop to add links</span></div>
         </div>
 
@@ -66,12 +71,20 @@
           <div class="pv-more" hidden></div>
           <div class="pv-hint">
             <span class="pv-hint-art" aria-hidden="true"><i></i><i></i><i></i></span>
-            <span>Your links will appear here, already cleaned: just <code>instagram.com/reel/code</code>, no tails like <code>?igsh=</code></span>
+            <span class="pv-hint-text"></span>
           </div>
         </div>
 
+        <!-- "What you get": video quality of the current mode (js/quality.js), above format + Download. -->
+        <div id="cmp-spec" class="cmp-spec">
+          <span class="spec-label" aria-hidden="true">Quality</span>
+          <div id="quality-slot"></div>
+          <span class="spec-hint"></span>
+        </div>
+
         <div class="cmp-action">
-          <button type="button" id="btn-download" class="primary-morph" data-state="empty"></button>
+          <div id="format-slot"></div>
+          <div class="cmp-btn-slot"><button type="button" id="btn-download" class="primary-morph" data-state="empty"></button></div>
         </div>
       </section>
 
@@ -87,7 +100,7 @@
           </div>
           <div class="q-actions">
             <button type="button" id="btn-clear" class="btn btn-s btn-ghost" aria-label="Clear finished" title="Remove finished items from the list (files stay on disk)"><span class="ic-slot" data-icon="trash"></span><span>Clear finished</span></button>
-            <button type="button" id="btn-folder" class="btn btn-s" aria-label="Open folder" title="Open the videos folder"><span class="ic-slot" data-icon="folder"></span><span>Open folder</span></button>
+            <button type="button" id="btn-folder" class="btn btn-s" aria-label="Open folder" title="Open the downloads folder"><span class="ic-slot" data-icon="folder"></span><span>Open folder</span></button>
           </div>
         </div>
       </section>
@@ -96,6 +109,7 @@
 
   <!-- Overlays: sheets and popovers grow out of the control that opened them (js/overlay.js). -->
   <div id="engine-pop" class="popover" role="dialog" aria-label="Download engine"><div class="ov-content"></div></div>
+  <div id="update-pop" class="popover pop-wide" role="dialog" aria-label="Media Saver updates"><div class="ov-content"></div></div>
   <div id="settings-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="ov-content"></div></div>
 
   <div id="clip-pill" class="clip-pill" role="status"></div>

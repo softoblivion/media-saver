@@ -16,9 +16,10 @@ from . import auth as authmod
 from . import settings as settingsmod
 from .downloader import BinaryGate, Downloader, ProcessRunner
 from .paths import AppPaths
+from .selfupdate import SelfUpdater
 from .updater import Net, Updater
 
-log = logging.getLogger("reels.core.engine")
+log = logging.getLogger("mediasaver.core.engine")
 
 EmitFn = Callable[[str, dict], None]
 
@@ -26,9 +27,9 @@ _logging_lock = threading.Lock()
 
 
 def setup_logging(paths: AppPaths) -> None:
-    """Rotating logs/app.log (2 MB x 3) on the "reels" logger; idempotent."""
+    """Rotating logs/app.log (2 MB x 3) on the "mediasaver" logger; idempotent."""
     with _logging_lock:
-        root = logging.getLogger("reels")
+        root = logging.getLogger("mediasaver")
         target = os.path.abspath(paths.app_log)
         for h in root.handlers:
             if isinstance(h, logging.handlers.RotatingFileHandler) and os.path.abspath(h.baseFilename) == target:
@@ -40,9 +41,25 @@ def setup_logging(paths: AppPaths) -> None:
         root.setLevel(logging.INFO)
 
 
-def _clean_links(text: str) -> dict:
+def _clean_links(text: str, platform: str | None = None) -> dict:
     from . import linkclean  # imported lazily so the core loads without it
-    return linkclean.clean_text(text or "")
+    return linkclean.clean_text(text or "", platform)
+
+
+def _platform(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if value not in settingsmod.PLATFORMS:
+        raise ValueError(f"Unknown platform: {value!r}")
+    return value
+
+
+def _format(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if value not in settingsmod.FORMATS:
+        raise ValueError(f"Unknown format: {value!r}")
+    return value
 
 
 class Engine:
@@ -51,7 +68,9 @@ class Engine:
     def __init__(self, emit: EmitFn, app_version: str, *, home: str | None = None,
                  open_folder: Callable[[str], None] | None = None,
                  runner: ProcessRunner | None = None, net: Net | None = None,
-                 use_system_ffmpeg: bool | None = None) -> None:
+                 use_system_ffmpeg: bool | None = None, app_updates: bool | None = None) -> None:
+        # app_updates: None = follow the check_app_updates setting; False = never check (cli, tests)
+        self._app_updates = app_updates
         self._emit_raw = emit
         self.app_version = app_version
         self.paths = AppPaths(home)
@@ -70,6 +89,8 @@ class Engine:
             binaries=self.updater.binaries, usable=self.updater.usable, gate=self._gate,
             self_heal=self.updater.self_heal, on_auth_invalid=self._on_auth_invalid,
             on_queue_drained=self._on_queue_drained, runner=runner)
+        self.selfupdate = SelfUpdater(self.paths, app_version, self._on_update_status, net=net,
+                                      on_toast=lambda level, text: self._emit("toast", {"level": level, "text": text}))
         log.info("engine created, version %s, home %s", app_version, self.paths.root)
 
     # --- events --------------------------------------------------------------------------------------
@@ -82,6 +103,9 @@ class Engine:
     def _on_engine_status(self, status: dict) -> None:
         self._emit("engine", status)
         self.downloader.mark_waiting()
+
+    def _on_update_status(self, status: dict) -> None:
+        self._emit("update", status)
 
     def _on_auth_invalid(self) -> None:
         self._emit("auth", self.auth_status())
@@ -115,6 +139,12 @@ class Engine:
         self.downloader.start()
         self._emit("engine", self.updater.status())
         self.updater.start_background()
+        try:
+            self.selfupdate.startup()
+        except Exception:  # noqa: BLE001
+            log.exception("self-update startup cleanup failed")
+        if self._app_updates is True or (self._app_updates is None and self._settings["check_app_updates"]):
+            self.selfupdate.check_background()
 
     def shutdown(self) -> None:
         log.info("engine shutdown")
@@ -125,31 +155,41 @@ class Engine:
         return {
             "app_version": self.app_version,
             "engine": self.updater.status(),
+            "update": self.selfupdate.status(),
             "auth": self.auth_status(),
             "settings": self.get_settings(),
             "jobs": self.downloader.jobs(),
         }
 
     # --- links / jobs --------------------------------------------------------------------------------
-    def clean_links(self, text: str) -> dict:
-        return _clean_links(text)
+    def clean_links(self, text: str, platform: str | None = None) -> dict:
+        return _clean_links(text, _platform(platform))
 
-    def enqueue(self, text: str) -> dict:
-        result = _clean_links(text)
+    def enqueue(self, text: str, platform: str | None = None, fmt: str | None = None) -> dict:
+        result = _clean_links(text, _platform(platform))
+        fmt = _format(fmt) or self._settings["format"]
         added: list[dict] = []
         skipped: list[dict] = []
         with self._lock:
-            active = self.downloader.active_shortcodes()
+            active = self.downloader.active_keys()
             for item in result.get("items", []):
-                if item.get("error") or not item.get("clean") or not item.get("shortcode"):
+                if (item.get("error") or not item.get("clean") or not item.get("shortcode")
+                        or not item.get("platform") or not item.get("kind")):
                     skipped.append({"input": item.get("original", ""), "reason": "invalid"})
                     continue
-                if item["shortcode"] in active:
+                key = f"{item['platform']}:{item['shortcode']}"
+                if key in active:
                     skipped.append({"input": item.get("original", ""), "reason": "duplicate"})
                     continue
-                active.add(item["shortcode"])
-                added.append(self.downloader.add(item["clean"], item["shortcode"]))
+                active.add(key)
+                added.append(self.downloader.add(item["clean"], item["shortcode"], item["platform"], item["kind"], fmt))
         return {"added": added, "skipped": skipped}
+
+    def set_job_format(self, job_id: str, fmt: str) -> dict | None:
+        value = _format(fmt)
+        if value is None:
+            raise ValueError("Format must be mp4 or mp3")
+        return self.downloader.set_format(job_id, value)
 
     def cancel(self, job_id: str) -> bool:
         return self.downloader.cancel(job_id)
@@ -160,8 +200,8 @@ class Engine:
     def remove(self, job_id: str) -> bool:
         return self.downloader.remove(job_id)
 
-    def clear_finished(self) -> int:
-        return self.downloader.clear_finished()
+    def clear_finished(self, platform: str | None = None) -> int:
+        return self.downloader.clear_finished(_platform(platform))
 
     def job_file(self, job_id: str) -> str | None:
         return self.downloader.job_file(job_id)
@@ -182,6 +222,17 @@ class Engine:
 
     def update_engine(self) -> None:
         self.updater.start_background(force=True)
+
+    # --- app self-update -----------------------------------------------------------------------------
+    def check_updates(self) -> dict:
+        self.selfupdate.check_background()
+        return self.selfupdate.status()
+
+    def download_update(self) -> None:
+        self.selfupdate.download_background()
+
+    def apply_update(self) -> bool:
+        return self.selfupdate.apply()
 
     # --- auth ----------------------------------------------------------------------------------------
     def auth_status(self) -> dict:

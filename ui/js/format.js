@@ -52,6 +52,11 @@ export function timeAgo(epoch) {
   return new Date(epoch * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
 }
 
+export function shortDate(epoch) {
+  if (!epoch) return '';
+  return new Date(epoch * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export function dateTime(epoch) {
   if (!epoch) return '';
   return new Date(epoch * 1000).toLocaleString('en-US', {
@@ -70,8 +75,43 @@ export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
-export const LINK_ERRORS = {
-  not_instagram: 'not Instagram',
-  unsupported_path: 'not a Reel or post',
-  no_shortcode: 'no video code',
-};
+/** Short note next to an invalid link chip (CleanResult item error), by the item's platform. */
+export function linkError(item) {
+  const yt = item.platform === 'youtube';
+  switch (item.error) {
+    case 'not_supported':
+    case 'not_instagram':
+      return 'not supported';
+    case 'unsupported_path':
+      return yt ? 'not a video' : 'not a Reel or post';
+    case 'no_shortcode':
+      return yt ? 'no video ID' : 'no video code';
+    case 'other_platform':
+      return yt ? 'YouTube link' : 'Instagram link';
+    default:
+      return 'invalid';
+  }
+}
+
+/** What one item is called on a platform: "Reel" / "Reels", "video" / "videos". */
+export function itemNoun(n, platform) {
+  return platform === 'youtube' ? plural(n, ['video', 'videos']) : plural(n, ['Reel', 'Reels']);
+}
+
+/** "3 Reels", "1 video", "2 videos as MP3" (the format is named only when it is MP3). */
+export const nItems = (n, platform, format) => `${n} ${itemNoun(n, platform)}${format === 'mp3' ? ' as MP3' : ''}`;
+
+/** Canonical link without the scheme and host: "reel/<code>", "watch?v=<id>", "shorts/<id>". */
+export function shortLink(item) {
+  const code = item.shortcode || '';
+  switch (item.kind) {
+    case 'p': return `p/${code}`;
+    case 'reel': return `reel/${code}`;
+    case 'video': return `watch?v=${code}`;
+    case 'shorts': return `shorts/${code}`;
+    default: {
+      const u = String(item.clean || item.url || '');
+      return u.replace(/^https?:\/\/(www\.)?/i, '');
+    }
+  }
+}
