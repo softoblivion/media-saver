@@ -1,0 +1,352 @@
+/* Reset, document, scene, shared primitives (buttons, icon buttons, focus, kbd, scrollbars). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-0);
+}
+
+body {
+  font: 400 var(--fs-14) / 1.4 var(--font-text);
+  color: var(--ink-1);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+  font-synthesis: none;
+}
+
+h1, h2, h3, p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+img, svg {
+  display: block;
+}
+
+code, kbd {
+  font-family: var(--font-mono);
+}
+
+kbd {
+  display: inline-block;
+  font: 600 10.5px / 1.5 var(--font-text);
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.22), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(150, 178, 255, 0.95);
+  outline-offset: 2px;
+}
+
+/* Scrollbars: thin, glass-friendly. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.26);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.ic {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Scene */
+
+#scene {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 18% 0%, #141a3c 0%, transparent 60%),
+    radial-gradient(90% 80% at 100% 100%, #0d1f2c 0%, transparent 60%),
+    var(--bg-0);
+}
+
+.scene-field {
+  position: absolute;
+  inset: -12%;
+}
+
+.blob {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: var(--s);
+  height: var(--s);
+  margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    color-mix(in srgb, var(--c) calc(var(--a) * 100%), transparent) 0%,
+    color-mix(in srgb, var(--c) calc(var(--a) * 45%), transparent) 38%,
+    transparent 68%);
+  animation: drift-a 60s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.blob:nth-child(even) {
+  animation-name: drift-b;
+}
+
+.blob:nth-child(3n) {
+  animation-name: drift-c;
+}
+
+@keyframes drift-a {
+  0% { transform: translate(0, 0) scale(1); }
+  35% { transform: translate(9vw, 7vh) scale(1.14); }
+  70% { transform: translate(-5vw, 12vh) scale(0.9); }
+  100% { transform: translate(6vw, -6vh) scale(1.06); }
+}
+
+@keyframes drift-b {
+  0% { transform: translate(0, 0) scale(1.05); }
+  40% { transform: translate(-10vw, 6vh) scale(0.92); }
+  75% { transform: translate(4vw, -9vh) scale(1.12); }
+  100% { transform: translate(-6vw, 4vh) scale(1); }
+}
+
+@keyframes drift-c {
+  0% { transform: translate(0, 0) scale(0.95); }
+  50% { transform: translate(7vw, -10vh) scale(1.15); }
+  100% { transform: translate(-8vw, 6vh) scale(1); }
+}
+
+.scene-contours {
+  position: absolute;
+  inset: -6%;
+  animation: contours-drift 90s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.scene-contours svg {
+  width: 100%;
+  height: 100%;
+}
+
+@keyframes contours-drift {
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  50% { transform: translate(-2.5%, 1.5%) rotate(2deg) scale(1.03); }
+  100% { transform: translate(2%, -2%) rotate(-1.5deg) scale(1.01); }
+}
+
+.scene-ghosts {
+  position: absolute;
+  inset: 0;
+}
+
+.ghost {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 14vw;
+  aspect-ratio: 9 / 16;
+  border-radius: 30px;
+  background-size: cover;
+  background-position: center;
+  rotate: var(--r);
+  filter: blur(5px) saturate(1.35);
+  opacity: 0;
+  transition: opacity 1.4s var(--ease-out);
+  animation: ghost-float 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.ghost.is-in {
+  opacity: 0.3;
+}
+
+@keyframes ghost-float {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-3vw, 4vh) scale(1.06); }
+  100% { transform: translate(2vw, -3vh) scale(0.97); }
+}
+
+.scene-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(130% 110% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+.scene-grain {
+  position: absolute;
+  inset: 0;
+  background-repeat: repeat;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Idle / unfocused / reduced motion: every CSS animation holds still. */
+#scene.is-paused *,
+html.is-still #app *,
+html.is-still .clip-pill * {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blob,
+  .ghost {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Buttons */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  color: var(--ink-1);
+  font: 600 13px / 1 var(--font-text);
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 0.5px var(--stroke-2), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  transition: background-color var(--t-fast) ease, opacity var(--t-med) ease, filter var(--t-fast) ease, color var(--t-fast) ease;
+  text-shadow: none;
+}
+
+.btn .ic {
+  width: 16px;
+  height: 16px;
+}
+
+.btn:hover {
+  background: var(--fill-3);
+}
+
+.btn:disabled {
+  opacity: 0.36;
+  cursor: default;
+  pointer-events: none;
+}
+
+.btn-s {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12.5px;
+  gap: 6px;
+}
+
+.btn-s .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.btn-ghost {
+  background: transparent;
+  box-shadow: none;
+}
+
+.btn-ghost:hover {
+  background: var(--fill-2);
+}
+
+.btn-tinted {
+  background: var(--accent-grad);
+  box-shadow: 0 6px 16px -6px rgba(98, 110, 255, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.2);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+.btn-tinted:hover {
+  background: var(--accent-grad);
+  filter: brightness(1.12);
+}
+
+.btn-danger {
+  color: #ffb6c4;
+}
+
+.btn-danger:hover {
+  background: rgba(255, 100, 130, 0.16);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.icon-btn .ic {
+  width: 17px;
+  height: 17px;
+}
+
+.icon-btn:hover {
+  background: var(--fill-3);
+  color: var(--ink-1);
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { rotate: 360deg; }
+}
+
+@keyframes sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(220%); }
+}

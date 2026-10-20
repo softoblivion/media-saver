@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reels Saver</title>
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/glass.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <!-- Scene behind everything: colour fields, thumbnail ghosts, grain (js/background.js). -->
+  <div id="scene" aria-hidden="true"></div>
+
+  <!-- Shared SVG filters of the lenses (js/glass.js appends one <filter> per surface). -->
+  <svg id="lg-defs" aria-hidden="true" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden"><defs></defs></svg>
+
+  <div id="app">
+    <header id="titlebar">
+      <div class="tb-drag pywebview-drag-region"></div>
+      <div class="tb-brand">
+        <span id="tb-glyph" class="tb-glyph"></span>
+        <span class="tb-name pywebview-drag-region">Reels Saver</span>
+      </div>
+      <div class="tb-right">
+        <button type="button" id="engine-chip" class="eng-chip" aria-haspopup="dialog"></button>
+        <button type="button" id="btn-settings" class="round-lens" aria-label="Settings" aria-haspopup="dialog"></button>
+        <div class="win-btns">
+          <button type="button" id="win-min" class="win-btn" aria-label="Minimize"></button>
+          <button type="button" id="win-max" class="win-btn" aria-label="Maximize"></button>
+          <button type="button" id="win-close" class="win-btn win-close" aria-label="Close"></button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="composer" class="composer" aria-label="Links to download">
+        <div class="cmp-head">
+          <h2 class="cmp-title">Links</h2>
+          <div id="counters" class="counters" aria-live="polite">
+            <span class="counter c-valid" data-c="valid" hidden><b>0</b><span>ready</span></span>
+            <span class="counter c-invalid" data-c="invalid" hidden><b>0</b><span>invalid</span></span>
+            <span class="counter c-dup" data-c="dup" hidden><b>0</b><span>duplicates</span></span>
+          </div>
+        </div>
+
+        <div class="cmp-well">
+          <textarea id="links-input" class="cmp-input" spellcheck="false" autocomplete="off"
+            aria-label="Reels links"
+            placeholder="Paste Reels links, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window."></textarea>
+          <div class="cmp-drop" aria-hidden="true"><span>Drop to add links</span></div>
+        </div>
+
+        <div class="cmp-tools">
+          <button type="button" class="btn btn-s" data-tool="paste"><span class="ic-slot" data-icon="paste"></span><span>Paste</span></button>
+          <button type="button" class="btn btn-s" data-tool="clean"><span class="ic-slot" data-icon="sparkle"></span><span>Clean links</span></button>
+          <button type="button" class="btn btn-s" data-tool="copy"><span class="ic-slot" data-icon="copy"></span><span>Copy clean links</span></button>
+        </div>
+
+        <div id="preview" class="cmp-preview is-empty">
+          <div class="pv-list"></div>
+          <div class="pv-more" hidden></div>
+          <div class="pv-hint">
+            <span class="pv-hint-art" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>Your links will appear here, already cleaned: just <code>instagram.com/reel/code</code>, no tails like <code>?igsh=</code></span>
+          </div>
+        </div>
+
+        <div class="cmp-action">
+          <button type="button" id="btn-download" class="primary-morph" data-state="empty"></button>
+        </div>
+      </section>
+
+      <section id="queue" class="queue" aria-label="Download queue">
+        <div id="q-scroll" class="q-scroll">
+          <div id="q-list" class="q-list" role="list"></div>
+          <div id="q-empty" class="q-empty" hidden></div>
+        </div>
+        <div id="q-head" class="q-head">
+          <div class="q-title-wrap">
+            <h2 class="q-title">Queue</h2>
+            <div id="q-counts" class="q-counts"></div>
+          </div>
+          <div class="q-actions">
+            <button type="button" id="btn-clear" class="btn btn-s btn-ghost" aria-label="Clear finished" title="Remove finished items from the list (files stay on disk)"><span class="ic-slot" data-icon="trash"></span><span>Clear finished</span></button>
+            <button type="button" id="btn-folder" class="btn btn-s" aria-label="Open folder" title="Open the videos folder"><span class="ic-slot" data-icon="folder"></span><span>Open folder</span></button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Overlays: sheets and popovers grow out of the control that opened them (js/overlay.js). -->
+  <div id="engine-pop" class="popover" role="dialog" aria-label="Download engine"><div class="ov-content"></div></div>
+  <div id="settings-sheet" class="sheet" role="dialog" aria-modal="true" aria-labelledby="settings-title"><div class="ov-content"></div></div>
+
+  <div id="clip-pill" class="clip-pill" role="status"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+</body>
+</html>

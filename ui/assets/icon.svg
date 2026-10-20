@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Reels Saver app icon: a liquid-glass droplet with a down arrow. Original artwork. -->
+  <defs>
+    <linearGradient id="body" x1="250" y1="160" x2="800" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6cc4ff"/>
+      <stop offset="0.48" stop-color="#6a7dff"/>
+      <stop offset="1" stop-color="#a65cff"/>
+    </linearGradient>
+    <radialGradient id="depth" cx="500" cy="600" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0.62" stop-color="#1b1060" stop-opacity="0"/>
+      <stop offset="1" stop-color="#1b1060" stop-opacity="0.42"/>
+    </radialGradient>
+    <radialGradient id="caustic" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8ff6e4" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#8ff6e4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="spec" x1="300" y1="300" x2="470" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="260" y1="200" x2="780" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#fff" stop-opacity="0.12"/>
+      <stop offset="0.8" stop-color="#fff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.6"/>
+    </linearGradient>
+    <filter id="shadow" filterUnits="userSpaceOnUse" x="0" y="820" width="1024" height="204">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+    <filter id="arrowShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <clipPath id="clip">
+      <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- soft contact shadow -->
+  <ellipse cx="512" cy="958" rx="250" ry="34" fill="#2a1b80" opacity="0.45" filter="url(#shadow)"/>
+
+  <!-- body -->
+  <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="url(#body)"/>
+  <g clip-path="url(#clip)">
+    <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="url(#depth)"/>
+    <ellipse cx="560" cy="900" rx="240" ry="130" fill="url(#caustic)"/>
+    <!-- refracted inner bezel: a brighter band hugging the edge -->
+    <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="44"/>
+    <!-- specular highlight -->
+    <path d="M318 600C318 470 420 330 486 250c12 40-8 110-46 190-38 82-70 150-80 230-26 0-42-30-42-70Z" fill="url(#spec)"/>
+    <ellipse cx="672" cy="770" rx="58" ry="22" transform="rotate(-40 672 770)" fill="#fff" opacity="0.35"/>
+  </g>
+  <!-- specular rim -->
+  <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="none" stroke="url(#rim)" stroke-width="10"/>
+
+  <!-- arrow -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 452v290M398 640l114 114 114-114" stroke="#2a1580" stroke-opacity="0.45" stroke-width="78" filter="url(#arrowShadow)" transform="translate(0 16)"/>
+    <path d="M512 452v290M398 640l114 114 114-114" stroke="#fff" stroke-width="74"/>
+  </g>
+</svg>

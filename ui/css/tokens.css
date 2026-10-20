@@ -1,0 +1,100 @@
+/* Design tokens. The single source of colours, radii, spacing, type and shadows. See docs/UI_DESIGN.md. */
+
+@property --la {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: -48deg;
+}
+
+@property --hot {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Type: Windows system font with optical sizes. SF Pro is not bundled (license). */
+  --font-text: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-small: "Segoe UI Variable Small", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-16: 16px;
+  --fs-20: 20px;
+  --fs-26: 26px;
+
+  /* Scene */
+  --bg-0: #06070d;
+  --bg-1: #0b0d18;
+
+  /* Ink (text and glyphs on glass): white with vibrancy-like alpha steps */
+  --ink-1: rgba(255, 255, 255, 0.96);
+  --ink-2: rgba(255, 255, 255, 0.74);
+  --ink-3: rgba(255, 255, 255, 0.54);
+  --ink-4: rgba(255, 255, 255, 0.34);
+  --ink-shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+
+  /* Fills used on top of glass (never glass on glass) */
+  --fill-1: rgba(255, 255, 255, 0.05);
+  --fill-2: rgba(255, 255, 255, 0.085);
+  --fill-3: rgba(255, 255, 255, 0.13);
+  --fill-4: rgba(255, 255, 255, 0.2);
+  --well: rgba(4, 6, 16, 0.32);
+  --stroke-1: rgba(255, 255, 255, 0.08);
+  --stroke-2: rgba(255, 255, 255, 0.14);
+
+  /* Identity: "lagoon" — cobalt to violet with a mint accent */
+  --accent: #5d8dff;
+  --accent-2: #8a6cff;
+  --accent-ink: #b9ccff;
+  --mint: #3fe2c1;
+  --amber: #ffc457;
+  --rose: #ff6482;
+  --accent-grad: linear-gradient(135deg, #48a2ff 0%, #6a7bff 45%, #9c62ff 100%);
+  --mint-grad: linear-gradient(135deg, #2fe0c0 0%, #4fb6ff 100%);
+  --rose-grad: linear-gradient(135deg, #ff7a6b 0%, #ff4f8e 100%);
+
+  /* Glass tints */
+  --tint-clear: rgba(255, 255, 255, 0.035);
+  --tint-regular: rgba(22, 26, 48, 0.26);
+  --tint-sheet: rgba(14, 16, 32, 0.44);
+
+  /* Radii: concentric — an inner radius = outer radius - padding */
+  --r-6: 6px;
+  --r-10: 10px;
+  --r-14: 14px;
+  --r-18: 18px;
+  --r-22: 22px;
+  --r-28: 28px;
+  --r-34: 34px;
+  --r-pill: 999px;
+
+  /* Spacing (4 pt grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+
+  /* Shadows: adaptive-looking — deeper under large surfaces */
+  --shadow-s: 0 4px 14px -4px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-m: 0 14px 34px -10px rgba(0, 0, 0, 0.55), 0 3px 10px -2px rgba(0, 0, 0, 0.3);
+  --shadow-l: 0 30px 70px -20px rgba(0, 0, 0, 0.7), 0 8px 24px -6px rgba(0, 0, 0, 0.4);
+
+  /* Motion for CSS-only transitions (JS springs live in js/motion.js) */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 160ms;
+  --t-med: 280ms;
+
+  --titlebar-h: 46px;
+  --cmp-w: clamp(360px, 37vw, 450px);   /* composer column; the clipboard pill centres on the rest */
+}
