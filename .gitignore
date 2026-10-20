@@ -11,11 +11,10 @@ build/_version_info.txt
 release/
 *.spec.bak
 
-# Local-only folders and settings
+# Local-only folders
 legacy/
 
 # Runtime data and scratch
 *.log
 .pytest_cache/
 .mypy_cache/
-
