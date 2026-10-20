@@ -1,0 +1,105 @@
+/* Liquid Glass material layers. The refraction itself is the SVG backdrop filter set by js/glass.js.
+   Layer order inside a lens (bottom -> top): refracted backdrop, tint (background), pointer glow,
+   content, specular rim. */
+
+.lens {
+  position: relative;
+  isolation: isolate;
+  background: var(--lens-tint, var(--tint-regular));
+  box-shadow:
+    var(--lens-shadow, var(--shadow-m)),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.07),
+    inset 0 1px 18px -6px rgba(255, 255, 255, var(--lens-bloom, 0.16));
+  /* Until the SVG filter is ready, and as the fallback when url() filters are unavailable. */
+  backdrop-filter: blur(14px) saturate(1.6);
+  color: var(--ink-1);
+  text-shadow: var(--ink-shadow);
+}
+
+/* Specular rim: a thin ring whose brightness follows the light angle (--la). Two lobes: the lit edge
+   and a weaker counter-reflection on the opposite edge, as light bounces inside the glass. */
+.lens > .lg-rim,
+.glass-lite > .lg-rim {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--rim-w, 1.25px);
+  pointer-events: none;
+  z-index: 3;
+  background: conic-gradient(
+    from calc(var(--la) - 90deg),
+    rgba(255, 255, 255, 0.95) 0deg,
+    rgba(255, 255, 255, 0.32) 34deg,
+    rgba(255, 255, 255, 0.07) 80deg,
+    rgba(255, 255, 255, 0.05) 140deg,
+    rgba(255, 255, 255, 0.42) 180deg,
+    rgba(255, 255, 255, 0.05) 222deg,
+    rgba(255, 255, 255, 0.07) 280deg,
+    rgba(255, 255, 255, 0.32) 326deg,
+    rgba(255, 255, 255, 0.95) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mix-blend-mode: plus-lighter;
+  opacity: calc(var(--rim-o, 0.75) * (0.55 + 0.45 * var(--lg-k, 1)));
+  transition: opacity var(--t-med) var(--ease-out);
+}
+
+/* Pointer glow: light spreading from under the cursor; brighter while pressed ("energized"). */
+.lens > .lg-glow,
+.glass-lite > .lg-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    radial-gradient(circle var(--glow-r, 160px) at var(--mx, 50%) var(--my, -30%),
+      rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 45%, transparent 70%);
+  opacity: var(--hot);
+  transition: --hot 420ms var(--ease-out);
+  mix-blend-mode: plus-lighter;
+}
+
+.lens.is-pressed > .lg-glow,
+.lens:active > .lg-glow {
+  --hot: 1.8;
+  transition-duration: 80ms;
+}
+
+.lens.is-pressed > .lg-rim {
+  --rim-o: 1;
+}
+
+/* Cheap glass for repeated items: blur-only, same rim and glow. */
+.glass-lite {
+  position: relative;
+  isolation: isolate;
+  background: var(--lite-tint, rgba(255, 255, 255, 0.045));
+  backdrop-filter: blur(18px) saturate(1.7) brightness(1.04);
+  box-shadow: var(--shadow-s), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+}
+
+.glass-lite > .lg-rim {
+  --rim-o: 0.45;
+}
+
+/* Tinted glass: selective colour for the primary action (tint maps to the backdrop brightness). */
+.lens.tint-accent {
+  --lens-tint: linear-gradient(135deg, rgba(72, 162, 255, 0.55), rgba(124, 99, 255, 0.55));
+}
+
+/* Reduced transparency: frostier, more opaque glass. */
+@media (prefers-reduced-transparency: reduce) {
+  .lens { --lens-tint: rgba(22, 24, 40, 0.86); }
+  .glass-lite { --lite-tint: rgba(28, 30, 48, 0.9); }
+}
+
+/* Increased contrast: crisp borders, no blend tricks. */
+@media (prefers-contrast: more) {
+  .lens > .lg-rim,
+  .glass-lite > .lg-rim {
+    background: rgba(255, 255, 255, 0.7);
+    mix-blend-mode: normal;
+  }
+}
