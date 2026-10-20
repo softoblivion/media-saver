@@ -26,7 +26,7 @@ A Windows desktop app, shipped as one `ReelsSaver.exe`, that:
 
 ```
 reels-saver/
-  README.md, LICENSE, CLAUDE.md
+  README.md, LICENSE
   docs/ARCHITECTURE.md       this file
   docs/BRIDGE_API.md         JS <-> Python contract (methods, events, payload types)
   docs/ENGINE.md             update flow, engine command lines, error codes, Instagram quirks
@@ -54,7 +54,6 @@ reels-saver/
   requirements.txt           runtime dependencies (pywebview, pythonnet)
   requirements-dev.txt       build tools (pyinstaller, pillow)
   run_dev.bat                run from source
-  .claude/launch.json        static server for previewing ui/
 ```
 
 Build output (`release/ReelsSaver.exe`, `build/work`, `build/dist`) and `.venv/` are not tracked.

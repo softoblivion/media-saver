@@ -154,7 +154,7 @@ segmented selection, visible `:focus-visible` rings everywhere.
 ## 7. Runtime notes
 
 - Served by the shell from `http://127.0.0.1:<port>/` (ES modules do not load from `file://`). Dev preview:
-  `.claude/launch.json` -> `python -m http.server 5173 --directory ui`, open `/?mock=1` (`&demo=1` for every state,
+  `python -m http.server 5173 --directory ui`, open `/?mock=1` (`&demo=1` for every state,
   `&jobs=150` for the long list).
 - Drag region: `.tb-drag` and the app name carry `pywebview-drag-region`; buttons are siblings, not children, because
   pywebview also drags from descendants of a drag element. Double-click on the drag area toggles maximize.

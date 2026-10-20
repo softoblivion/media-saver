@@ -9,7 +9,7 @@
 ![CSS](https://img.shields.io/badge/CSS-663399?logo=css&logoColor=white)
 ![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?logo=powershell&logoColor=white)
 ![Status](https://img.shields.io/badge/status-stable-brightgreen)
-[![Version](https://img.shields.io/github/v/release/notyaffi/reels-saver?display_name=release&label=version)](https://github.com/notyaffi/reels-saver/releases/latest)
+[![Version](https://img.shields.io/github/v/release/softoblivion/reels-saver?display_name=release&label=version)](https://github.com/softoblivion/reels-saver/releases/latest)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 A Windows desktop app that saves Instagram Reels at the best quality Instagram currently serves.
@@ -79,7 +79,7 @@ Without network access the app keeps working with the binaries it already has.
 
 ## Installation
 
-1. Download `ReelsSaver.exe` from the [latest release](https://github.com/notyaffi/reels-saver/releases/latest).
+1. Download `ReelsSaver.exe` from the [latest release](https://github.com/softoblivion/reels-saver/releases/latest).
 2. Run it. No installer and no admin rights are needed.
 
 > [!NOTE]
@@ -165,7 +165,7 @@ the cookie file and clears the WebView2 cookies. Network traffic goes only to In
 Requirements: Windows, Python 3.14 (via the `py` launcher), PowerShell 5.1+.
 
 ```powershell
-git clone https://github.com/notyaffi/reels-saver.git
+git clone https://github.com/softoblivion/reels-saver.git
 cd reels-saver
 powershell -ExecutionPolicy Bypass -File build\build.ps1
 ```
