@@ -1,0 +1,13 @@
+# Normalise text files to LF in the repository; Windows scripts keep CRLF in the working tree.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets
+*.png binary
+*.ico binary
+*.exe binary
+
+# Language statistics: keep docs out of the GitHub language bar
+docs/** linguist-documentation
