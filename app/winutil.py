@@ -15,7 +15,7 @@ import time
 from ctypes import wintypes
 from urllib.parse import urlparse
 
-log = logging.getLogger("reels.winutil")
+log = logging.getLogger("mediasaver.winutil")
 
 IS_WINDOWS = sys.platform == "win32"
 

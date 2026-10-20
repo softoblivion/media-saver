@@ -1,4 +1,6 @@
-"""Headless test harness: `python -m app.core.cli [--home DIR] [--out DIR] [--update-only] <text or links...>`.
+"""Headless test harness:
+`python -m app.core.cli [--home DIR] [--out DIR] [--platform instagram|youtube] [--format mp4|mp3] [--update-only]
+<text or links...>`.
 
 Prints every engine event as one line and exits when the update pass is over and the queue is drained.
 Exit code: 0 all jobs done, 1 some job failed, 2 engine not usable.
@@ -16,13 +18,20 @@ import time
 def _fmt_event(event: str, payload: dict) -> str:
     if event == "job":
         p = payload
-        bits = [f"job {p['id']} {p['status']:<11} {p['progress'] * 100:5.1f}% {p['stage_text']}"]
+        bits = [f"job {p['id']} {p.get('platform', '?')}/{p.get('format', '?')} {p['status']:<11} "
+                f"{p['progress'] * 100:5.1f}% {p['stage_text']}"]
+        if p.get("previewed") and p["status"] == "queued":
+            dur = p.get("duration_s")
+            bits.append(f"preview: {p.get('title')!r} by {p.get('author')!r}"
+                        f"{f', {dur:.0f} s' if isinstance(dur, (int, float)) else ''}"
+                        f"{', thumb' if p.get('thumbnail') else ''}")
         if p.get("speed_bps"):
             bits.append(f"{p['speed_bps'] / 1048576:.1f} MiB/s")
         if p["status"] == "done":
-            bits.append(f"-> {p['filepath']} {p['width']}x{p['height']} {p['fps']}fps {p['vcodec']}/{p['acodec']} "
-                        f"{(p['filesize'] or 0) / 1048576:.2f} MiB transcoded={p['transcoded']} "
-                        f"existed={p['already_existed']} via {p['attempt']}")
+            media = (f"{p['width']}x{p['height']} {p['fps']}fps {p['vcodec']}/{p['acodec']}" if p.get("vcodec")
+                     else f"audio {p['acodec']}")
+            bits.append(f"-> {p['filepath']} {media} {(p['filesize'] or 0) / 1048576:.2f} MiB "
+                        f"transcoded={p['transcoded']} existed={p['already_existed']} via {p['attempt']}")
         if p.get("error"):
             bits.append(f"ERROR {json.dumps(p['error'], ensure_ascii=False)}")
         return " | ".join(bits)
@@ -36,13 +45,17 @@ def _fmt_event(event: str, payload: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="python -m app.core.cli", description="Reels Saver core harness")
-    ap.add_argument("--home", help="runtime data root (sets REELS_SAVER_HOME)")
+    ap = argparse.ArgumentParser(prog="python -m app.core.cli", description="Media Saver core harness")
+    ap.add_argument("--home", help="runtime data root (sets MEDIA_SAVER_HOME)")
     ap.add_argument("--out", help="output directory for this run (saved to settings)")
     ap.add_argument("--update-only", action="store_true", help="run the engine update pass and exit")
+    ap.add_argument("--platform", choices=("instagram", "youtube"),
+                    help="accept links of this platform only (default: both)")
+    ap.add_argument("--format", choices=("mp4", "mp3"), dest="fmt",
+                    help="output format of the queued links (default: the format setting)")
     ap.add_argument("--force-update", action="store_true", help="force the update pass")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=JSON",
-                    help='settings patch, e.g. --set quality="720" --set h264_compat=false')
+                    help='settings patch, e.g. --set quality_youtube=720 --set h264_compat=false')
     ap.add_argument("--timeout", type=float, default=1800.0)
     ap.add_argument("--json", action="store_true", help="print raw JSON events")
     ap.add_argument("links", nargs="*")
@@ -54,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         except (AttributeError, ValueError):
             pass
     if args.home:
-        os.environ["REELS_SAVER_HOME"] = os.path.abspath(args.home)
+        os.environ["MEDIA_SAVER_HOME"] = os.path.abspath(args.home)
 
     from .engine import Engine
 
@@ -70,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         with print_lock:
             print(f"{time.strftime('%H:%M:%S')} {line}", flush=True)
 
-    engine = Engine(emit, "cli", open_folder=lambda p: None)
+    engine = Engine(emit, "cli", open_folder=lambda p: None, app_updates=False)
     patch: dict = {}
     if args.out:
         patch["output_dir"] = os.path.abspath(args.out)
@@ -94,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     text = " ".join(args.links)
     added: set[str] = set()
     if text:
-        result = engine.enqueue(text)
+        result = engine.enqueue(text, args.platform, args.fmt)
         added = {j["id"] for j in result["added"]}
         for s in result["skipped"]:
             print(f"skipped {s['reason']}: {s['input']}", flush=True)

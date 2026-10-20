@@ -137,7 +137,7 @@ class FakeRunner:
 class PipelineTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="idl_pipe_")
-        os.environ["REELS_SAVER_HOME"] = os.path.join(self.tmp, "home")
+        os.environ["MEDIA_SAVER_HOME"] = os.path.join(self.tmp, "home")
         self.paths = AppPaths()
         self.out = os.path.join(self.tmp, "out")
         self.settings = S.apply_patch(S.defaults(), {"output_dir": self.out})
@@ -150,8 +150,12 @@ class PipelineTest(unittest.TestCase):
         self.heals = 0
 
     def tearDown(self):
-        os.environ.pop("REELS_SAVER_HOME", None)
-        shutil.rmtree(self.tmp, ignore_errors=True)
+        os.environ.pop("MEDIA_SAVER_HOME", None)
+        for _ in range(10):  # a background history save may re-create home/ right after the removal
+            shutil.rmtree(self.tmp, ignore_errors=True)
+            time.sleep(0.1)
+            if not os.path.exists(self.tmp):
+                break
 
     def make(self, runner, **patch):
         self.settings.update(patch)
@@ -168,8 +172,9 @@ class PipelineTest(unittest.TestCase):
                           binaries=lambda: dict(self.bins), usable=lambda: True, self_heal=heal,
                           runner=runner, fetch=lambda url, headers=None: b"\xff\xd8jpeg", sleep=sleep)
 
-    def run_one(self, dl, url="https://www.instagram.com/reel/DQCkNLtgqEe", code="DQCkNLtgqEe"):
-        jd = dl.add(url, code)
+    def run_one(self, dl, url="https://www.instagram.com/reel/DQCkNLtgqEe", code="DQCkNLtgqEe", platform="instagram",
+                kind="reel", fmt="mp4"):
+        jd = dl.add(url, code, platform, kind, fmt)
         job = dl.get(jd["id"])
         dl._run_job(job)
         return job
@@ -198,10 +203,12 @@ class PipelineTest(unittest.TestCase):
         progress = [p["progress"] for t, p in self.events if t == "job"]
         self.assertEqual(progress, sorted(progress))
         payload = [p for t, p in self.events if t == "job"][-1]
-        self.assertEqual(set(payload), {"id", "url", "shortcode", "status", "stage_text", "progress", "speed_bps",
-                                        "eta_s", "title", "author", "duration_s", "thumbnail", "width", "height", "fps",
-                                        "vcodec", "acodec", "filesize", "filepath", "already_existed", "transcoded",
-                                        "attempt", "error", "created_at", "finished_at"})
+        self.assertEqual(set(payload), {"id", "url", "shortcode", "platform", "kind", "format", "status", "stage_text",
+                                        "progress", "speed_bps", "eta_s", "previewed", "title", "author", "duration_s",
+                                        "thumbnail", "width", "height", "fps", "vcodec", "acodec", "filesize",
+                                        "filepath", "already_existed", "transcoded", "attempt", "error", "created_at",
+                                        "finished_at"})
+        self.assertTrue(payload["previewed"])
         self.assertFalse(os.path.exists(self.paths.job_cache(job.id) + "x"))
 
     def test_skip_existing(self):
@@ -284,7 +291,7 @@ class PipelineTest(unittest.TestCase):
     def test_cancel_running_job(self):
         runner = FakeRunner([("block", None)])
         dl = self.make(runner)
-        jd = dl.add("https://www.instagram.com/reel/DQCkNLtgqEe", "DQCkNLtgqEe")
+        jd = dl.add("https://www.instagram.com/reel/DQCkNLtgqEe", "DQCkNLtgqEe", "instagram", "reel", "mp4")
         job = dl.get(jd["id"])
         t = threading.Thread(target=dl._run_job, args=(job,))
         t.start()
@@ -302,8 +309,8 @@ class PipelineTest(unittest.TestCase):
         dl = self.make(runner)
         dl.on_queue_drained = lambda done, failed: drained.set()
         dl.start()
-        dl.add("https://www.instagram.com/reel/DQCkNLtgqEe", "DQCkNLtgqEe")
-        dl.add("https://www.instagram.com/reel/BBB", "BBB")
+        dl.add("https://www.instagram.com/reel/DQCkNLtgqEe", "DQCkNLtgqEe", "instagram", "reel", "mp4")
+        dl.add("https://www.instagram.com/reel/BBB", "BBB", "instagram", "reel", "mp4")
         self.assertTrue(drained.wait(10))
         statuses = sorted(j["status"] for j in dl.jobs())
         self.assertEqual(statuses, ["done", "done"])
@@ -341,42 +348,50 @@ class GateTest(unittest.TestCase):
 
 class FormatSelectionTest(unittest.TestCase):
     def test_max_prefers_resolution_then_fps_then_bitrate(self):
-        c = select_formats(INFO, "max", False)
+        c = select_formats(INFO, "instagram", "max", False)
         self.assertEqual(c.video["format_id"], "dash-1080")
         self.assertEqual(c.audio["format_id"], "dash-a")
         self.assertFalse(c.needs_transcode)
-        c = select_formats(INFO, "max", True)
+        c = select_formats(INFO, "instagram", "max", True)
         self.assertEqual(c.video["format_id"], "dash-1080")
         self.assertTrue(c.needs_transcode)
 
     def test_caps(self):
-        self.assertEqual(select_formats(INFO, "720", False).video["format_id"], "dash-720")
-        self.assertEqual(select_formats(INFO, "1080", False).video["format_id"], "dash-1080")
+        self.assertEqual(select_formats(INFO, "instagram", "low", False).video["format_id"], "dash-360")
+        self.assertEqual(select_formats(INFO, "instagram", "medium", False).video["format_id"], "dash-720")
+        self.assertEqual(select_formats(INFO, "instagram", "max", False).video["format_id"], "dash-1080")
+        # tolerance: 724x1288 (short side 724 <= 720 x 1.02) still passes "medium"
+        info = dict(INFO, formats=INFO["formats"] + [
+            {"format_id": "dash-724", "vcodec": "vp09", "acodec": "none", "width": 724, "height": 1288, "tbr": 100}])
+        self.assertEqual(select_formats(info, "instagram", "medium", False).video["format_id"], "dash-724")
+        # 1088x1936 is the top stream of some reels and wins "max"
         info = dict(INFO, formats=INFO["formats"] + [
             {"format_id": "dash-1088", "vcodec": "vp09", "acodec": "none", "width": 1088, "height": 1936, "tbr": 100}])
-        self.assertEqual(select_formats(info, "1080", False).video["format_id"], "dash-1088")
+        self.assertEqual(select_formats(info, "instagram", "max", False).video["format_id"], "dash-1088")
 
     def test_avc_at_same_resolution_wins_with_h264(self):
         info = dict(INFO, formats=INFO["formats"] + [
             {"format_id": "avc-1080", "vcodec": "avc1.64001F", "acodec": "none", "width": 1080, "height": 1920, "tbr": 900}])
-        c = select_formats(info, "max", True)
+        c = select_formats(info, "instagram", "max", True)
         self.assertEqual(c.video["format_id"], "avc-1080")
         self.assertFalse(c.needs_transcode)
-        self.assertEqual(select_formats(info, "max", False).video["format_id"], "dash-1080")  # higher bitrate
+        self.assertEqual(select_formats(info, "instagram", "max", False).video["format_id"], "dash-1080")  # higher bitrate
 
     def test_lower_avc_is_not_preferred(self):
         info = dict(INFO, formats=INFO["formats"] + [
             {"format_id": "avc-720", "vcodec": "avc1.4d401f", "acodec": "none", "width": 720, "height": 1280, "tbr": 3000}])
-        self.assertEqual(select_formats(info, "max", True).video["format_id"], "dash-1080")
+        self.assertEqual(select_formats(info, "instagram", "max", True).video["format_id"], "dash-1080")
 
     def test_no_audio_and_no_metadata(self):
         info = {"formats": [{"format_id": "v", "vcodec": "avc1", "acodec": "none", "width": 720, "height": 1280}]}
-        c = select_formats(info, "max", True)
+        c = select_formats(info, "instagram", "max", True)
         self.assertIsNone(c.audio)
         self.assertTrue(c.spec.startswith("v/"))
-        c = select_formats({"formats": [{"format_id": "0", "vcodec": None}]}, "720", True)
+        c = select_formats({"formats": [{"format_id": "0", "vcodec": None}]}, "instagram", "medium", True)
         self.assertEqual(c.spec, "bv*+ba/b")
         self.assertIn("res:720", c.sort_args[1])
+        c = select_formats({"formats": [{"format_id": "0", "vcodec": None}]}, "instagram", "low", True)
+        self.assertIn("res:480", c.sort_args[1])
 
 
 if __name__ == "__main__":

@@ -18,3 +18,7 @@ legacy/
 *.log
 .pytest_cache/
 .mypy_cache/
+
+# Portable runtime data (next to the exe / project root)
+/media-saver_data/
+/Downloads/

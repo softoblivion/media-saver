@@ -31,7 +31,7 @@ from typing import Any, Callable
 from .downloader import BinaryGate, ProcessRunner
 from .paths import AppPaths, atomic_write_json
 
-log = logging.getLogger("reels.core.updater")
+log = logging.getLogger("mediasaver.core.updater")
 
 YTDLP_URLS = {
     "nightly": "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/",
@@ -46,9 +46,9 @@ FFMPEG_SUMS = "checksums.sha256"
 FFMPEG_REFRESH_S = 30 * 24 * 3600
 CONNECTIVITY_URLS = ("https://github.com/", "https://codeberg.org/")
 UPDATE_TIMEOUT = 90.0
-NO_SYSTEM_FFMPEG_ENV = "REELS_SAVER_NO_SYSTEM_FFMPEG"
+NO_SYSTEM_FFMPEG_ENV = "MEDIA_SAVER_NO_SYSTEM_FFMPEG"
 
-UA = "ReelsSaver/1 (+https://github.com/yt-dlp/yt-dlp; Windows)"
+UA = "MediaSaver/1 (+https://github.com/yt-dlp/yt-dlp; Windows)"
 
 
 class OfflineError(Exception):
@@ -331,7 +331,7 @@ class Updater:
                 self._pending_force = True  # a request during a pass runs one more (forced) pass
                 return
             self._done_event.clear()
-            self._thread = threading.Thread(target=self._thread_main, args=(force,), name="reels-updater", daemon=True)
+            self._thread = threading.Thread(target=self._thread_main, args=(force,), name="ms-updater", daemon=True)
             self._thread.start()
 
     def _thread_main(self, force: bool) -> None:
@@ -417,7 +417,9 @@ class Updater:
             return
         parts = [f"yt-dlp {comps['yt-dlp']['version']}"]
         if not comps["ffmpeg"]["ok"]:
-            self._emit(stage="ready", progress=None, message="Engine ready, but ffmpeg was not found: merging is unavailable")
+            self._emit(stage="ready", progress=None,
+                       message="Engine ready, but ffmpeg was not found: merging and MP3 need it; "
+                               "the next engine update fetches it")
             return
         updated = comps["yt-dlp"]["updated"]
         self._emit(stage="ready", progress=None,

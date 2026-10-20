@@ -15,17 +15,18 @@ import { escapeHtml } from './format.js';
 
 export class Segmented {
   /**
-   * @param {{label:string, options:{value:string,label:string}[], value:string, onChange:(v)=>void}} o
+   * @param {{label:string, options:{value:string,label:string,title?:string}[], value:string,
+   *          onChange:(v)=>void, cls?:string}} o  cls: size variant ("seg-tb", "seg-l", "seg-q")
    */
   constructor(o) {
     this.o = o;
     this.value = o.value;
     const el = (this.el = document.createElement('div'));
-    el.className = 'seg';
+    el.className = o.cls ? `seg ${o.cls}` : 'seg';
     el.setAttribute('role', 'radiogroup');
     el.setAttribute('aria-label', o.label);
     el.innerHTML = `<span class="seg-drop" aria-hidden="true"></span>` +
-      o.options.map((op) => `<button type="button" class="seg-opt" role="radio" data-v="${escapeHtml(op.value)}">${escapeHtml(op.label)}</button>`).join('');
+      o.options.map((op) => `<button type="button" class="seg-opt" role="radio" data-v="${escapeHtml(op.value)}"${op.title ? ` title="${escapeHtml(op.title)}"` : ''}>${escapeHtml(op.label)}</button>`).join('');
     this.drop = el.querySelector('.seg-drop');
     this.opts = Array.from(el.querySelectorAll('.seg-opt'));
     this.lens = new Lens(this.drop, 'droplet', { strength: 0 });
@@ -40,16 +41,39 @@ export class Segmented {
       // Pointer selection is resolved in the drag handler (pointer capture retargets the click to
       // the track); this listener only serves keyboard activation (detail === 0).
       b.addEventListener('click', (e) => {
-        if (e.detail === 0) this.set(b.dataset.v, true);
+        if (e.detail === 0 && !this.disabled) this.set(b.dataset.v, true);
       });
       b.addEventListener('keydown', (e) => this._key(e, i));
     });
+    this.disabled = false;
     this._drag();
     new ResizeObserver(() => this._place(false)).observe(el);
     this._sync();
   }
 
+  /**
+   * Disabled: dimmed, out of the tab order, ignores pointer and keys; the value is kept. `title`
+   * goes on the whole control (the options take no pointer events while disabled, so it shows).
+   */
+  setDisabled(off, title = '') {
+    this.disabled = !!off;
+    this.el.classList.toggle('is-disabled', this.disabled);
+    this.el.setAttribute('aria-disabled', String(this.disabled));
+    if (this.disabled && title) this.el.title = title;
+    else this.el.removeAttribute('title');
+    this._sync();
+  }
+
+  /** Change the tooltip of one option. */
+  setOptionTitle(v, title) {
+    const b = this.opts.find((o) => o.dataset.v === v);
+    if (!b) return;
+    if (title) b.title = title;
+    else b.removeAttribute('title');
+  }
+
   _key(e, i) {
+    if (this.disabled) return;
     const n = this.opts.length;
     let j = null;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % n;
@@ -63,7 +87,7 @@ export class Segmented {
   _drag() {
     let start = null;
     this.el.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || this.disabled) return;
       const r = this.el.getBoundingClientRect();
       start = { x: e.clientX, left: r.left, moved: false, id: e.pointerId };
       this.lift.to(1, SPRINGS.snappy);
@@ -131,7 +155,7 @@ export class Segmented {
     this.opts.forEach((b) => {
       const on = b.dataset.v === this.value;
       b.setAttribute('aria-checked', String(on));
-      b.tabIndex = on ? 0 : -1;
+      b.tabIndex = on && !this.disabled ? 0 : -1;
       b.classList.toggle('is-on', on);
     });
   }
@@ -146,6 +170,17 @@ export class Segmented {
     this._place(true);
     if (user) this.o.onChange && this.o.onChange(v);
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Format toggle for job cards (MP4 / MP3). Plain markup with a CSS thumb: a queue may hold
+// hundreds of cards, so it has no lens and no springs; the owner delegates clicks on
+// [data-act="fmt"] and reads data-v.
+
+export function formatToggleHtml(value) {
+  const opt = (v, label) =>
+    `<button type="button" role="radio" data-act="fmt" data-v="${v}" aria-checked="${value === v}" tabindex="${value === v ? 0 : -1}">${label}</button>`;
+  return `<span class="fmt-toggle" role="radiogroup" aria-label="Format" data-v="${value}"><i class="fmt-thumb" aria-hidden="true"></i>${opt('mp4', 'MP4')}${opt('mp3', 'MP3')}</span>`;
 }
 
 // ---------------------------------------------------------------------------------------------

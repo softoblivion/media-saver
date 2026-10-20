@@ -52,7 +52,7 @@ export function toast(level, text, opts = {}) {
   flip(() => root.prepend(el));
   const lens = new Lens(el, 'capsule', { strength: 0 });
   el.__lens = lens;
-  el.__gel = gel(el, { amount: 0.6, stretch: false });
+  el.__gel = gel(el, { amount: 0.6 });
   lens.animateStrength(1);
   springAnimate(el, [
     { transform: 'translateY(-46px) scale(0.72, 0.6)', opacity: 0 },

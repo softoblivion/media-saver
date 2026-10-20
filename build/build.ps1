@@ -1,11 +1,11 @@
 <#
 .SYNOPSIS
-  Build release\ReelsSaver.exe (one-file, windowed).
+  Build release\MediaSaver.exe (one-file, windowed).
 .DESCRIPTION
-  Creates / refreshes .venv, installs requirements, runs the unit tests, makes build\icon.ico, runs PyInstaller and
-  copies the result to release\ReelsSaver.exe. Details: docs\BUILD.md.
+  Creates / refreshes .venv, installs requirements, runs the unit tests, makes build\icon.ico, runs PyInstaller,
+  copies the result to release\MediaSaver.exe and writes release\SHA256SUMS. Details: docs\BUILD.md.
 .PARAMETER Shortcut
-  Also create an "Reels Saver" shortcut on the desktop pointing to the built exe.
+  Also create an "Media Saver" shortcut on the desktop pointing to the built exe.
 .PARAMETER SkipTests
   Do not run the unit tests (default: tests must pass before the exe is built).
 .PARAMETER SkipBuild
@@ -51,15 +51,15 @@ if ($SkipBuild) { Write-Host "Environment ready (-SkipBuild)."; return }
 
 # 2. tests -----------------------------------------------------------------------------------------------------------
 if (-not $SkipTests) {
-    $Scratch = Join-Path ([IO.Path]::GetTempPath()) ("reels_saver_tests_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+    $Scratch = Join-Path ([IO.Path]::GetTempPath()) ("media_saver_tests_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
     New-Item -ItemType Directory -Path $Scratch | Out-Null
-    $env:REELS_SAVER_HOME = $Scratch
+    $env:MEDIA_SAVER_HOME = $Scratch
     try {
         Write-Host "Running unit tests ..."
         Invoke-Checked "unit tests" { & $VenvPython -m unittest discover -s tests }
     }
     finally {
-        Remove-Item Env:\REELS_SAVER_HOME -ErrorAction SilentlyContinue
+        Remove-Item Env:\MEDIA_SAVER_HOME -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force $Scratch -ErrorAction SilentlyContinue
     }
 }
@@ -72,29 +72,36 @@ Write-Host "Running PyInstaller (one-file) ..."
 Invoke-Checked "PyInstaller" {
     & $VenvPython -m PyInstaller --noconfirm --clean `
         --distpath (Join-Path $Root "build\dist") --workpath (Join-Path $Root "build\work") `
-        (Join-Path $Root "build\ReelsSaver.spec")
+        (Join-Path $Root "build\MediaSaver.spec")
 }
 
 # 5. release copy ----------------------------------------------------------------------------------------------------
-$Built = Join-Path $Root "build\dist\ReelsSaver.exe"
+$Built = Join-Path $Root "build\dist\MediaSaver.exe"
 if (-not (Test-Path $Built)) { throw "PyInstaller did not produce $Built" }
 $ReleaseDir = Join-Path $Root "release"
 New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
-$Release = Join-Path $ReleaseDir "ReelsSaver.exe"
+$Release = Join-Path $ReleaseDir "MediaSaver.exe"
 Copy-Item -Force $Built $Release
 $SizeMb = [math]::Round((Get-Item $Release).Length / 1MB, 1)
 Write-Host "Built $Release ($SizeMb MB)"
 
+# 5b. checksum file: the self-updater verifies the downloaded exe against the "SHA256SUMS" release asset ------------------
+$Hash = (Get-FileHash -Algorithm SHA256 -Path $Release).Hash.ToLowerInvariant()
+$SumsLine = "$Hash  MediaSaver.exe"
+[IO.File]::WriteAllText((Join-Path $ReleaseDir "SHA256SUMS"), "$SumsLine`n", (New-Object System.Text.UTF8Encoding($false)))
+Write-Host "Wrote $(Join-Path $ReleaseDir 'SHA256SUMS')"
+Write-Host $SumsLine
+
 # 6. optional desktop shortcut ---------------------------------------------------------------------------------------
 if ($Shortcut) {
     $Desktop = [Environment]::GetFolderPath("Desktop")
-    $Link = Join-Path $Desktop "Reels Saver.lnk"
+    $Link = Join-Path $Desktop "Media Saver.lnk"
     $Shell = New-Object -ComObject WScript.Shell
     $Lnk = $Shell.CreateShortcut($Link)
     $Lnk.TargetPath = $Release
     $Lnk.WorkingDirectory = $ReleaseDir
     $Lnk.IconLocation = "$Release,0"
-    $Lnk.Description = "Reels Saver"
+    $Lnk.Description = "Media Saver"
     $Lnk.Save()
     Write-Host "Shortcut created: $Link"
 }

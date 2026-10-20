@@ -1,8 +1,12 @@
-"""Job queue, subprocess control, progress parsing, error classification and the auth ladder.
+"""Job queue, preview worker, subprocess control, progress parsing, error classification and the auth ladder.
 
-Pipeline per job (ARCHITECTURE.md 5.2): probe with `yt-dlp -J` -> info json in cache/jobs/<id>/ -> thumbnail ->
-download with `--load-info-json` -> merge to mp4 -> optional H.264 pass -> ffprobe the final file. The auth
-ladder walks anonymous -> session cookies -> browser cookies -> gallery-dl with the session.
+Pipeline per job (ARCHITECTURE.md 5.2): probe with `yt-dlp -J` (or reuse the preview's info json) -> info json in
+cache/jobs/<id>/ -> thumbnail -> download with `--load-info-json` -> mp4: merge + optional H.264 pass, mp3: extract
+audio -> ffprobe the final file. Auth ladder per platform: Instagram walks anonymous -> session cookies -> browser
+cookies -> gallery-dl with the session; YouTube walks anonymous -> browser cookies.
+
+Preview (ARCHITECTURE.md 5.4): one daemon thread fetches the anonymous info json of queued jobs, one at a time,
+fills title / author / duration / thumbnail and sets `previewed`.
 
 Everything that touches the outside world goes through `ProcessRunner` (subprocesses) and `fetch_url`
 (thumbnails), so tests replace them with fakes.
@@ -27,7 +31,7 @@ from typing import Any, Callable, Iterable
 from . import auth as authmod
 from .paths import AppPaths, atomic_write_json
 
-log = logging.getLogger("reels.core.downloader")
+log = logging.getLogger("mediasaver.core.downloader")
 
 EmitFn = Callable[[str, dict], None]
 
@@ -357,6 +361,11 @@ def stage_weights(has_audio: bool, transcode: bool) -> dict[str, float]:
     }
 
 
+def mp3_stage_weights() -> dict[str, float]:
+    """mp3 jobs: probe, audio download, MP3 encode (ExtractAudio postprocessor), finalize."""
+    return {"probe": 0.06, "audio": 0.72, "convert": 0.20, "finalize": 0.02}
+
+
 # =====================================================================================================
 # Error classification
 # =====================================================================================================
@@ -364,21 +373,64 @@ def stage_weights(has_audio: bool, transcode: bool) -> dict[str, float]:
 ERROR_CODES = ("login_required", "private", "not_found", "rate_limited", "network", "engine_missing",
                "ffmpeg_missing", "extractor", "disk", "canceled", "unknown")
 
+PLATFORM_NAMES = {"instagram": "Instagram", "youtube": "YouTube"}
+
+# Instagram texts and the platform-neutral ones. YouTube jobs take YOUTUBE_MESSAGES first (see message_for).
 MESSAGES = {
     "login_required": "Instagram won't show this video without signing in. Sign in to Instagram in the app.",
     "private": "This account is private: only followers can see the video.",
     "not_found": "Post not found: it was deleted or the link is wrong.",
     "no_video": "This post has no video.",
+    "no_audio": "This video has no sound, so there is nothing to save as MP3.",
+    "live": "Live streams and premieres are not supported.",
     "rate_limited": "Instagram has temporarily limited requests. Wait a while or sign in.",
     "network": "Can't reach Instagram. Check your internet connection.",
     "engine_missing": "The download engine is not installed. Check your internet connection and update the engine.",
-    "ffmpeg_missing": "ffmpeg is missing, so video and audio can't be merged. Update the engine.",
+    "ffmpeg_missing": ("ffmpeg is missing: it is needed to merge video and audio and to make MP3 files. "
+                       "Update the engine to fetch it."),
     "extractor": "Instagram changed its site and the engine can't read it yet. Try again later.",
     "disk": "Could not write the file: the disk is full or the folder is not accessible.",
     "canceled": "Download canceled.",
     "unknown": "Unknown error. See the log for details.",
     "session_invalid": "Your Instagram session has expired. Sign in again.",
+    "session_rejected": "Instagram rejected the saved sign-in. Sign in again.",
 }
+
+YOUTUBE_MESSAGES = {
+    "login_required": ("YouTube wants a signed-in browser for this video. "
+                       "Choose a browser in Settings > Browser cookies."),
+    "private": "This video is private or for channel members only.",
+    "not_found": "Video not found: it was deleted, is unavailable or the link is wrong.",
+    "no_video": "This video has nothing to download.",
+    "live": "Live streams and premieres are not supported.",
+    "rate_limited": ("YouTube has temporarily limited requests. Wait a while or choose a browser in "
+                     "Settings > Browser cookies."),
+    "network": "Can't reach YouTube. Check your internet connection.",
+    "extractor": "YouTube changed its site and the engine can't read it yet. Try again later.",
+}
+
+
+def message_for(key: str, platform: str | None = "instagram") -> str:
+    """User-facing text of a message key for a job of `platform`; never names the other platform."""
+    if platform == "youtube" and key in YOUTUBE_MESSAGES:
+        return YOUTUBE_MESSAGES[key]
+    return MESSAGES[key]
+
+
+# YouTube-only patterns (code, message key, pattern), checked after disk / ffmpeg and before the shared table.
+YOUTUBE_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p, re.I)) for c, m, p in [
+    ("private", "private", r"Private video|members-only|Join this channel|available to this channel's members"
+                           r"|members on level"),
+    ("login_required", "login_required", r"Sign in to confirm you.re not a bot|Sign in to confirm your age"
+                                         r"|age.restricted|inappropriate for some users|requires login"
+                                         r"|confirm you.re not a bot"),
+    ("rate_limited", "rate_limited", r"rate-limited by YouTube|has been rate.limited|try again later"),
+    ("not_found", "live", r"live event|Premieres? in |Premiere will begin|live stream|is live now"
+                          r"|This live|is a live"),
+    ("not_found", "not_found", r"Video unavailable|This video is not available|This video is unavailable"
+                               r"|has been removed|no longer available|has been terminated"
+                               r"|not made this video available|is not available in your country"),
+]]
 
 # (code, message key, pattern). First match wins; matched against ERROR lines first, then the whole text.
 ERROR_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p, re.I)) for c, m, p in [
@@ -414,16 +466,22 @@ ERROR_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p, r
 _ERROR_LINE_RE = re.compile(r"^(ERROR:|.*\[error\])", re.I)
 
 
-def classify_error(text: str) -> tuple[str, str]:
-    """Map yt-dlp / gallery-dl stderr to (ErrorCode, Russian message)."""
+def _patterns_for(platform: str | None) -> list[tuple[str, str, re.Pattern[str]]]:
+    if platform == "youtube":
+        return ERROR_PATTERNS[:2] + YOUTUBE_PATTERNS + ERROR_PATTERNS[2:]
+    return ERROR_PATTERNS
+
+
+def classify_error(text: str, platform: str | None = "instagram") -> tuple[str, str]:
+    """Map yt-dlp / gallery-dl stderr to (ErrorCode, English message for a job of `platform`)."""
     if not text:
-        return "unknown", MESSAGES["unknown"]
+        return "unknown", message_for("unknown", platform)
     error_lines = "\n".join(line for line in text.splitlines() if _ERROR_LINE_RE.match(line.strip()))
     for haystack in (error_lines, text) if error_lines else (text,):
-        for code, msg_key, pattern in ERROR_PATTERNS:
+        for code, msg_key, pattern in _patterns_for(platform):
             if pattern.search(haystack):
-                return code, MESSAGES[msg_key]
-    return "unknown", MESSAGES["unknown"]
+                return code, message_for(msg_key, platform)
+    return "unknown", message_for("unknown", platform)
 
 
 def session_rejected(stderr: str) -> bool:
@@ -463,12 +521,26 @@ def _first_line(text: str | None) -> str:
     return ""
 
 
-def meta_from_info(info: dict[str, Any]) -> dict[str, Any]:
-    """Author, title, date, duration from a yt-dlp info dict."""
-    author = info.get("channel") or info.get("uploader_id") or info.get("uploader") or "instagram"
+def _info_platform(info: dict[str, Any]) -> str:
+    key = str(info.get("extractor_key") or info.get("extractor") or "").lower()
+    return "youtube" if key.startswith("youtube") else "instagram"
+
+
+def meta_from_info(info: dict[str, Any], platform: str | None = None) -> dict[str, Any]:
+    """Author, title, date, duration from a yt-dlp info dict.
+
+    Instagram: author = username (`channel`), title = first caption line. YouTube: author = channel name, title =
+    the video title (the description is free text there).
+    """
+    platform = platform or _info_platform(info)
+    author = (info.get("channel") or info.get("uploader_id") or info.get("uploader")
+              or ("youtube" if platform == "youtube" else "instagram"))
     if isinstance(author, str) and author.isdigit() and info.get("uploader"):
         author = info.get("uploader")
-    title = _first_line(info.get("description")) or info.get("title") or ""
+    if platform == "youtube":
+        title = _first_line(info.get("title")) or _first_line(info.get("fulltitle")) or ""
+    else:
+        title = _first_line(info.get("description")) or info.get("title") or ""
     if len(title) > 200:
         title = title[:199].rstrip() + "…"
     date = ""
@@ -486,9 +558,11 @@ def meta_from_info(info: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def render_filename(template: str, shortcode: str, author: str | None, title: str | None, date: str | None) -> str:
+def render_filename(template: str, shortcode: str, author: str | None, title: str | None, date: str | None,
+                    fallback_author: str = "instagram") -> str:
+    """Base name (no extension) from the template; the caller adds ".mp4" / ".mp3" by the job format."""
     values = {
-        "author": sanitize_filename(author or "", 60, "instagram"),
+        "author": sanitize_filename(author or "", 60, fallback_author),
         "shortcode": sanitize_filename(shortcode, 60, "video"),
         "date": date or "",
         "title": sanitize_filename(title or "", 60, ""),
@@ -513,20 +587,51 @@ def unique_path(path: str) -> str:
 # Format selection
 # =====================================================================================================
 
-QUALITY_CAPS = {"max": None, "1080": 1080, "720": 720}
-CAP_TOLERANCE = 1.02  # Instagram serves 1088x1936 next to 1080x1920; "1080" keeps such near-1080 streams
+# Short-side caps per platform setting (`quality_instagram` / `quality_youtube`); None = best available.
+QUALITY_CAPS = {
+    "instagram": {"low": 480, "medium": 720, "max": None},
+    "youtube": {"360": 360, "720": 720, "max": None},
+}
+QUALITY_SETTING = {"instagram": "quality_instagram", "youtube": "quality_youtube"}
+CAP_TOLERANCE = 1.02  # a cap keeps near-cap streams (Instagram serves 716x1274 next to 720x1280, 1088x1936 next to 1080x1920)
+
+
+def quality_cap(platform: str, quality: str) -> int | None:
+    """Short-side cap in pixels for a platform's quality value; None for "max" and for unknown values."""
+    return QUALITY_CAPS.get(platform, {}).get(quality)
 
 
 def _is_avc(vcodec: str | None) -> bool:
     return bool(vcodec) and vcodec.lower().startswith(("avc1", "avc3", "h264"))
 
 
+def _usable_format(f: dict) -> bool:
+    """Skips DRM formats and YouTube storyboards (mhtml image sheets)."""
+    return (bool(f.get("format_id")) and not f.get("has_drm") and f.get("ext") != "mhtml"
+            and "storyboard" not in str(f.get("format_note") or "").lower())
+
+
 def _is_video(f: dict) -> bool:
-    return f.get("vcodec") not in (None, "none") and bool(f.get("height") or f.get("width"))
+    return (f.get("vcodec") not in (None, "none") and bool(f.get("height") or f.get("width"))
+            and _usable_format(f))
 
 
 def _is_audio_only(f: dict) -> bool:
-    return f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")
+    return f.get("vcodec") == "none" and f.get("acodec") not in (None, "none") and _usable_format(f)
+
+
+def _has_audio(f: dict) -> bool:
+    return f.get("acodec") not in (None, "none")
+
+
+def _direct(f: dict) -> int:
+    """1 for a plain https file (DASH on YouTube and Instagram), 0 for HLS / fragmented manifests.
+
+    HLS `tbr` comes from the manifest's peak BANDWIDTH and is not comparable with the average bitrate of the https
+    formats, and fragment downloads are slower, so at the same size and fps the direct file wins.
+    """
+    proto = str(f.get("protocol") or "https")
+    return 1 if proto in ("https", "http") else 0
 
 
 def _area(f: dict) -> int:
@@ -543,7 +648,17 @@ def _short_side(f: dict) -> int:
 
 
 def _vkey(f: dict) -> tuple:
-    return (_area(f), f.get("fps") or 0, f.get("vbr") or f.get("tbr") or 0)
+    return (_area(f), f.get("fps") or 0, _direct(f), 0 if _has_audio(f) else 1, f.get("vbr") or f.get("tbr") or 0)
+
+
+def _akey(f: dict, h264_compat: bool) -> tuple:
+    """Original / default language track first, then non-DRC (YouTube's dynamic range compressed copies), then AAC
+    when the H.264 pass may follow, then direct files, then bitrate and sample rate."""
+    lang = f.get("language_preference")
+    drc = "drc" in str(f.get("format_id") or "").lower() or "drc" in str(f.get("format_note") or "").lower()
+    aac = 1 if (h264_compat and (f.get("acodec") or "").startswith("mp4a")) else 0
+    return (lang if isinstance(lang, (int, float)) else -1, 0 if drc else 1, aac, _direct(f),
+            f.get("abr") or f.get("tbr") or 0, f.get("asr") or 0)
 
 
 @dataclass
@@ -559,10 +674,13 @@ class FormatChoice:
         return self.audio is not None
 
 
-def select_formats(info: dict[str, Any], quality: str, h264_compat: bool) -> FormatChoice:
-    """Pick video + audio: highest resolution, then fps, then bitrate; AVC at the same size when h264_compat."""
+def select_formats(info: dict[str, Any], platform: str, quality: str, h264_compat: bool) -> FormatChoice:
+    """Pick video + audio: highest resolution, then fps, then bitrate; AVC at the same size when h264_compat.
+
+    `quality` is the value of the platform's own setting (`quality_instagram` / `quality_youtube`).
+    """
     formats = info.get("formats") or []
-    cap = QUALITY_CAPS.get(quality)
+    cap = quality_cap(platform, quality)
     videos = [f for f in formats if _is_video(f) and f.get("format_id")]
     audios = [f for f in formats if _is_audio_only(f) and f.get("format_id")]
     if not videos:
@@ -582,9 +700,8 @@ def select_formats(info: dict[str, Any], quality: str, h264_compat: bool) -> For
         if same:
             chosen = max(same, key=_vkey)
     audio = None
-    if audios:
-        audio = max(audios, key=lambda f: (1 if (h264_compat and (f.get("acodec") or "").startswith("mp4a")) else 0,
-                                           f.get("abr") or f.get("tbr") or 0, f.get("asr") or 0))
+    if audios and not _has_audio(chosen):  # a muxed format (YouTube 18) keeps its own audio: no second track
+        audio = max(audios, key=lambda f: _akey(f, h264_compat))
     vid = chosen["format_id"]
     spec = f"{vid}+{audio['format_id']}/{vid}" if audio else vid
     spec += "/bv*+ba/b"
@@ -602,7 +719,11 @@ class Rung:
     auth: str    # "anonymous" | "session" | "browser"
 
 
-def plan_ladder(auth_mode: str, has_session: bool, browser: str) -> list[Rung]:
+def plan_ladder(auth_mode: str, has_session: bool, browser: str, platform: str = "instagram") -> list[Rung]:
+    """Rungs to try in order. YouTube: anonymous, then browser cookies when a browser is chosen (`auth_mode` and
+    the Instagram session do not apply). Instagram: see docs/ENGINE.md section 5."""
+    if platform == "youtube":
+        return [Rung("yt-dlp", "anonymous")] + ([Rung("yt-dlp", "browser")] if browser else [])
     if auth_mode == "never":
         return [Rung("yt-dlp", "anonymous")]
     rungs: list[Rung] = []
@@ -657,7 +778,10 @@ def pick_final_error(failures: list[Failure]) -> Failure:
     return last
 
 
-def can_login_for(code: str, logged_in: bool) -> bool:
+def can_login_for(code: str, logged_in: bool, platform: str = "instagram") -> bool:
+    """True when the UI should offer the in-app sign-in (Instagram only)."""
+    if platform != "instagram":
+        return False
     if code == "login_required":
         return True
     if code in ("private", "rate_limited"):
@@ -720,14 +844,26 @@ def fetch_url(url: str, headers: dict[str, str] | None = None, timeout: float = 
 # Jobs
 # =====================================================================================================
 
+VIDEO_EXTS = (".mp4", ".mkv", ".webm", ".mov", ".m4v")
 ACTIVE = ("queued", "probing", "downloading", "processing")
 RUNNING = ("probing", "downloading", "processing")
 FINISHED = ("done", "error", "canceled")
 HISTORY_LIMIT = 300
+HISTORY_VERSION = 2
+JOB_PLATFORMS = ("instagram", "youtube")
+JOB_FORMATS = ("mp4", "mp3")
+JOB_KINDS = {"instagram": ("reel", "p"), "youtube": ("video", "shorts")}
 
-PUBLIC_FIELDS = ("id", "url", "shortcode", "status", "stage_text", "progress", "speed_bps", "eta_s", "title",
-                 "author", "duration_s", "thumbnail", "width", "height", "fps", "vcodec", "acodec", "filesize",
-                 "filepath", "already_existed", "transcoded", "attempt", "error", "created_at", "finished_at")
+PUBLIC_FIELDS = ("id", "url", "shortcode", "platform", "kind", "format", "status", "stage_text", "progress",
+                 "speed_bps", "eta_s", "previewed", "title", "author", "duration_s", "thumbnail", "width", "height",
+                 "fps", "vcodec", "acodec", "filesize", "filepath", "already_existed", "transcoded", "attempt",
+                 "error", "created_at", "finished_at")
+
+
+def _kind_from_url(url: str, platform: str) -> str:
+    if platform == "youtube":
+        return "shorts" if "/shorts/" in url else "video"
+    return "p" if "/p/" in url else "reel"
 
 
 @dataclass
@@ -735,11 +871,15 @@ class Job:
     id: str
     url: str
     shortcode: str
+    platform: str = "instagram"
+    kind: str = "reel"
+    format: str = "mp4"
     status: str = "queued"
     stage_text: str = "Queued"
     progress: float = 0.0
     speed_bps: float | None = None
     eta_s: float | None = None
+    previewed: bool = False
     title: str | None = None
     author: str | None = None
     duration_s: float | None = None
@@ -761,6 +901,12 @@ class Job:
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     removed: bool = False
     thumb_path: str | None = None
+    preview_path: str | None = None   # cache/jobs/<id>/preview.json written by the preview worker
+    preview_at: float | None = None   # time.time() of that fetch; the download reuses it for PREVIEW_MAX_AGE
+
+    @property
+    def platform_name(self) -> str:
+        return PLATFORM_NAMES.get(self.platform, "the site")
 
     def to_dict(self) -> dict[str, Any]:
         d = {k: getattr(self, k) for k in PUBLIC_FIELDS}
@@ -776,6 +922,8 @@ class Job:
 
     @classmethod
     def from_history(cls, d: dict[str, Any]) -> "Job | None":
+        """Restore a history entry. Version 1 entries (Instagram only) have no platform / kind / format /
+        previewed: they come back as instagram, kind from the URL, mp4, previewed."""
         try:
             job = cls(id=str(d["id"]), url=str(d["url"]), shortcode=str(d["shortcode"]))
         except (KeyError, TypeError):
@@ -783,6 +931,12 @@ class Job:
         for k in PUBLIC_FIELDS:
             if k in d and k not in ("id", "url", "shortcode", "thumbnail"):
                 setattr(job, k, d[k])
+        if job.platform not in JOB_PLATFORMS:
+            job.platform = "instagram"
+        if "kind" not in d or job.kind not in JOB_KINDS[job.platform]:
+            job.kind = _kind_from_url(job.url, job.platform)
+        if job.format not in JOB_FORMATS:
+            job.format = "mp4"
         job.thumb_path = d.get("thumb_path")
         if job.status not in FINISHED:
             job.status = "canceled"
@@ -791,6 +945,7 @@ class Job:
             job.finished_at = job.finished_at or time.time()
             job.error = {"code": "canceled", "message": "Download interrupted when the app closed.",
                          "can_login": False, "log_path": None}
+        job.previewed = True  # restored jobs are finished: no preview fetch is pending for them
         return job
 
     def reset_for_retry(self) -> None:
@@ -801,6 +956,9 @@ class Job:
         self.already_existed = self.transcoded = False
         self.filesize = None
         self.filepath = None
+        self.width = self.height = self.fps = None
+        self.vcodec = self.acodec = None
+        self.preview_path = self.preview_at = None
         self.cancel_event = threading.Event()
 
 
@@ -834,6 +992,8 @@ class Downloader:
     EMIT_INTERVAL = 0.15
     PROBE_TIMEOUT = 180.0
     DOWNLOAD_TIMEOUT = 3600.0
+    PREVIEW_TIMEOUT = 60.0
+    PREVIEW_MAX_AGE = 600.0  # the download reuses the preview's info json while it is younger than this
 
     def __init__(self, paths: AppPaths, get_settings: Callable[[], dict], emit: EmitFn, *,
                  binaries: Callable[[], dict[str, str | None]],
@@ -870,14 +1030,19 @@ class Downloader:
         self._batch_done = 0
         self._batch_failed = 0
         self._history_lock = threading.Lock()
+        self._preview_id: str | None = None             # job whose preview fetch runs now
+        self._preview_cancel = threading.Event()        # stops that fetch (job started, canceled, removed, shutdown)
 
     # --- lifecycle -----------------------------------------------------------------------------------
     def start(self) -> None:
         self._concurrency = int(self.get_settings().get("concurrency", 2))
         for i in range(self.MAX_WORKERS):
-            t = threading.Thread(target=self._worker, name=f"reels-job-{i}", daemon=True)
+            t = threading.Thread(target=self._worker, name=f"ms-job-{i}", daemon=True)
             t.start()
             self._threads.append(t)
+        t = threading.Thread(target=self._preview_worker, name="ms-preview", daemon=True)
+        t.start()
+        self._threads.append(t)
 
     def shutdown(self, timeout: float = 2.5) -> None:
         with self._cond:
@@ -885,6 +1050,7 @@ class Downloader:
             running = [self._jobs[j] for j in self._running if j in self._jobs]
             for job in running:
                 job.cancel_event.set()
+            self._preview_cancel.set()
             self._cond.notify_all()
         deadline = time.monotonic() + timeout
         for t in self._threads:
@@ -909,12 +1075,20 @@ class Downloader:
         with self._lock:
             return self._jobs.get(job_id)
 
-    def active_shortcodes(self) -> set[str]:
+    def active_keys(self) -> set[str]:
+        """"<platform>:<shortcode>" of every queued or running job (duplicate detection per platform)."""
         with self._lock:
-            return {j.shortcode for j in self._jobs.values() if j.status in ACTIVE}
+            return {f"{j.platform}:{j.shortcode}" for j in self._jobs.values() if j.status in ACTIVE}
 
-    def add(self, url: str, shortcode: str) -> dict:
-        job = Job(id=uuid.uuid4().hex[:8], url=url, shortcode=shortcode)
+    def add(self, url: str, shortcode: str, platform: str, kind: str, fmt: str) -> dict:
+        """Queue a cleaned link; the preview worker picks it up. Returns the Job dict."""
+        if platform not in JOB_PLATFORMS:
+            raise ValueError(f"Unknown platform: {platform!r}")
+        if kind not in JOB_KINDS[platform]:
+            raise ValueError(f"Unknown kind for {platform}: {kind!r}")
+        if fmt not in JOB_FORMATS:
+            raise ValueError(f"Unknown format: {fmt!r}")
+        job = Job(id=uuid.uuid4().hex[:8], url=url, shortcode=shortcode, platform=platform, kind=kind, format=fmt)
         with self._cond:
             while job.id in self._jobs:
                 job.id = uuid.uuid4().hex[:8]
@@ -928,16 +1102,46 @@ class Downloader:
         self._save_soon()
         return job.to_dict()
 
+    def set_format(self, job_id: str, fmt: str) -> dict | None:
+        """Per-job format override, only while the job is queued. Returns the updated Job dict or None."""
+        if fmt not in JOB_FORMATS:
+            raise ValueError(f"Unknown format: {fmt!r}")
+        with self._cond:
+            job = self._jobs.get(job_id)
+            if job is None or job.status != "queued":
+                return None
+            changed = job.format != fmt
+            job.format = fmt
+        if changed:
+            self._emit_job(job, force=True)
+            self._save_soon()
+        with self._lock:
+            return job.to_dict()
+
+    def _stop_preview_of(self, job_id: str) -> None:
+        """Caller holds the lock. Kills the preview subprocess when it works on this job."""
+        if self._preview_id == job_id:
+            self._preview_cancel.set()
+
+    def _drop_job_cache(self, job: Job) -> None:
+        """A queued job that ends without running may still own a preview.json in its cache folder."""
+        if job.id in self._running:
+            return
+        shutil.rmtree(os.path.join(self.paths.jobs_cache_dir, job.id), ignore_errors=True)
+
     def cancel(self, job_id: str) -> bool:
         with self._cond:
             job = self._jobs.get(job_id)
             if job is None or job.status not in ACTIVE:
                 return False
             job.cancel_event.set()
-            if job.status == "queued":
+            self._stop_preview_of(job_id)
+            was_queued = job.status == "queued"
+            if was_queued:
                 if job_id in self._queue:
                     self._queue.remove(job_id)
                 self._finish_canceled(job)
+                self._drop_job_cache(job)
         self._emit_job(job, force=True)
         self._save_soon()
         return True
@@ -947,7 +1151,8 @@ class Downloader:
             job = self._jobs.get(job_id)
             if job is None or job.status not in ("error", "canceled"):
                 return False
-            if any(j.shortcode == job.shortcode and j.status in ACTIVE for j in self._jobs.values()):
+            if any(j.platform == job.platform and j.shortcode == job.shortcode and j.status in ACTIVE
+                   for j in self._jobs.values()):
                 return False
             job.reset_for_retry()
             if not self.usable():
@@ -966,16 +1171,20 @@ class Downloader:
                 return False
             job.removed = True
             job.cancel_event.set()
+            self._stop_preview_of(job_id)
             if job_id in self._queue:
                 self._queue.remove(job_id)
+                self._drop_job_cache(job)
             self._order.remove(job_id)
         self._safe_emit("job_removed", {"id": job_id})
         self._save_soon()
         return True
 
-    def clear_finished(self) -> int:
+    def clear_finished(self, platform: str | None = None) -> int:
+        """Drop done / error / canceled jobs of `platform` (None = both) from the list; files stay."""
         with self._cond:
-            ids = [j for j in self._order if self._jobs[j].status in FINISHED]
+            ids = [j for j in self._order if self._jobs[j].status in FINISHED
+                   and (platform is None or self._jobs[j].platform == platform)]
             for j in ids:
                 self._jobs.pop(j).removed = True
                 self._order.remove(j)
@@ -1047,7 +1256,7 @@ class Downloader:
         active = [d for d in items if d["status"] not in FINISHED]
         with self._history_lock:
             try:
-                atomic_write_json(self.paths.history_file, {"version": 1, "jobs": finished + active})
+                atomic_write_json(self.paths.history_file, {"version": HISTORY_VERSION, "jobs": finished + active})
             except OSError as exc:
                 log.warning("cannot save history: %s", exc)
 
@@ -1081,6 +1290,7 @@ class Downloader:
     def _finish_canceled(self, job: Job) -> None:
         job.status, job.stage_text = "canceled", "Canceled"
         job.speed_bps = job.eta_s = None
+        job.previewed = True
         job.finished_at = time.time()
         job.error = {"code": "canceled", "message": MESSAGES["canceled"], "can_login": False, "log_path": None}
 
@@ -1095,6 +1305,10 @@ class Downloader:
                     if job is None or job.status != "queued":
                         continue
                     self._running.add(job.id)
+                    # leaving "queued" here freezes the format and tells the preview worker to let go: the
+                    # download probes by itself instead of waiting for an in-flight preview
+                    job.status, job.stage_text = "probing", "Starting"
+                    self._stop_preview_of(job.id)
                     return job
                 self._cond.wait(0.5)
 
@@ -1138,9 +1352,9 @@ class Downloader:
         settings = self.get_settings()
         job_dir = self.paths.job_cache(job.id)
         logs: list[str] = []
-        cookies = self.paths.cookies_file
-        logged_in = authmod.has_session(cookies)
-        ladder = plan_ladder(settings["auth_mode"], logged_in, settings.get("browser_cookies") or "")
+        # the in-app session is an Instagram one; it never applies to YouTube jobs
+        logged_in = job.platform == "instagram" and authmod.has_session(self.paths.cookies_file)
+        ladder = plan_ladder(settings["auth_mode"], logged_in, settings.get("browser_cookies") or "", job.platform)
         failures: list[Failure] = []
         rate_retries = len(self.RATE_BACKOFF)
         healed = False
@@ -1166,7 +1380,8 @@ class Downloader:
                     if action == "backoff":
                         delay = self.RATE_BACKOFF[len(self.RATE_BACKOFF) - rate_retries]
                         rate_retries -= 1
-                        self._set(job, status="probing", stage_text=f"Instagram is limiting requests, waiting {int(delay)} s",
+                        self._set(job, status="probing",
+                                  stage_text=f"{job.platform_name} is limiting requests, waiting {int(delay)} s",
                                   speed_bps=None, eta_s=None)
                         if self.sleep(job.cancel_event, delay):
                             raise JobCanceled()
@@ -1181,7 +1396,8 @@ class Downloader:
                         idx += 1
                         continue
                     break
-            final = pick_final_error(failures) if failures else Failure(ladder[0], "unknown", MESSAGES["unknown"])
+            final = (pick_final_error(failures) if failures
+                     else Failure(ladder[0], "unknown", message_for("unknown", job.platform)))
             self._fail(job, final, "\n".join(logs), logged_in=logged_in)
         except JobCanceled:
             with self._lock:
@@ -1196,26 +1412,148 @@ class Downloader:
 
     def _fail(self, job: Job, failure: Failure, log_text: str, logged_in: bool | None = None) -> None:
         if logged_in is None:
-            logged_in = authmod.has_session(self.paths.cookies_file)
+            logged_in = job.platform == "instagram" and authmod.has_session(self.paths.cookies_file)
         log_path = self.paths.job_log(job.id)
         try:
             with open(log_path, "w", encoding="utf-8") as fh:
-                fh.write(f"job {job.id} {job.url}\nfinal error: {failure.code} ({failure.rung.engine}/{failure.rung.auth})\n\n")
+                fh.write(f"job {job.id} {job.url} ({job.platform}, {job.format})\n"
+                         f"final error: {failure.code} ({failure.rung.engine}/{failure.rung.auth})\n\n")
                 fh.write(log_text)
         except OSError:
             log_path = None
         message = failure.message
-        if failure.code == "login_required" and logged_in:
-            message = "Instagram rejected the saved sign-in. Sign in again."
+        if failure.code == "login_required" and logged_in and job.platform == "instagram":
+            message = MESSAGES["session_rejected"]
         with self._lock:
             job.status = "error"
             job.stage_text = message
             job.speed_bps = job.eta_s = None
+            job.previewed = True
             job.finished_at = time.time()
             job.attempt = {"engine": failure.rung.engine, "auth": failure.rung.auth}
             job.error = {"code": failure.code, "message": message,
-                         "can_login": can_login_for(failure.code, logged_in), "log_path": log_path}
+                         "can_login": can_login_for(failure.code, logged_in, job.platform), "log_path": log_path}
         self._emit_job(job, force=True)
+
+    # --- preview -------------------------------------------------------------------------------------
+    def _next_preview(self) -> Job | None:
+        """Oldest queued job without a preview; waits while the engine is not usable or being replaced."""
+        with self._cond:
+            while True:
+                if self._stopping:
+                    return None
+                if self.usable() and not self.gate.replacing:
+                    for jid in self._order:
+                        job = self._jobs.get(jid)
+                        if job is not None and job.status == "queued" and not job.previewed and not job.removed:
+                            self._preview_id = job.id
+                            self._preview_cancel = threading.Event()
+                            return job
+                self._cond.wait(0.5)
+
+    def _preview_worker(self) -> None:
+        while True:
+            job = self._next_preview()
+            if job is None:
+                return
+            try:
+                self._run_preview(job, self._preview_cancel)
+            except Exception:  # noqa: BLE001  the preview is cosmetic
+                log.exception("preview of job %s crashed", job.id)
+                self._preview_done(job, None)
+            finally:
+                with self._cond:
+                    self._preview_id = None
+                    self._cond.notify_all()
+
+    def _preview_done(self, job: Job, reason: str | None) -> None:
+        """Mark the preview as finished (found or not); removes a stray cache folder of a job that left the queue."""
+        with self._lock:
+            if job.removed:
+                return
+            job.previewed = True
+            if job.status != "queued" and job.id not in self._running:
+                shutil.rmtree(os.path.join(self.paths.jobs_cache_dir, job.id), ignore_errors=True)
+        if reason:
+            log.info("preview of job %s: %s", job.id, reason)
+        self._emit_job(job, force=True)
+        self._save_soon()
+
+    def _run_preview(self, job: Job, cancel: threading.Event) -> None:
+        """Anonymous `yt-dlp -J` of one queued job; on success stores preview.json and fills the preview fields.
+
+        Never uses cookies. Any failure only sets `previewed`. Stops (no field change) when the job leaves the
+        queue: a download that starts meanwhile probes by itself, cancel / remove / shutdown kill the subprocess.
+        """
+        started = time.monotonic()
+        exe = self.binaries().get("yt-dlp")
+        if not exe or not os.path.exists(exe):
+            self._preview_done(job, "engine missing")
+            return
+        argv = self._ytdlp_base(Rung("yt-dlp", "anonymous"), {}, "", job.platform) + ["-J", job.url]
+        if not self.gate.acquire_shared(cancel):
+            return
+        try:
+            res = self.runner.run(argv, cwd=self.paths.jobs_cache_dir, cancel=cancel, timeout=self.PREVIEW_TIMEOUT)
+        finally:
+            self.gate.release_shared()
+        elapsed = time.monotonic() - started
+        if res.canceled or cancel.is_set():
+            log.info("preview of job %s stopped after %.1f s (job left the queue)", job.id, elapsed)
+            return
+        if res.timed_out or res.returncode != 0 or not res.stdout.strip():
+            code = "timeout" if res.timed_out else classify_error(res.stderr, job.platform)[0]
+            self._preview_done(job, f"failed after {elapsed:.1f} s ({code})")
+            return
+        try:
+            info = self._pick_entry(json.loads(res.stdout))
+        except ValueError:
+            info = None
+        if info is None:
+            self._preview_done(job, f"no usable info json after {elapsed:.1f} s")
+            return
+        meta = meta_from_info(info, job.platform)
+        job_dir = self.paths.job_cache(job.id)
+        path = os.path.join(job_dir, "preview.json")
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump(info, fh, ensure_ascii=False)
+        except OSError as exc:
+            self._preview_done(job, f"cannot write preview.json: {exc}")
+            return
+        with self._lock:
+            if job.status != "queued" or job.removed or cancel.is_set():
+                if job.id not in self._running:
+                    shutil.rmtree(job_dir, ignore_errors=True)
+                return
+            job.preview_path, job.preview_at = path, time.time()
+            job.title, job.author, job.duration_s = meta["title"], meta["author"], meta["duration_s"]
+        self._emit_job(job, force=True)
+        if not job.thumbnail and job.status == "queued" and not cancel.is_set():
+            self._make_thumbnail(job, info, job_dir, src_name="preview_thumb_src")
+        self._preview_done(job, None)
+        log.info("preview of job %s done in %.1f s", job.id, time.monotonic() - started)
+
+    def _take_preview(self, job: Job, rung: Rung, logs: list[str]) -> dict | None:
+        """The preview's info json when it is fresh and this is the anonymous rung. Used once: a retried rung
+        (self-heal, rate-limit backoff) probes again."""
+        with self._lock:
+            path, at = job.preview_path, job.preview_at
+            job.preview_path = job.preview_at = None
+        if rung.auth != "anonymous" or not path or at is None:
+            return None
+        age = time.time() - at
+        if age > self.PREVIEW_MAX_AGE:
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                info = json.load(fh)
+        except (OSError, ValueError):
+            return None
+        if not isinstance(info, dict):
+            return None
+        logs.append(f"$ [probe] reused the preview info json ({age:.0f} s old)\n")
+        return info
 
     # --- yt-dlp --------------------------------------------------------------------------------------
     def _bin(self, key: str) -> str:
@@ -1241,12 +1579,14 @@ class Downloader:
         if res.canceled or job.cancel_event.is_set():
             raise JobCanceled()
         if res.timed_out:
-            raise JobFailed("network", MESSAGES["network"], res.stderr)
+            raise JobFailed("network", message_for("network", job.platform), res.stderr)
         return res
 
-    def _ytdlp_base(self, rung: Rung, settings: dict, job_dir: str) -> list[str]:
+    def _ytdlp_base(self, rung: Rung, settings: dict, job_dir: str, platform: str = "instagram") -> list[str]:
         argv = [self._bin("yt-dlp"), "--no-config", "--encoding", "utf-8", "--color", "never",
                 "--socket-timeout", "20", "--retries", "3", "--extractor-retries", "2", "--no-mtime"]
+        if platform == "youtube":
+            argv.append("--no-playlist")  # a watch URL never pulls a playlist, even when one is attached
         if rung.auth == "session":
             jar = os.path.join(job_dir, "cookies.txt")
             if not os.path.exists(jar) and not authmod.copy_for_job(self.paths.cookies_file, jar):
@@ -1273,32 +1613,45 @@ class Downloader:
                  "browser": "Trying with browser cookies"}[rung.auth]
         self._set(job, status="probing", stage_text=stage, progress=max(job.progress, 0.01),
                   speed_bps=None, eta_s=None)
-        base = self._ytdlp_base(rung, settings, job_dir)
-        res = self._run_tool(job, base + ["-J", job.url], logs, label="probe", timeout=self.PROBE_TIMEOUT)
-        if rung.auth == "session":
-            self._after_session_run(job_dir, res.stderr)
-        if res.returncode != 0 or not res.stdout.strip():
-            code, msg = classify_error(res.stderr)
-            raise JobFailed(code, msg, res.stderr)
-        try:
-            info = json.loads(res.stdout)
-        except ValueError:
-            raise JobFailed("extractor", MESSAGES["extractor"], res.stderr) from None
-        info = self._pick_entry(info)
+        base = self._ytdlp_base(rung, settings, job_dir, job.platform)
+        info = self._take_preview(job, rung, logs)
         if info is None:
-            raise JobFailed("not_found", MESSAGES["no_video"], res.stderr)
+            res = self._run_tool(job, base + ["-J", job.url], logs, label="probe", timeout=self.PROBE_TIMEOUT)
+            if rung.auth == "session":
+                self._after_session_run(job_dir, res.stderr)
+            if res.returncode != 0 or not res.stdout.strip():
+                code, msg = classify_error(res.stderr, job.platform)
+                raise JobFailed(code, msg, res.stderr)
+            try:
+                info = json.loads(res.stdout)
+            except ValueError:
+                raise JobFailed("extractor", message_for("extractor", job.platform), res.stderr) from None
+            info = self._pick_entry(info)
+            if info is None:
+                raise JobFailed("not_found", message_for("no_video", job.platform), res.stderr)
+        if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming", "post_live"):
+            raise JobFailed("not_found", message_for("live", job.platform))
         info_path = os.path.join(job_dir, "info.json")
         with open(info_path, "w", encoding="utf-8") as fh:
             json.dump(info, fh, ensure_ascii=False)
-        meta = meta_from_info(info)
-        self._set(job, title=meta["title"], author=meta["author"], duration_s=meta["duration_s"])
-        self._make_thumbnail(job, info, job_dir)
+        meta = meta_from_info(info, job.platform)
+        self._set(job, title=meta["title"], author=meta["author"], duration_s=meta["duration_s"], previewed=True)
+        if not job.thumbnail:
+            self._make_thumbnail(job, info, job_dir)
         self._check_cancel(job)
 
         target = self._target_path(job, settings, meta)
         if target is None:
             return  # skip_existing hit, job finished
-        choice = select_formats(info, settings["quality"], settings["h264_compat"])
+        if job.format == "mp3":
+            self._download_mp3(job, rung, base, info, info_path, target, settings, job_dir, logs)
+        else:
+            self._download_mp4(job, rung, base, info, info_path, target, settings, job_dir, logs)
+
+    def _download_mp4(self, job: Job, rung: Rung, base: list[str], info: dict, info_path: str, target: str,
+                      settings: dict, job_dir: str, logs: list[str]) -> None:
+        choice = select_formats(info, job.platform, settings[QUALITY_SETTING.get(job.platform, "quality_instagram")],
+                                settings["h264_compat"])
         model = ProgressModel(stage_weights(choice.has_audio or choice.video is None, choice.needs_transcode))
         self._set(job, status="downloading", stage_text="Downloading video", progress=model.set("probe", 1.0))
 
@@ -1307,7 +1660,7 @@ class Downloader:
                        "--merge-output-format", "mp4", "--ffmpeg-location", self._bin("ffmpeg"),
                        "-o", out_tmpl, "--no-part", "--force-overwrites", *progress_args(),
                        "--print", "after_move:" + FILE_MARK + "%(filepath)j", "--no-simulate"]
-        state = {"file": None, "stage": "video"}
+        state = {"file": None}
         audio_id = choice.audio["format_id"] if choice.audio else None
 
         def on_line(line: str) -> None:
@@ -1342,11 +1695,67 @@ class Downloader:
                              on_stdout=on_line, on_stderr=on_line)
         if rung.auth == "session":
             self._after_session_run(job_dir, res.stderr)
-        media = state["file"] if state["file"] and os.path.exists(state["file"]) else self._find_media(job_dir)
+        media = (state["file"] if state["file"] and os.path.exists(state["file"])
+                 else self._find_media(job_dir, VIDEO_EXTS))
         if res.returncode != 0 or not media:
-            code, msg = classify_error(res.stderr)
+            code, msg = classify_error(res.stderr, job.platform)
             if code == "unknown" and not media:
-                code, msg = "extractor", MESSAGES["extractor"]
+                code, msg = "extractor", message_for("extractor", job.platform)
+            raise JobFailed(code, msg, res.stderr)
+        self._finalize(job, media, target, settings, model, logs)
+
+    @staticmethod
+    def _audio_missing(info: dict) -> bool:
+        """True only when every format says it has no audio (unknown acodec counts as maybe-audio)."""
+        formats = [f for f in info.get("formats") or [] if _usable_format(f)]
+        return bool(formats) and all(f.get("acodec") == "none" for f in formats)
+
+    def _download_mp3(self, job: Job, rung: Rung, base: list[str], info: dict, info_path: str, target: str,
+                      settings: dict, job_dir: str, logs: list[str]) -> None:
+        """Best audio -> MP3 (VBR quality 0) by yt-dlp's ExtractAudio postprocessor; no merge, no H.264 pass."""
+        if self._audio_missing(info):
+            raise JobFailed("not_found", message_for("no_audio", job.platform))
+        ffmpeg = self._bin("ffmpeg")  # ffmpeg_missing before any subprocess starts
+        model = ProgressModel(mp3_stage_weights())
+        self._set(job, status="downloading", stage_text="Downloading audio", progress=model.set("probe", 1.0))
+        out_tmpl = os.path.join(job_dir, "media.%(ext)s")
+        argv = base + ["--load-info-json", info_path, "-f", "ba/b", "-x", "--audio-format", "mp3",
+                       "--audio-quality", "0", "--ffmpeg-location", ffmpeg,
+                       "-o", out_tmpl, "--no-part", "--force-overwrites", *progress_args(),
+                       "--print", "after_move:" + FILE_MARK + "%(filepath)j", "--no-simulate"]
+        state = {"file": None}
+
+        def on_line(line: str) -> None:
+            parsed = parse_marker_line(line)
+            if parsed is None:
+                return
+            kind, data = parsed
+            if kind == "file":
+                state["file"] = data
+            elif kind == "download":
+                total = data.get("t") or data.get("te")
+                done = data.get("d") or 0
+                frac = 1.0 if data.get("s") == "finished" else ((done / total) if total else 0.0)
+                force = job.stage_text != "Downloading audio"
+                self._set(job, force=force, status="downloading", stage_text="Downloading audio",
+                          progress=model.set("audio", frac), speed_bps=data.get("sp"), eta_s=data.get("eta"))
+            elif kind == "postprocess" and data.get("pp") == "ExtractAudio":
+                frac = 1.0 if data.get("s") == "finished" else 0.1
+                self._set(job, status="processing", stage_text="Converting to MP3",
+                          progress=model.set("convert", frac), speed_bps=None, eta_s=None)
+
+        res = self._run_tool(job, argv, logs, label="download mp3", timeout=self.DOWNLOAD_TIMEOUT,
+                             on_stdout=on_line, on_stderr=on_line)
+        if rung.auth == "session":
+            self._after_session_run(job_dir, res.stderr)
+        media = (state["file"] if state["file"] and os.path.exists(state["file"])
+                 else self._find_media(job_dir, (".mp3",)))
+        if res.returncode != 0 or not media or not media.lower().endswith(".mp3"):
+            if "unable to obtain file audio codec" in res.stderr:
+                raise JobFailed("not_found", message_for("no_audio", job.platform), res.stderr)
+            code, msg = classify_error(res.stderr, job.platform)
+            if code == "unknown" and not media:
+                code, msg = "extractor", message_for("extractor", job.platform)
             raise JobFailed(code, msg, res.stderr)
         self._finalize(job, media, target, settings, model, logs)
 
@@ -1364,26 +1773,28 @@ class Downloader:
         return info if (info.get("formats") or info.get("url")) else None
 
     @staticmethod
-    def _find_media(job_dir: str) -> str | None:
+    def _find_media(job_dir: str, exts: tuple[str, ...]) -> str | None:
         best = None
         for name in os.listdir(job_dir):
-            if name.startswith("media") and name.endswith((".mp4", ".mkv", ".webm", ".mov", ".m4v")):
+            if name.startswith("media") and name.lower().endswith(exts):
                 path = os.path.join(job_dir, name)
                 if best is None or os.path.getsize(path) > os.path.getsize(best):
                     best = path
         return best
 
     def _target_path(self, job: Job, settings: dict, meta: dict) -> str | None:
-        """Final output path, or None when skip_existing found the file (job is then finished as done)."""
+        """Final output path (".mp4" / ".mp3" by the job format), or None when skip_existing found that exact
+        file (the job is then finished as done)."""
         out_dir = settings["output_dir"]
         try:
             os.makedirs(out_dir, exist_ok=True)
         except OSError as exc:
             raise JobFailed("disk", MESSAGES["disk"], str(exc)) from None
-        name = render_filename(settings["filename_template"], job.shortcode, meta["author"], meta["title"], meta["date"])
-        path = os.path.join(out_dir, name + ".mp4")
+        name = render_filename(settings["filename_template"], job.shortcode, meta["author"], meta["title"],
+                               meta["date"], fallback_author=job.platform)
+        path = os.path.join(out_dir, name + "." + job.format)
         if settings["skip_existing"] and os.path.isfile(path) and os.path.getsize(path) > 0:
-            fields = self._probe_media(path) or {}
+            fields = self._media_fields(job, self._probe_media(path) or {})
             with self._lock:
                 job.status, job.stage_text, job.progress = "done", "Already downloaded", 1.0
                 job.already_existed = True
@@ -1396,6 +1807,14 @@ class Downloader:
             self._emit_job(job, force=True)
             return None
         return path
+
+    @staticmethod
+    def _media_fields(job: Job, fields: dict) -> dict:
+        """mp3 files report no video fields (an embedded cover would otherwise look like a video stream)."""
+        if job.format == "mp3":
+            fields = dict(fields, width=None, height=None, fps=None, vcodec=None)
+            fields["acodec"] = fields.get("acodec") or "mp3"
+        return fields
 
     def _probe_media(self, path: str) -> dict | None:
         ffprobe = self.binaries().get("ffprobe")
@@ -1414,7 +1833,8 @@ class Downloader:
                   logs: list[str]) -> None:
         fields = self._probe_media(media) or {}
         transcoded = False
-        if settings["h264_compat"] and fields.get("vcodec") and fields["vcodec"] != "h264":
+        if (job.format == "mp4" and settings["h264_compat"] and fields.get("vcodec")
+                and fields["vcodec"] != "h264"):
             if "transcode" not in model.weights:  # the stream metadata did not announce a non-AVC codec
                 model = ProgressModel(stage_weights(True, True))
                 model.set("merge", 1.0)
@@ -1432,10 +1852,12 @@ class Downloader:
             raise JobFailed("disk", MESSAGES["disk"], str(exc)) from None
         if not fields:
             fields = self._probe_media(final) or {}
+        fields = self._media_fields(job, fields)
         with self._lock:
             job.status, job.stage_text, job.progress = "done", "Done", 1.0
             job.filepath = final
             job.transcoded = transcoded
+            job.previewed = True
             job.finished_at = time.time()
             job.speed_bps = job.eta_s = None
             for k in ("width", "height", "fps", "vcodec", "acodec"):
@@ -1474,7 +1896,7 @@ class Downloader:
         res = self._run_tool(job, argv, logs, label="transcode", timeout=self.DOWNLOAD_TIMEOUT,
                              on_stdout=on_line, gated=False)
         if res.returncode != 0 or not os.path.exists(dst):
-            code, msg = classify_error(res.stderr)
+            code, msg = classify_error(res.stderr, job.platform)
             if code in ("unknown", "extractor"):
                 code, msg = "unknown", "Could not convert the video to H.264. See the log for details."
             raise JobFailed(code, msg, res.stderr)
@@ -1484,19 +1906,21 @@ class Downloader:
             pass
         return dst
 
-    def _make_thumbnail(self, job: Job, info: dict, job_dir: str) -> None:
-        """Fetch the poster, scale to <= 480 px wide, keep in cache/thumbs and send as a data URL."""
+    def _make_thumbnail(self, job: Job, info: dict, job_dir: str, src_name: str = "thumb_src") -> None:
+        """Fetch the poster (Instagram jpg, YouTube webp / jpg), scale to <= 480 px wide as JPEG, keep it in
+        cache/thumbs and send it as a data URL. Without ffmpeg a raw poster under 400 KB is kept as is."""
         url = info.get("thumbnail")
         if not url:
             thumbs = [t for t in info.get("thumbnails") or [] if t.get("url")]
             url = thumbs[-1]["url"] if thumbs else None
         if not url:
             return
-        dest = self.paths.thumb_file(sanitize_filename(job.shortcode, 60))
+        key = sanitize_filename(job.shortcode, 60)
+        dest = self.paths.thumb_file(key if job.platform == "instagram" else f"{job.platform}_{key}")
         try:
             headers = info.get("http_headers") or {}
             raw = self.fetch(url, headers)
-            src = os.path.join(job_dir, "thumb_src")
+            src = os.path.join(job_dir, src_name)
             with open(src, "wb") as fh:
                 fh.write(raw)
             ffmpeg = self.binaries().get("ffmpeg")
@@ -1544,7 +1968,10 @@ class Downloader:
         target = self._target_path(job, settings, meta)
         if target is None:
             return
-        model = ProgressModel(stage_weights(False, settings["h264_compat"]))
+        mp3 = job.format == "mp3"
+        if mp3:
+            self._bin("ffmpeg")  # ffmpeg_missing before the download starts
+        model = ProgressModel(mp3_stage_weights() if mp3 else stage_weights(False, settings["h264_compat"]))
         self._set(job, status="downloading", stage_text="Downloading video (fallback engine)",
                   progress=model.set("probe", 1.0))
         out_dir = os.path.join(job_dir, "gdl")
@@ -1554,7 +1981,7 @@ class Downloader:
             path = line.strip().lstrip("# ").strip()
             if path.lower().endswith(".mp4") and os.path.isabs(path):
                 files.append(path)
-                self._set(job, progress=model.set("video", 1.0))
+                self._set(job, progress=model.set("audio" if mp3 else "video", 1.0))
 
         res = self._run_tool(job, base + ["-D", out_dir, "-f", "{shortcode}_{num}.{extension}", "--no-mtime",
                                           "--filter", "extension == 'mp4'", job.url], logs,
@@ -1565,7 +1992,29 @@ class Downloader:
         if not files:
             code, msg = classify_error(res.stderr)
             raise JobFailed(code, msg, res.stderr)
-        self._finalize(job, sorted(files)[0], target, settings, model, logs)
+        media = sorted(files)[0]
+        if mp3:
+            media = self._extract_mp3(job, media, model, logs)
+        self._finalize(job, media, target, settings, model, logs)
+
+    def _extract_mp3(self, job: Job, src: str, model: ProgressModel, logs: list[str]) -> str:
+        """MP3 (libmp3lame VBR quality 0, as yt-dlp's `--audio-quality 0`) from a downloaded video file."""
+        ffmpeg = self._bin("ffmpeg")
+        dst = os.path.join(os.path.dirname(src), "media.mp3")
+        argv = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", src, "-vn",
+                "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "0", dst]
+        self._set(job, status="processing", stage_text="Converting to MP3", progress=model.set("convert", 0.1),
+                  speed_bps=None, eta_s=None)
+        res = self._run_tool(job, argv, logs, label="mp3", timeout=self.DOWNLOAD_TIMEOUT, gated=False)
+        if res.returncode != 0 or not os.path.exists(dst):
+            if re.search(r"matches no streams|does not contain any stream", res.stderr, re.I):
+                raise JobFailed("not_found", message_for("no_audio", job.platform), res.stderr)
+            code, msg = classify_error(res.stderr, job.platform)
+            if code in ("unknown", "extractor"):
+                code, msg = "unknown", "Could not convert the audio to MP3. See the log for details."
+            raise JobFailed(code, msg, res.stderr)
+        self._set(job, progress=model.set("convert", 1.0))
+        return dst
 
     @staticmethod
     def _gdl_messages(stdout: str) -> list:

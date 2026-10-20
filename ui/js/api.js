@@ -1,4 +1,4 @@
-// Bridge layer (docs/BRIDGE_API.md). Registers window.__reelsEvent before ready(), waits for
+// Bridge layer (docs/BRIDGE_API.md). Registers window.__msEvent before ready(), waits for
 // pywebview (the `pywebviewready` event, ~1.5 s), falls back to the mock in a normal browser or
 // with ?mock=1. Components never touch window.pywebview directly: they use call() and on().
 
@@ -28,7 +28,7 @@ export function emit(type, payload) {
 
 // Events may arrive before the UI finished wiring; queue them until connect() resolves.
 let early = [];
-window.__reelsEvent = (type, payload) => {
+window.__msEvent = (type, payload) => {
   if (early) early.push([type, payload]);
   else emit(type, payload);
 };
@@ -59,7 +59,7 @@ export async function connect() {
     mode = 'pywebview';
   } else {
     const mock = await import('./mock-api.js');
-    backend = mock.createMock({ params, emit: (t, p) => window.__reelsEvent(t, p) });
+    backend = mock.createMock({ params, emit: (t, p) => window.__msEvent(t, p) });
     mode = 'mock';
   }
   const state = await call('ready');

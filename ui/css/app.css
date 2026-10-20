@@ -37,10 +37,18 @@ body:not(.is-ready) #app {
 }
 
 .tb-name {
-  font: 650 13.5px / 1 var(--font-display);
-  letter-spacing: 0.005em;
+  font: var(--w-title) 13.5px / 1 var(--font-display);
+  letter-spacing: -0.006em;
   color: var(--ink-1);
   text-shadow: var(--ink-shadow);
+}
+
+/* Mode switch (Instagram / YouTube): a sibling of the drag region, never inside it. */
+.tb-mode {
+  position: relative;
+  margin-left: 14px;
+  display: flex;
+  align-items: center;
 }
 
 .tb-right {
@@ -74,7 +82,6 @@ body:not(.is-ready) #app {
   border-radius: var(--r-34);
   --lens-tint: linear-gradient(180deg, rgba(34, 38, 72, 0.26), rgba(14, 16, 34, 0.38));
   --lens-shadow: var(--shadow-l);
-  --glow-r: 260px;
 }
 
 .cmp-head {
@@ -87,8 +94,8 @@ body:not(.is-ready) #app {
 }
 
 .cmp-title {
-  font: 650 20px / 1.2 var(--font-display);
-  letter-spacing: -0.01em;
+  font: var(--t-title);
+  letter-spacing: var(--tr-title);
 }
 
 .counters {
@@ -105,19 +112,21 @@ body:not(.is-ready) #app {
   height: 24px;
   padding: 0 9px;
   border-radius: var(--r-pill);
-  font: 500 12px / 24px var(--font-text);
+  font: var(--t-meta);
+  line-height: 24px;
   text-shadow: none;
   white-space: nowrap;
 }
 
 .counter b {
-  font-weight: 700;
+  font-weight: var(--w-display);
   font-variant-numeric: tabular-nums;
 }
 
 .c-valid { background: rgba(63, 226, 193, 0.15); color: #98f4df; }
 .c-invalid { background: rgba(255, 100, 130, 0.15); color: #ffb9c6; }
 .c-dup { background: rgba(255, 196, 87, 0.14); color: #ffd995; }
+.c-other { background: rgba(255, 255, 255, 0.08); color: var(--ink-2); }
 
 .cmp-well {
   position: relative;
@@ -142,7 +151,9 @@ body:not(.is-ready) #app {
   resize: none;
   background: transparent;
   color: var(--ink-1);
-  font: 13.5px / 1.5 var(--font-text);
+  font: var(--t-body);
+  letter-spacing: var(--tr-body);
+  line-height: 1.5;
   caret-color: var(--accent-ink);
   user-select: text;
   text-shadow: none;
@@ -166,7 +177,7 @@ body:not(.is-ready) #app {
   border-radius: inherit;
   border: 1.5px dashed rgba(170, 190, 255, 0.55);
   background: rgba(93, 141, 255, 0.16);
-  font: 600 14px var(--font-text);
+  font: var(--t-card);
   color: #d6e0ff;
   opacity: 0;
   scale: 0.97;
@@ -256,7 +267,9 @@ body:not(.is-ready) #app {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font: 12px / 30px var(--font-mono);
+  font: var(--t-mono-s);
+  --ff-feat: var(--ff-mono);
+  line-height: 30px;
 }
 
 .pv-orig {
@@ -267,7 +280,7 @@ body:not(.is-ready) #app {
 .pv-clean {
   max-width: 100%;
   color: var(--ink-1);
-  font-weight: 600;
+  font-weight: 560;
 }
 
 .pv-item.is-valid:not(.is-clean) .pv-clean { opacity: 0; }
@@ -289,9 +302,20 @@ body:not(.is-ready) #app {
 .pv-item.is-invalid .pv-ic { color: var(--rose); }
 .pv-item.is-dup { opacity: 0.55; }
 
+/* A valid link of the other platform: neutral chip, short clean form, inline switch action. */
+.pv-item.is-other .pv-chip {
+  max-width: calc(100% - 150px);
+  background: rgba(255, 196, 87, 0.09);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 210, 130, 0.3);
+}
+
+.pv-item.is-other .pv-orig { color: #ffe1a8; }
+.pv-item.is-other .pv-ic { color: var(--amber); }
+
 .pv-note {
   flex: none;
-  font: 500 11.5px / 1 var(--font-text);
+  font: var(--t-caption);
+  letter-spacing: var(--tr-caption);
   color: var(--ink-4);
   white-space: nowrap;
 }
@@ -300,9 +324,22 @@ body:not(.is-ready) #app {
 .pv-item.is-invalid .pv-note { color: #ff9cb0; }
 .pv-item.is-dup .pv-note { color: #ffd995; }
 
+.pv-switch {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: #ffe1a8;
+  background: rgba(255, 196, 87, 0.14);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 210, 130, 0.32);
+}
+
+.pv-switch:hover { background: rgba(255, 196, 87, 0.22); }
+.pv-switch .ic { width: 14px; height: 14px; }
+
 .pv-more {
   padding: 8px 6px 2px;
-  font-size: 12px;
+  font: var(--t-meta);
   color: var(--ink-3);
 }
 
@@ -316,7 +353,8 @@ body:not(.is-ready) #app {
   gap: 12px;
   padding: 10px 26px;
   text-align: center;
-  font-size: 12.5px;
+  font: var(--t-callout);
+  letter-spacing: var(--tr-callout);
   line-height: 1.5;
   color: var(--ink-4);
 }
@@ -348,10 +386,82 @@ body:not(.is-ready) #app {
   50% { opacity: 1; scale: 1.06 1; }
 }
 
+/* Spec row ("what you get"): video quality of the current mode, read right before the format toggle
+   and Download below it. MP3 dims the control (is-off) instead of hiding it, so nothing jumps. */
+.cmp-spec {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 4px 0 6px;
+  container-type: inline-size;
+}
+
+.spec-label {
+  flex: none;
+  font: var(--t-caption);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+}
+
+.cmp-spec .seg { flex: none; }
+
+.spec-hint {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  font: var(--t-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: color var(--t-med) ease;
+}
+
+.cmp-spec.is-off .spec-label,
+.cmp-spec.is-off .spec-hint { color: var(--ink-4); }
+
+@container (max-width: 290px) {
+  .spec-hint { display: none; }
+}
+
+/* Action row: format toggle (MP4 / MP3) + the primary button. */
 .cmp-action {
   flex: none;
   display: flex;
+  align-items: center;
+  gap: 8px;
+  container-type: inline-size;
+}
+
+.cmp-btn-slot {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   justify-content: center;
+}
+
+@container (max-width: 380px) {
+  .pm-label kbd { display: none; }
+  /* Narrow button (minimum window): the speed / percentage goes under the text instead of beside it. */
+  .cmp-action .pm-progress {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    padding: 0 16px;
+  }
+  .cmp-action .pm-ptext {
+    font: var(--t-control);
+    letter-spacing: var(--tr-control);
+    line-height: 18px;
+  }
+  .cmp-action .pm-pmeta {
+    font: var(--t-meta);
+    font-variant-numeric: tabular-nums;
+    line-height: 15px;
+  }
 }
 
 /* Primary button that morphs: ready -> sending (circle) -> progress pill -> done */
@@ -367,7 +477,8 @@ body:not(.is-ready) #app {
   border-radius: var(--r-pill);
   overflow: hidden;
   color: #fff;
-  font: 650 15px / 1 var(--font-display);
+  font: var(--t-headline);
+  letter-spacing: var(--tr-headline);
   background: var(--accent-grad);
   box-shadow:
     0 12px 26px -10px rgba(98, 110, 255, 0.8),
@@ -379,21 +490,21 @@ body:not(.is-ready) #app {
   transition: background-color 0.4s ease, box-shadow 0.4s ease, color 0.3s ease;
 }
 
+/* Press: the tint lightens evenly (no pointer tracking). */
 .primary-morph::before {
   content: '';
   position: absolute;
   inset: 0;
   z-index: 2;
   border-radius: inherit;
-  background: radial-gradient(140px 70px at var(--mx, 50%) var(--my, 0%), rgba(255, 255, 255, 0.34), transparent 70%);
-  opacity: var(--hot);
-  transition: --hot 0.4s var(--ease-out);
-  mix-blend-mode: plus-lighter;
+  background: rgba(255, 255, 255, 0.14);
+  opacity: 0;
+  transition: opacity 0.4s var(--ease-out);
   pointer-events: none;
 }
 
 .primary-morph.is-pressed::before {
-  --hot: 1.6;
+  opacity: 1;
   transition-duration: 80ms;
 }
 
@@ -403,6 +514,7 @@ body:not(.is-ready) #app {
   position: absolute;
   inset: 1px 18px auto;
   height: 45%;
+  transition: opacity 0.3s ease;
   z-index: 2;
   border-radius: 999px 999px 40% 40%;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0.28), transparent);
@@ -424,6 +536,10 @@ body:not(.is-ready) #app {
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px var(--stroke-2);
   cursor: default;
 }
+
+/* Over the dark, empty part of the track the streak would read as a second pill; the liquid
+   carries its own top light instead. */
+.primary-morph[data-state="progress"]::after { opacity: 0; }
 
 .primary-morph[data-state="done"] {
   background: var(--mint-grad);
@@ -474,60 +590,82 @@ body:not(.is-ready) #app {
 }
 
 .pm-pmeta {
-  font: 500 13px / 1 var(--font-text);
+  font: var(--t-callout);
+  font-weight: var(--w-medium);
   font-variant-numeric: tabular-nums;
   opacity: 0.85;
 }
 
+.pm-spin .spinner { animation-play-state: paused; }
+[data-state="sending"] .pm-spin .spinner { animation-play-state: running; }
+
+/* Liquid level of the progress state.
+   .pm-fill is a static clip with the button's own shape (it never moves, so nothing can render
+   outside the rounded pill). Inside it, .pm-liquid is wider than the button by its soft edge
+   (--pm-edge), masked from opaque to clear over that edge, and moves by translateX only:
+   (p - 1) * 100% of its own width puts the whole edge left of the button at p = 0, the opaque body
+   flush with the right end at p = 1, and the middle of the edge exactly at the centre at p = 0.5.
+   No bar, no halo: the level is the gradient edge itself. */
 .pm-fill {
   position: absolute;
   inset: 0;
   z-index: 0;
+  overflow: hidden;
   border-radius: inherit;
-  background: var(--accent-grad);
-  transform: translateX(calc((var(--p, 0) - 1) * 100%));
-  transition: transform 0.7s cubic-bezier(0.25, 1.1, 0.4, 1), opacity 0.3s ease;
   opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
 }
 
 [data-state="progress"] .pm-fill { opacity: 1; }
 
-.pm-spin .spinner { animation-play-state: paused; }
-[data-state="sending"] .pm-spin .spinner { animation-play-state: running; }
+.pm-liquid {
+  --pm-edge: 56px;
+  --pm-mask: linear-gradient(90deg,
+    #000 calc(100% - var(--pm-edge)),
+    rgba(0, 0, 0, 0.82) calc(100% - var(--pm-edge) * 0.78),
+    rgba(0, 0, 0, 0.5) calc(100% - var(--pm-edge) * 0.5),
+    rgba(0, 0, 0, 0.18) calc(100% - var(--pm-edge) * 0.24),
+    transparent 100%);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(100% + var(--pm-edge));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 52%),
+    var(--accent-grad);
+  -webkit-mask-image: var(--pm-mask);
+  mask-image: var(--pm-mask);
+  transform: translateX(calc((var(--p, 0) - 1) * 100%));
+  transition: transform 0.9s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
 
-.pm-fill::before {
-  /* moving sheen */
+/* Entering the progress state sets the level without travel (composer.js toggles the class). */
+.primary-morph.pm-instant .pm-liquid { transition: none; }
+
+/* Sheen: a faint highlight drifting through the filled part only. Its track spans the visible
+   opaque body (p * 100% - edge of the liquid's width, ending where the edge starts); the
+   animation exists only in the progress state. */
+.pm-liquid::after {
   content: '';
   position: absolute;
-  inset: 0;
-  width: 40%;
-  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.32), transparent);
-  animation: sheen 2.4s linear infinite;
-  animation-play-state: paused;
+  top: 0;
+  bottom: 0;
+  right: var(--pm-edge);
+  width: max(0px, calc(var(--p, 0) * 100% - var(--pm-edge)));
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.13) 50%, transparent 70%) no-repeat;
+  background-size: 60% 100%;
+  background-position: -150% 0;
 }
 
-.pm-fill::after {
-  /* liquid meniscus at the leading edge */
-  content: '';
-  position: absolute;
-  top: -20%;
-  right: -6px;
-  width: 13px;
-  height: 140%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, #a46dff 70%, rgba(164, 109, 255, 0));
-  animation: meniscus 1.8s ease-in-out infinite;
-  animation-play-state: paused;
+[data-state="progress"] .pm-liquid::after {
+  animation: pm-sheen 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
-[data-state="progress"] .pm-fill::before,
-[data-state="progress"] .pm-fill::after {
-  animation-play-state: running;
-}
-
-@keyframes meniscus {
-  0%, 100% { transform: scaleX(0.7) translateY(-3%); }
-  50% { transform: scaleX(1.1) translateY(3%); }
+@keyframes pm-sheen {
+  from { background-position: -150% 0; }
+  to { background-position: 250% 0; }
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -569,7 +707,6 @@ body:not(.is-ready) #app {
   border-radius: var(--r-pill);
   --lens-tint: rgba(24, 28, 52, 0.2);
   --lens-shadow: var(--shadow-m);
-  --glow-r: 220px;
   transition: --lens-bloom 0.3s ease;
 }
 
@@ -581,14 +718,14 @@ body:not(.is-ready) #app {
 }
 
 .q-title {
-  font: 650 19px / 1.2 var(--font-display);
-  letter-spacing: -0.01em;
+  font: var(--t-title);
+  letter-spacing: var(--tr-title);
 }
 
 .q-counts {
   display: flex;
   gap: 12px;
-  font-size: 12.5px;
+  font: var(--t-meta);
   color: var(--ink-3);
   white-space: nowrap;
   overflow: hidden;
@@ -620,12 +757,13 @@ body:not(.is-ready) #app {
 
 @container (max-width: 640px) {
   .q-title-wrap { flex-direction: column; gap: 2px; }
-  .q-title { font-size: 17px; }
+  .q-title { font-size: 17px; letter-spacing: -0.013em; }
   .q-actions .btn > span { display: none; }
   .q-actions .btn { width: 34px; padding: 0; }
 }
 
-/* Job card: cheap glass, rendered only near the viewport (content-visibility). */
+/* Job card: cheap glass, rendered only near the viewport (content-visibility).
+   Jobs of the other mode stay in the DOM with [hidden]: switching modes never rebuilds cards. */
 
 .jcard {
   display: flex;
@@ -635,7 +773,6 @@ body:not(.is-ready) #app {
   content-visibility: auto;
   contain-intrinsic-size: auto 122px;
   --lite-tint: rgba(18, 20, 40, 0.34);
-  --glow-r: 220px;
   transition: background-color 0.4s ease;
 }
 
@@ -651,6 +788,13 @@ body:not(.is-ready) #app {
   overflow: hidden;
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02));
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 4px 10px -4px rgba(0, 0, 0, 0.5);
+}
+
+/* YouTube videos (not Shorts) are landscape. */
+.jcard[data-shape="wide"] .jc-thumb {
+  flex-basis: 132px;
+  height: 74px;
+  border-radius: var(--r-10);
 }
 
 .jc-thumb img {
@@ -671,6 +815,16 @@ body:not(.is-ready) #app {
   color: var(--ink-4);
 }
 
+.jcard[data-format="mp3"] .jc-thumb-ph {
+  color: #c9b8ff;
+  background: radial-gradient(120% 90% at 30% 10%, rgba(138, 108, 255, 0.32), transparent 70%);
+}
+
+.jcard[data-format="mp3"] .jc-thumb-ph .ic { width: 22px; height: 22px; }
+
+/* Shimmer while the thumbnail is unknown: a pending preview, or an active job with no frame yet.
+   It runs only while the class is on (stops when `previewed` turns true or the job ends). */
+.jcard.is-pending:not(.has-thumb) .jc-thumb::after,
 .jcard.is-active:not(.has-thumb) .jc-thumb::after {
   content: '';
   position: absolute;
@@ -687,7 +841,7 @@ body:not(.is-ready) #app {
   padding: 1px 5px;
   border-radius: 6px;
   background: rgba(0, 0, 0, 0.5);
-  font: 600 10.5px / 1.4 var(--font-text);
+  font: var(--t-micro);
   font-variant-numeric: tabular-nums;
 }
 
@@ -698,7 +852,7 @@ body:not(.is-ready) #app {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .jc-top {
@@ -708,20 +862,36 @@ body:not(.is-ready) #app {
   min-height: 28px;
 }
 
-.jc-author {
+.jc-title {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font: 650 13.5px / 1.2 var(--font-display);
+  font: var(--t-card);
+  letter-spacing: var(--tr-card);
   user-select: text;
 }
 
-.jc-time {
-  flex: none;
-  font-size: 12px;
-  color: var(--ink-4);
-  white-space: nowrap;
+.jc-title.is-link {
+  font: var(--t-mono-s);
+  --ff-feat: var(--ff-mono);
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+
+/* Quiet skeleton bar in place of the title until the preview arrives. */
+.jc-title.is-skeleton {
+  flex: 0 1 62%;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.16) 50%, rgba(255, 255, 255, 0.07) 100%) 0 0 / 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
 }
 
 .jc-actions {
@@ -733,21 +903,52 @@ body:not(.is-ready) #app {
 
 .jc-act { width: 30px; height: 30px; }
 
-.jc-title {
-  font-size: 13px;
-  line-height: 1.3;
-  color: var(--ink-2);
+.jc-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font: var(--t-meta);
+  letter-spacing: var(--tr-meta);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.jc-author {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--ink-2);
+  font-weight: var(--w-medium);
   user-select: text;
+}
+
+.jc-author.is-link {
+  font: var(--t-mono-s);
+  --ff-feat: var(--ff-mono);
+  color: var(--ink-3);
+}
+
+.jc-author:empty + .jc-dot { display: none; }
+
+.jc-dot { color: var(--ink-4); }
+
+.jc-time {
+  flex: none;
+  color: var(--ink-4);
+  font-variant-numeric: tabular-nums;
 }
 
 .jc-badges {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 4px;
-  min-height: 20px;
+  min-height: 22px;
+}
+
+.jc-badge-list {
+  display: contents;
 }
 
 .badge {
@@ -756,7 +957,9 @@ body:not(.is-ready) #app {
   border-radius: 6px;
   background: var(--fill-2);
   color: var(--ink-2);
-  font: 500 11px / 20px var(--font-text);
+  font: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+  line-height: 20px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-shadow: none;
@@ -764,6 +967,56 @@ body:not(.is-ready) #app {
 
 .badge-mint { background: rgba(63, 226, 193, 0.15); color: #93f2dd; }
 .badge-amber { background: rgba(255, 196, 87, 0.15); color: #ffd995; }
+.badge-fmt { font-weight: 650; letter-spacing: 0.04em; }
+.badge-fmt[data-v="mp3"] { background: rgba(138, 108, 255, 0.2); color: #d4c8ff; }
+
+/* Per-item format toggle on queued cards: a fill control (no glass on glass), CSS-only thumb. */
+.fmt-toggle {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  height: 22px;
+  padding: 2px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.26);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+}
+
+.fmt-toggle button {
+  position: relative;
+  z-index: 1;
+  min-width: 36px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink-3);
+  font: var(--t-micro);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: color var(--t-fast) ease;
+}
+
+.fmt-toggle button:hover { color: var(--ink-2); }
+.fmt-toggle button[aria-checked="true"] { color: var(--ink-1); }
+
+.fmt-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0.5px 0 rgba(255, 255, 255, 0.25);
+  transition: translate 0.42s cubic-bezier(0.3, 1.35, 0.5, 1), background-color 0.3s ease;
+}
+
+.fmt-toggle[data-v="mp3"] .fmt-thumb {
+  translate: 100% 0;
+  background: rgba(138, 108, 255, 0.42);
+}
 
 .jc-status {
   margin-top: auto;
@@ -803,13 +1056,14 @@ body:not(.is-ready) #app {
 .jcard[data-status="done"] .jc-bar { display: none; }
 .jcard[data-status="canceled"] .jc-fill { background: rgba(255, 255, 255, 0.25); box-shadow: none; }
 .jcard[data-status="queued"] .jc-fill { background: rgba(255, 255, 255, 0.2); }
+.jcard[data-status="queued"] .jc-fill::after { content: none; }
 .jcard[data-status="error"] .jc-status { display: none; }
 
 .jc-line {
   display: flex;
   justify-content: space-between;
   gap: 10px;
-  font-size: 12px;
+  font: var(--t-meta);
   color: var(--ink-3);
   white-space: nowrap;
 }
@@ -836,7 +1090,7 @@ body:not(.is-ready) #app {
 
 .jc-err-text {
   flex: 1 1 180px;
-  font-size: 12.5px;
+  font: var(--t-callout);
   line-height: 1.35;
   color: #ffc6d1;
   user-select: text;
@@ -911,14 +1165,32 @@ body:not(.is-ready) #app {
 
 .empty-title {
   margin-top: 6px;
-  font: 650 19px / 1.2 var(--font-display);
+  font: var(--t-title);
+  letter-spacing: var(--tr-title);
 }
 
 .empty-text {
   max-width: 400px;
-  font-size: 13.5px;
+  font: var(--t-body);
+  letter-spacing: var(--tr-body);
   line-height: 1.55;
   color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Reduced motion: the skeleton and sheens hold still (the static gradient still reads as pending). */
+
+@media (prefers-reduced-motion: reduce) {
+  .jc-title.is-skeleton,
+  .jcard .jc-thumb::after,
+  .jcard.is-active .jc-fill::after,
+  [data-state="progress"] .pm-liquid::after,
+  .pv-hint-art i,
+  .ea-drop,
+  .ea-film,
+  .ea-bubbles circle {
+    animation: none;
+  }
 }
 
 /* ---------------------------------------------------------------------------------------------

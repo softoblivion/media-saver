@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional
 
 from app import winutil
 
-log = logging.getLogger("reels.bridge")
+log = logging.getLogger("mediasaver.bridge")
 
 # pywebview FileDialog enum values (webview.FileDialog), repeated here so the module imports without pywebview.
 _DIALOG_OPEN = 10
@@ -78,11 +78,11 @@ def js_literal(value: Any) -> str:
 
 
 def build_event_script(events: list[tuple[str, Any]]) -> str:
-    """One JS snippet that calls window.__reelsEvent for every event, isolating failures per event."""
+    """One JS snippet that calls window.__msEvent for every event, isolating failures per event."""
     calls = "".join(
         f"try{{f({js_literal(etype)},{js_literal(payload)})}}catch(e){{console.error(e)}};" for etype, payload in events
     )
-    return "(function(){var f=window.__reelsEvent;if(typeof f!=='function')return;" + calls + "})();"
+    return "(function(){var f=window.__msEvent;if(typeof f!=='function')return;" + calls + "})();"
 
 
 class EventPump:
@@ -311,6 +311,11 @@ class Bridge:
     # -- state
     @_api
     def ready(self):
+        # The UI may call ready() before the window's loaded event starts the engine; starting here is idempotent
+        # and guarantees that the state carries the restored history.
+        start = getattr(self._engine, "start", None)
+        if callable(start):
+            start()
         state = self._engine.get_state()
         self._pump.set_ready()
         self._pump.emit("window", {"maximized": self._maximized, "focused": self._focused})
@@ -318,12 +323,19 @@ class Bridge:
 
     # -- links and jobs
     @_api
-    def clean_links(self, text):
-        return self._engine.clean_links(_as_text(text))
+    def clean_links(self, text, platform=None):
+        return self._engine.clean_links(_as_text(text), _as_choice(platform, "platform"))
 
     @_api
-    def enqueue(self, text):
-        return self._engine.enqueue(_as_text(text))
+    def enqueue(self, text, platform=None, format=None):  # noqa: A002 - parameter name is part of the JS contract
+        return self._engine.enqueue(_as_text(text), _as_choice(platform, "platform"), _as_choice(format, "format"))
+
+    @_api
+    def set_job_format(self, id, format):  # noqa: A002
+        choice = _as_choice(format, "format")
+        if choice is None:
+            raise BridgeError("Format must be mp4 or mp3.")
+        return self._engine.set_job_format(str(id), choice)
 
     @_api
     def cancel(self, id):  # noqa: A002 - parameter name is part of the JS contract
@@ -338,8 +350,8 @@ class Bridge:
         return bool(self._engine.remove(str(id)))
 
     @_api
-    def clear_finished(self):
-        return int(self._engine.clear_finished())
+    def clear_finished(self, platform=None):
+        return int(self._engine.clear_finished(_as_choice(platform, "platform")))
 
     # -- files and folders
     @_api
@@ -401,6 +413,24 @@ class Bridge:
     @_api
     def update_engine(self):
         self._engine.update_engine()
+        return None
+
+    # -- app self-update
+    @_api
+    def check_updates(self):
+        return self._engine.check_updates()
+
+    @_api
+    def download_update(self):
+        self._engine.download_update()
+        return None
+
+    @_api
+    def apply_update(self):
+        if not self._engine.apply_update():
+            raise BridgeError("The update is not ready to install.")
+        # The helper waits for this process to exit; close the window the same way the title bar button does.
+        threading.Thread(target=self._close_window, name="window-close", daemon=True).start()
         return None
 
     # -- Instagram session
@@ -496,4 +526,13 @@ def _as_text(value: Any) -> str:
         return ""
     if not isinstance(value, str):
         raise BridgeError("Expected text.")
+    return value
+
+
+def _as_choice(value: Any, what: str) -> Optional[str]:
+    """An optional short identifier argument (platform, format): None / "" mean default."""
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        raise BridgeError(f"Expected a {what} name.")
     return value

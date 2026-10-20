@@ -19,12 +19,34 @@ body {
 }
 
 body {
-  font: 400 var(--fs-14) / 1.4 var(--font-text);
+  font: var(--t-body);
+  letter-spacing: var(--tr-body);
+  font-optical-sizing: auto;
+  font-kerning: normal;
   color: var(--ink-1);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   user-select: none;
   cursor: default;
   font-synthesis: none;
+}
+
+/* OpenType features. The `font` shorthand used by the type roles resets font-feature-settings,
+   so the features travel as the inherited custom property --ff-feat (Inter features by default,
+   mono elements set --ff-feat: var(--ff-mono)) and this one rule applies them everywhere. */
+:root {
+  --ff-feat: var(--ff-text);
+}
+
+*,
+*::before,
+*::after {
+  font-feature-settings: var(--ff-feat) !important;
+}
+
+/* Numbers that change in place (sizes, speeds, ETA, counters) never shift the layout. */
+.tnum {
+  font-variant-numeric: tabular-nums;
 }
 
 h1, h2, h3, p {
@@ -40,13 +62,17 @@ img, svg {
   display: block;
 }
 
-code, kbd {
+code {
   font-family: var(--font-mono);
+  --ff-feat: var(--ff-mono);
+  letter-spacing: 0;
 }
 
 kbd {
   display: inline-block;
-  font: 600 10.5px / 1.5 var(--font-text);
+  font: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+  line-height: 1.6;
   padding: 0 6px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.16);
@@ -246,7 +272,8 @@ html.is-still .clip-pill * {
   border-radius: var(--r-pill);
   background: var(--fill-2);
   color: var(--ink-1);
-  font: 600 13px / 1 var(--font-text);
+  font: var(--t-control);
+  letter-spacing: var(--tr-control);
   white-space: nowrap;
   cursor: pointer;
   box-shadow: inset 0 0 0 0.5px var(--stroke-2), inset 0 1px 0 rgba(255, 255, 255, 0.07);
@@ -272,7 +299,7 @@ html.is-still .clip-pill * {
 .btn-s {
   height: 30px;
   padding: 0 12px;
-  font-size: 12.5px;
+  font: var(--t-control-s);
   gap: 6px;
 }
 

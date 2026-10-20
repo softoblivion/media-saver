@@ -1,14 +1,39 @@
 """Runtime data locations (ARCHITECTURE.md section 4).
 
-Everything resolves from one root: %REELS_SAVER_HOME% when set (tests and workers must set it), otherwise
-%LOCALAPPDATA%\\ReelsSaver. Folders are created on first access.
+The app is portable: nothing it writes depends on the user profile or on a drive letter. Everything resolves
+from one root, the `media-saver_data` folder next to the executable (next to the project root when run from source):
+
+- `%MEDIA_SAVER_HOME%` when set (tests and workers must set it to a scratch folder), otherwise
+- `<app dir>\\media-saver_data`, where the app dir is the folder of `MediaSaver.exe` in a frozen build and the project root
+  when running from source.
+
+Folders are created on first access. The default output folder is `<app dir>\\Downloads`.
 """
 from __future__ import annotations
 
 import os
+import sys
 
-APP_DIR_NAME = "ReelsSaver"
-HOME_ENV = "REELS_SAVER_HOME"
+DATA_DIR_NAME = "media-saver_data"  # <project>_data (workspace rule "Portable projects")
+DOWNLOADS_DIR_NAME = "Downloads"
+HOME_ENV = "MEDIA_SAVER_HOME"
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def exe_path() -> str | None:
+    """Full path of the running MediaSaver.exe, None when running from source."""
+    return os.path.abspath(sys.executable) if is_frozen() else None
+
+
+def app_dir() -> str:
+    """Folder of the executable (frozen) or the project root (source). Never the PyInstaller extraction dir."""
+    exe = exe_path()
+    if exe:
+        return os.path.dirname(exe)
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, os.pardir))
 
 
 def _ensure(path: str) -> str:
@@ -53,13 +78,15 @@ def default_root() -> str:
     env = os.environ.get(HOME_ENV, "").strip()
     if env:
         return os.path.abspath(os.path.expandvars(os.path.expanduser(env)))
-    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
-    return os.path.join(base, APP_DIR_NAME)
+    return os.path.join(app_dir(), DATA_DIR_NAME)
 
 
 def default_output_dir() -> str:
-    profile = os.environ.get("USERPROFILE") or os.path.expanduser("~")
-    return os.path.join(profile, "Downloads", "Reels Saver")
+    """`<app dir>\\Downloads`; under `%MEDIA_SAVER_HOME%` when that override is set (tests, portable layouts)."""
+    env = os.environ.get(HOME_ENV, "").strip()
+    if env:
+        return os.path.join(os.path.abspath(os.path.expandvars(os.path.expanduser(env))), DOWNLOADS_DIR_NAME)
+    return os.path.join(app_dir(), DOWNLOADS_DIR_NAME)
 
 
 class AppPaths:
@@ -101,6 +128,11 @@ class AppPaths:
     def webview_dir(self) -> str:
         return _ensure(os.path.join(self.root, "webview"))
 
+    @property
+    def updates_dir(self) -> str:
+        """Downloaded application updates and the swap helper (app/core/selfupdate.py)."""
+        return _ensure(os.path.join(self.root, "updates"))
+
     # --- files ---------------------------------------------------------------------------------------
     @property
     def cookies_file(self) -> str:
@@ -126,6 +158,11 @@ class AppPaths:
     @property
     def default_output_dir(self) -> str:
         return default_output_dir()
+
+    @property
+    def exe_path(self) -> str | None:
+        """The running executable (frozen builds only); the self-updater replaces this file."""
+        return exe_path()
 
     # --- per item ------------------------------------------------------------------------------------
     def binary(self, name: str) -> str:

@@ -88,7 +88,7 @@ def main() -> int:
         origin = SOURCE_PNG.relative_to(ROOT)
     else:
         base = draw_placeholder()
-        origin = "generated placeholder"
+        origin = "drawn placeholder"
     if base.width != base.height:
         side = max(base.size)
         square = Image.new("RGBA", (side, side), (0, 0, 0, 0))

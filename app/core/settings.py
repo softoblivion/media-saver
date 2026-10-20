@@ -1,6 +1,6 @@
 """User settings: schema, defaults, validation, atomic persistence (BRIDGE_API.md `Settings`).
 
-Validation errors are ValueError with a Russian message (the bridge passes it to the UI as is).
+Validation errors are ValueError with an English message (the bridge passes it to the UI as is).
 Loading never fails: a missing or broken file gives defaults, bad values fall back per key, unknown keys
 are dropped.
 """
@@ -15,9 +15,12 @@ from typing import Any
 
 from .paths import atomic_write_json, default_output_dir
 
-log = logging.getLogger("reels.core.settings")
+log = logging.getLogger("mediasaver.core.settings")
 
-QUALITIES = ("max", "1080", "720")
+QUALITIES_INSTAGRAM = ("low", "medium", "max")   # short side <= 480 / <= 720 / best
+QUALITIES_YOUTUBE = ("360", "720", "max")        # short side <= 360 / <= 720 / best (1080p, 1440p, 2160p)
+PLATFORMS = ("instagram", "youtube")
+FORMATS = ("mp4", "mp3")
 CHANNELS = ("nightly", "stable")
 AUTH_MODES = ("auto", "always", "never")
 BROWSERS = ("", "firefox", "edge", "chrome", "brave", "opera")
@@ -33,12 +36,16 @@ def defaults() -> dict[str, Any]:
     return {
         "output_dir": default_output_dir(),
         "filename_template": "{author}_{shortcode}",
-        "quality": "max",
+        "mode": "instagram",
+        "format": "mp4",
+        "quality_instagram": "max",
+        "quality_youtube": "max",
         "h264_compat": True,
         "skip_existing": True,
         "concurrency": 2,
         "update_channel": "nightly",
         "auto_update": True,
+        "check_app_updates": True,
         "auth_mode": "auto",
         "browser_cookies": "",
         "clipboard_watch": True,
@@ -56,7 +63,7 @@ def _bool(key: str, value: Any) -> bool:
 
 
 def _choice(key: str, value: Any, choices: tuple, label: str) -> str:
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and key == "quality":
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and key == "quality_youtube":
         value = str(int(value))
     if not isinstance(value, str) or value not in choices:
         raise ValueError(f"Invalid value for '{label}': {value!r}")
@@ -64,7 +71,7 @@ def _choice(key: str, value: Any, choices: tuple, label: str) -> str:
 
 
 def validate_value(key: str, value: Any) -> Any:
-    """Return the normalised value or raise ValueError (Russian message)."""
+    """Return the normalised value or raise ValueError (English message)."""
     if key == "output_dir":
         if not isinstance(value, str) or not value.strip():
             raise ValueError("Output folder is not set")
@@ -93,9 +100,16 @@ def validate_value(key: str, value: Any) -> Any:
         if _BAD_TEMPLATE_CHARS.search(literal):
             raise ValueError('The template cannot contain the characters < > : " / \\ | ? *')
         return value
-    if key == "quality":
-        return _choice(key, value, QUALITIES, "Quality")
-    if key in ("h264_compat", "skip_existing", "auto_update", "clipboard_watch", "open_folder_when_done"):
+    if key == "quality_instagram":
+        return _choice(key, value, QUALITIES_INSTAGRAM, "Instagram quality")
+    if key == "quality_youtube":
+        return _choice(key, value, QUALITIES_YOUTUBE, "YouTube quality")
+    if key == "mode":
+        return _choice(key, value, PLATFORMS, "Mode")
+    if key == "format":
+        return _choice(key, value, FORMATS, "Format")
+    if key in ("h264_compat", "skip_existing", "auto_update", "check_app_updates", "clipboard_watch",
+               "open_folder_when_done"):
         return _bool(key, value)
     if key == "concurrency":
         if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:

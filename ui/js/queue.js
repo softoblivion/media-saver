@@ -1,22 +1,42 @@
 // Queue: header with counts and actions, job cards (cheap glass, content-visibility for long lists),
-// liquid progress bars, actions by status, login prompt on errors, and an original empty state.
+// liquid progress bars, actions by status, login prompt on Instagram errors, preview placeholders,
+// per-item format toggle, and an original empty state.
+//
+// Every job stays in memory and in the DOM; only the jobs whose `platform` equals the current mode
+// are shown (the others carry [hidden]), so switching modes re-renders instantly without a refetch.
 
 import { call, on } from './api.js';
 import { Lens, gel } from './glass.js';
-import { SPRINGS, springAnimate, springEasing, whenDone } from './motion.js';
+import { SPRINGS, springAnimate, springEasing, whenDone, reducedMotion } from './motion.js';
 import { icon } from './icons.js';
-import { bytes, speed, eta, duration, codec, escapeHtml, timeAgo, plural } from './format.js';
+import { bytes, speed, eta, duration, codec, escapeHtml, timeAgo, shortLink } from './format.js';
 import { toast } from './toast.js';
 import { setGhosts, activity } from './background.js';
+import { formatToggleHtml } from './controls.js';
+import { getMode, onPref } from './mode.js';
 
 const ACTIVE = new Set(['queued', 'probing', 'downloading', 'processing']);
-const FINISHED = new Set(['done', 'error', 'canceled']);
+const KIND_ICON = { reel: 'reel', p: 'post', video: 'video', shorts: 'shorts' };
 
-const jobs = new Map();   // id -> job
+const EMPTY_COPY = {
+  instagram: {
+    title: 'No Reels yet',
+    text: 'Paste Reels links on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver strips the junk and saves every Reel as MP4 or MP3, in the quality you pick above Download.',
+  },
+  youtube: {
+    title: 'No YouTube videos yet',
+    text: 'Paste links to YouTube videos or Shorts on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download.',
+  },
+};
+
+const jobs = new Map();   // id -> job (both platforms)
 const cards = new Map();  // id -> element
 let list, scroller, empty, head, counts;
 let auth = { logged_in: false };
 let progressEase = null;
+
+const platformOf = (j) => j.platform || 'instagram';
+const shown = (j) => platformOf(j) === getMode();
 
 export function getJobs() {
   return jobs.values();
@@ -34,7 +54,7 @@ export function initQueue(state) {
   head.querySelectorAll('.btn').forEach((b) => gel(b));
   document.getElementById('btn-clear').addEventListener('click', clearFinished);
   document.getElementById('btn-folder').addEventListener('click', () => call('open_output_dir').catch((e) => toast('error', e.message)));
-  empty.innerHTML = emptyArt();
+  renderEmpty();
 
   const frag = document.createDocumentFragment();
   for (const j of state.jobs || []) {
@@ -46,12 +66,14 @@ export function initQueue(state) {
   list.appendChild(frag);
 
   list.addEventListener('click', onAction);
+  list.addEventListener('keydown', onToggleKey);
   on('job', upsert);
   on('job_removed', ({ id }) => removeCard(id));
   on('auth', (a) => {
     auth = a;
     for (const j of jobs.values()) if (j.status === 'error') patch(cards.get(j.id), j);
   });
+  onPref('mode', onModeChange);
   scroller.addEventListener('scroll', () => head.classList.toggle('is-scrolled', scroller.scrollTop > 4), { passive: true });
   // Relative times refresh once a minute (no animation loop).
   setInterval(() => {
@@ -65,23 +87,56 @@ export function initQueue(state) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Mode
+
+function onModeChange() {
+  renderEmpty();
+  const entering = [];
+  for (const [id, el] of cards) {
+    const j = jobs.get(id);
+    const vis = !!j && shown(j);
+    if (el.hidden === vis) {
+      el.hidden = !vis;
+      if (vis) entering.push(el);
+    }
+  }
+  scroller.scrollTop = 0;
+  renderHead();
+  if (reducedMotion.matches) return;
+  // The first cards of the new mode settle in with a short stagger; the rest are off screen.
+  const order = Array.from(list.children).filter((c) => !c.hidden).slice(0, 8);
+  order.forEach((el, i) => {
+    springAnimate(el, [
+      { opacity: 0, transform: 'translateY(10px) scale(0.97)' },
+      { opacity: 1, transform: 'none' },
+    ], SPRINGS.bouncy, { delay: i * 28, fill: 'backwards' });
+  });
+}
+
+function renderEmpty() {
+  const c = EMPTY_COPY[getMode()];
+  if (!empty.querySelector('.empty-art')) empty.innerHTML = `${emptyArt()}<h3 class="empty-title"></h3><p class="empty-text"></p>`;
+  empty.querySelector('.empty-title').textContent = c.title;
+  empty.querySelector('.empty-text').innerHTML = c.text;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Rendering
 
 function makeCard(j) {
   const el = document.createElement('article');
   el.className = 'jcard glass-lite';
   el.dataset.id = j.id;
+  el.setAttribute('role', 'listitem');
   el.innerHTML = `
-    <span class="lg-glow" aria-hidden="true"></span>
-    <div class="jc-thumb"><img alt="" decoding="async"><span class="jc-thumb-ph">${icon('reel')}</span><span class="jc-dur"></span></div>
+    <div class="jc-thumb"><img alt="" decoding="async"><span class="jc-thumb-ph"></span><span class="jc-dur"></span></div>
     <div class="jc-body">
       <div class="jc-top">
-        <span class="jc-author"></span>
-        <span class="jc-time"></span>
+        <span class="jc-title"></span>
         <span class="jc-actions"></span>
       </div>
-      <div class="jc-title"></div>
-      <div class="jc-badges"></div>
+      <div class="jc-sub"><span class="jc-author"></span><span class="jc-dot" aria-hidden="true">·</span><span class="jc-time"></span></div>
+      <div class="jc-badges"><span class="jc-fmt"></span><span class="jc-badge-list"></span></div>
       <div class="jc-status">
         <div class="jc-bar"><span class="jc-fill"></span></div>
         <div class="jc-line"><span class="jc-stage"></span><span class="jc-meta"></span></div>
@@ -93,6 +148,7 @@ function makeCard(j) {
     </div>
     <span class="lg-rim" aria-hidden="true"></span>`;
   el.__state = {};
+  el.hidden = !shown(j);
   patch(el, j);
   return el;
 }
@@ -106,7 +162,7 @@ const set = (el, sel, text) => {
 function actionsFor(j) {
   const a = [];
   if (ACTIVE.has(j.status)) a.push(['cancel', 'x', 'Cancel']);
-  if (j.status === 'done') a.push(['open', 'play', 'Open video'], ['reveal', 'reveal', 'Show in folder']);
+  if (j.status === 'done') a.push(['open', 'play', j.format === 'mp3' ? 'Play audio' : 'Open video'], ['reveal', 'reveal', 'Show in folder']);
   if (j.status === 'error' || j.status === 'canceled') a.push(['retry', 'retry', 'Retry']);
   if (!ACTIVE.has(j.status)) a.push(['remove', 'trash', 'Remove from list']);
   return a;
@@ -116,38 +172,79 @@ function patch(el, j) {
   if (!el) return;
   const st = el.__state;
   const prevStatus = st.status;
+  const platform = platformOf(j);
+  const mp3 = j.format === 'mp3';
+  // `previewed` false = the preview fetch is still pending; a missing field counts as finished.
+  const pending = j.status === 'queued' && j.previewed === false;
   st.status = j.status;
   el.dataset.status = j.status;
+  el.dataset.platform = platform;
+  el.dataset.format = j.format || 'mp4';
+  el.dataset.shape = platform === 'youtube' && j.kind === 'video' ? 'wide' : 'tall';
   el.classList.toggle('is-active', ACTIVE.has(j.status));
+  el.classList.toggle('is-pending', pending);
 
-  // Thumbnail
+  // Thumbnail (or the kind / audio glyph while there is none)
+  const phIcon = mp3 ? 'audio' : KIND_ICON[j.kind] || (platform === 'youtube' ? 'video' : 'reel');
+  if (st.ph !== phIcon) {
+    st.ph = phIcon;
+    el.querySelector('.jc-thumb-ph').innerHTML = icon(phIcon);
+  }
   const img = el.querySelector('.jc-thumb img');
   if (j.thumbnail && st.thumb !== j.thumbnail) {
     st.thumb = j.thumbnail;
     img.src = j.thumbnail;
     el.classList.add('has-thumb');
-    if (prevStatus) img.animate([{ opacity: 0, transform: 'scale(1.08)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    if (prevStatus && !el.hidden) img.animate([{ opacity: 0, transform: 'scale(1.08)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
   set(el, '.jc-dur', j.duration_s ? duration(j.duration_s) : '');
 
-  set(el, '.jc-author', j.author ? `@${j.author}` : j.shortcode || 'Video');
+  // Title and author: the preview fields, a skeleton while pending, the clean link otherwise.
+  const link = shortLink(j);
+  const titleEl = el.querySelector('.jc-title');
+  const titleMode = j.title ? 'text' : pending ? 'skeleton' : 'link';
+  const titleText = j.title || (pending ? '' : link);
+  if (st.titleMode !== titleMode || titleEl.textContent !== titleText) {
+    const wasSkeleton = st.titleMode === 'skeleton';
+    st.titleMode = titleMode;
+    titleEl.textContent = titleText;
+    titleEl.classList.toggle('is-skeleton', titleMode === 'skeleton');
+    titleEl.classList.toggle('is-link', titleMode === 'link');
+    if (wasSkeleton && !el.hidden) titleEl.animate([{ opacity: 0, filter: 'blur(3px)' }, { opacity: 1, filter: 'none' }], { duration: 320, easing: 'ease-out' });
+  }
+  titleEl.title = j.title || j.url || '';
+  const authorEl = el.querySelector('.jc-author');
+  const authorText = j.author ? (platform === 'instagram' ? `@${j.author}` : j.author) : titleMode === 'text' ? '' : titleMode === 'skeleton' ? link : '';
+  if (authorEl.textContent !== authorText) authorEl.textContent = authorText;
+  authorEl.classList.toggle('is-link', !j.author && !!authorText);
   set(el, '.jc-time', timeAgo(j.finished_at || j.created_at));
-  set(el, '.jc-title', j.title || j.url);
+
+  // Format: a toggle while queued, a static badge afterwards.
+  const queued = j.status === 'queued';
+  const fmtKey = `${queued}|${j.format || 'mp4'}`;
+  if (st.fmtKey !== fmtKey) {
+    st.fmtKey = fmtKey;
+    el.querySelector('.jc-fmt').innerHTML = queued
+      ? formatToggleHtml(j.format || 'mp4')
+      : `<span class="badge badge-fmt" data-v="${mp3 ? 'mp3' : 'mp4'}">${mp3 ? 'MP3' : 'MP4'}</span>`;
+  }
 
   // Badges
   const badges = [];
-  if (j.width && j.height) badges.push(`<span class="badge">${j.width}×${j.height}</span>`);
-  if (j.fps) badges.push(`<span class="badge">${Math.round(j.fps)} fps</span>`);
-  if (j.vcodec && j.status === 'done') badges.push(`<span class="badge">${escapeHtml(codec(j.vcodec))}</span>`);
+  if (!mp3) {
+    if (j.width && j.height) badges.push(`<span class="badge">${j.width}×${j.height}</span>`);
+    if (j.fps) badges.push(`<span class="badge">${Math.round(j.fps)} fps</span>`);
+    if (j.vcodec && j.status === 'done') badges.push(`<span class="badge">${escapeHtml(codec(j.vcodec))}</span>`);
+  }
   if (j.filesize) badges.push(`<span class="badge">${bytes(j.filesize)}</span>`);
-  if (j.transcoded) badges.push('<span class="badge badge-mint">converted</span>');
+  if (j.transcoded && !mp3) badges.push('<span class="badge badge-mint">converted</span>');
   if (j.already_existed) badges.push('<span class="badge badge-amber">already saved</span>');
   if (j.attempt && j.attempt.engine === 'gallery-dl' && j.status === 'done') badges.push('<span class="badge">gallery-dl</span>');
   if (j.attempt && j.attempt.auth && j.attempt.auth !== 'anonymous' && j.status === 'done') badges.push('<span class="badge">signed in</span>');
   const bh = badges.join('');
   if (st.badges !== bh) {
     st.badges = bh;
-    el.querySelector('.jc-badges').innerHTML = bh;
+    el.querySelector('.jc-badge-list').innerHTML = bh;
   }
 
   // Progress
@@ -160,6 +257,7 @@ function patch(el, j) {
   }
   let stage = j.stage_text || '';
   if (j.status === 'done') stage = j.already_existed ? 'Already downloaded' : 'Done';
+  if (pending && !stage) stage = 'Fetching preview';
   set(el, '.jc-stage', stage);
   const meta = [];
   if (j.status === 'downloading' || j.status === 'processing') {
@@ -167,7 +265,7 @@ function patch(el, j) {
     if (j.eta_s != null) meta.push(`≈ ${eta(j.eta_s)}`);
     if (!meta.length) meta.push(`${Math.round(p * 100)}%`);
   }
-  if (j.status === 'queued') meta.push('waiting for its turn');
+  if (queued) meta.push('waiting for its turn');
   set(el, '.jc-meta', meta.join(' · '));
 
   // Error
@@ -177,13 +275,15 @@ function patch(el, j) {
   el.classList.toggle('has-error', !!showErr);
   if (showErr) {
     set(el, '.jc-err-text', j.error.message || 'Download failed');
-    const canLogin = j.error.can_login && !auth.logged_in;
-    const key = `${canLogin}|${!!j.error.log_path}`;
+    // Sign-in exists for Instagram only; YouTube errors show the core's message as is.
+    const igLogin = platform === 'instagram' && j.error.can_login;
+    const canLogin = igLogin && !auth.logged_in;
+    const key = `${canLogin}|${igLogin && auth.logged_in}|${!!j.error.log_path}`;
     if (st.errKey !== key) {
       st.errKey = key;
       const btns = [];
       if (canLogin) btns.push(`<button type="button" class="btn btn-tinted btn-s" data-act="login">${icon('user')}<span>Sign in to Instagram</span></button>`);
-      else if (j.error.can_login && auth.logged_in) btns.push(`<button type="button" class="btn btn-s" data-act="retry">${icon('retry')}<span>Retry signed in</span></button>`);
+      else if (igLogin && auth.logged_in) btns.push(`<button type="button" class="btn btn-s" data-act="retry">${icon('retry')}<span>Retry signed in</span></button>`);
       if (j.error.log_path) btns.push(`<button type="button" class="btn btn-ghost btn-s" data-act="logs">${icon('logs')}<span>Log</span></button>`);
       const box = el.querySelector('.jc-err-actions');
       box.innerHTML = btns.join('');
@@ -193,7 +293,7 @@ function patch(el, j) {
 
   // Actions
   const acts = actionsFor(j);
-  const ak = acts.map((a) => a[0]).join(',');
+  const ak = acts.map((a) => a.join(':')).join(',');
   if (st.acts !== ak) {
     st.acts = ak;
     const box = el.querySelector('.jc-actions');
@@ -202,7 +302,7 @@ function patch(el, j) {
   }
 
   // Status transitions get a little celebration or wobble.
-  if (prevStatus && prevStatus !== j.status) {
+  if (prevStatus && prevStatus !== j.status && !el.hidden) {
     if (j.status === 'done') springAnimate(el, [{ transform: 'scale(1.025)' }, { transform: 'scale(1)' }], SPRINGS.jelly, { fill: 'none' });
     if (j.status === 'error') springAnimate(el, [{ transform: 'translateX(-10px)' }, { transform: 'none' }], SPRINGS.jelly, { fill: 'none' });
   }
@@ -232,6 +332,10 @@ function insertSorted(el, j) {
       break;
     }
   }
+  if (el.hidden) {
+    list.insertBefore(el, before);
+    return;
+  }
   flipList(() => list.insertBefore(el, before));
   springAnimate(el, [
     { opacity: 0, transform: 'translateY(-14px) scale(0.94)' },
@@ -245,6 +349,10 @@ function removeCard(id) {
   cards.delete(id);
   renderHead();
   if (!el) return;
+  if (el.hidden) {
+    el.remove();
+    return;
+  }
   el.classList.add('is-leaving');
   const h = el.offsetHeight;
   const a = springAnimate(el, [
@@ -263,6 +371,7 @@ function removeCard(id) {
 function flipList(change) {
   const view = scroller.getBoundingClientRect();
   const visible = Array.from(list.children).filter((c) => {
+    if (c.hidden) return false;
     const r = c.getBoundingClientRect();
     return r.bottom > view.top && r.top < view.bottom;
   }).slice(0, 14);
@@ -275,8 +384,12 @@ function flipList(change) {
 }
 
 function renderHead() {
-  let active = 0, done = 0, failed = 0;
+  let active = 0, done = 0, failed = 0, total = 0;
+  const mine = [];
   for (const j of jobs.values()) {
+    if (!shown(j)) continue;
+    total++;
+    mine.push(j);
     if (ACTIVE.has(j.status)) active++;
     else if (j.status === 'done') done++;
     else failed++;
@@ -284,18 +397,19 @@ function renderHead() {
   const parts = [];
   if (active) parts.push(`<span class="qc qc-active"><i></i>${active} active</span>`);
   if (done) parts.push(`<span class="qc qc-done"><i></i>${done} done</span>`);
-  if (failed) parts.push(`<span class="qc qc-err"><i></i>${failed} ${plural(failed, ['failed', 'failed'])}</span>`);
+  if (failed) parts.push(`<span class="qc qc-err"><i></i>${failed} failed</span>`);
   if (!parts.length) parts.push('<span class="qc qc-none">empty</span>');
-  counts.innerHTML = parts.join('');
+  const html = parts.join('');
+  if (counts.innerHTML !== html) counts.innerHTML = html;
   document.getElementById('btn-clear').disabled = !(done + failed);
-  const isEmpty = jobs.size === 0;
+  const isEmpty = total === 0;
   if (empty.hidden === isEmpty) {
     empty.hidden = !isEmpty;
     if (isEmpty) springAnimate(empty, [{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], SPRINGS.smooth);
   }
   scroller.classList.toggle('is-empty', isEmpty);
-  // Recent thumbnails drift into the background scene.
-  const thumbs = Array.from(jobs.values()).filter((j) => j.thumbnail).sort((a, b) => b.created_at - a.created_at).slice(0, 4).map((j) => j.thumbnail);
+  // Recent thumbnails of this mode drift into the background scene.
+  const thumbs = mine.filter((j) => j.thumbnail).sort((a, b) => b.created_at - a.created_at).slice(0, 4).map((j) => j.thumbnail);
   setGhosts(thumbs);
 }
 
@@ -310,6 +424,7 @@ async function onAction(e) {
   const act = b.dataset.act;
   const run = (m, ...a) => call(m, ...a).catch((err) => toast('error', err.message));
   switch (act) {
+    case 'fmt': return setJobFormat(card, id, b.dataset.v);
     case 'cancel': return run('cancel', id);
     case 'retry': return run('retry', id);
     case 'remove': return run('remove', id);
@@ -320,20 +435,69 @@ async function onAction(e) {
   }
 }
 
+/** Arrow keys move the per-item format toggle like a radio group. */
+function onToggleKey(e) {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+  const b = e.target.closest('.fmt-toggle [data-act="fmt"]');
+  if (!b) return;
+  e.preventDefault();
+  const other = b.dataset.v === 'mp4' ? 'mp3' : 'mp4';
+  const card = b.closest('.jcard');
+  setJobFormat(card, card.dataset.id, other).then(() => {
+    const next = card.querySelector(`.fmt-toggle [data-v="${other}"]`);
+    next && next.focus();
+  });
+}
+
+async function setJobFormat(card, id, format) {
+  const j = jobs.get(id);
+  if (!j || j.format === format) return;
+  const tog = card.querySelector('.fmt-toggle');
+  // Optimistic: the thumb moves at once; the `job` event confirms it.
+  if (tog) {
+    tog.dataset.v = format;
+    tog.querySelectorAll('[data-act="fmt"]').forEach((x) => {
+      const on = x.dataset.v === format;
+      x.setAttribute('aria-checked', String(on));
+      x.tabIndex = on ? 0 : -1;
+    });
+  }
+  try {
+    const res = await call('set_job_format', id, format);
+    if (res) {
+      upsert(res);
+    } else {
+      toast('info', 'This item has already started, its format is fixed');
+      const cur = jobs.get(id);
+      if (cur) {
+        card.__state.fmtKey = null;
+        patch(card, cur);
+      }
+    }
+  } catch (err) {
+    toast('error', err.message);
+    const cur = jobs.get(id);
+    if (cur) {
+      card.__state.fmtKey = null;
+      patch(card, cur);
+    }
+  }
+}
+
 async function clearFinished() {
   try {
-    const n = await call('clear_finished');
+    const n = await call('clear_finished', getMode());
     if (n) toast('info', `Removed ${n} from the list. Files stay on disk`);
   } catch (err) {
     toast('error', err.message);
   }
 }
 
-/** After a successful login, retry the jobs that failed only because a login was required. */
+/** After a successful Instagram sign-in, retry the Instagram jobs that failed only for lack of it. */
 export function retryLoginFailures() {
   let n = 0;
   for (const j of jobs.values()) {
-    if (j.status === 'error' && j.error && j.error.code === 'login_required') {
+    if (platformOf(j) === 'instagram' && j.status === 'error' && j.error && j.error.code === 'login_required') {
       call('retry', j.id).catch(() => {});
       n++;
     }
@@ -383,7 +547,5 @@ function emptyArt() {
         <circle cx="38" cy="108" r="3" fill-opacity=".24"/>
       </g>
     </svg>
-  </div>
-  <h3 class="empty-title">The queue is empty</h3>
-  <p class="empty-text">Paste Reels links on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Reels Saver strips the junk and downloads the videos in the best quality.</p>`;
+  </div>`;
 }

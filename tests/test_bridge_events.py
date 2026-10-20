@@ -26,7 +26,7 @@ def make_pump(**kwargs):
 
 
 def delivered_events(scripts):
-    """Parse the generated scripts back into (type, payload) pairs."""
+    """Parse the delivered scripts back into (type, payload) pairs."""
     import re
 
     out = []
@@ -186,6 +186,28 @@ class CoalescingTests(unittest.TestCase):
         pump.emit("toast", {"level": "info", "text": "now"})
         pump.flush()
         self.assertEqual([e[0] for e in delivered_events(scripts)], ["job", "toast"])
+
+
+class UpdateEventTests(unittest.TestCase):
+    def test_update_events_are_not_coalesced_and_keep_their_order(self):
+        pump, clock, scripts = make_pump()
+        pump.set_ready()
+        for stage, progress in (("checking", None), ("available", None), ("downloading", 0.2), ("downloading", 0.4),
+                                ("ready", None)):
+            pump.emit("update", {"stage": stage, "progress": progress})
+        pump.flush()
+        events = delivered_events(scripts)
+        self.assertEqual([e[0] for e in events], ["update"] * 5)
+        self.assertEqual([e[1]["stage"] for e in events], ["checking", "available", "downloading", "downloading", "ready"])
+
+    def test_update_events_before_ready_are_buffered(self):
+        pump, clock, scripts = make_pump()
+        pump.emit("update", {"stage": "available", "latest": "2.1.0"})
+        pump.flush()
+        self.assertEqual(scripts, [])
+        pump.set_ready()
+        pump.flush()
+        self.assertEqual(delivered_events(scripts), [("update", {"stage": "available", "latest": "2.1.0"})])
 
 
 class EscapingTests(unittest.TestCase):
