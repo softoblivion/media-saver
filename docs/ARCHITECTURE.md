@@ -210,7 +210,8 @@ the configuration values in `docs/SELF_UPDATE.md`):
 3. "Restart to update": write the marker in `updates\`, start `updates\MediaSaver-<version>.exe --apply-update
    <pid> <MediaSaver.exe>` and close the app. That exe waits for the pid to end, renames the installed exe to
    `MediaSaver.exe.old`, copies itself over it and starts it. No script, no console. On the next launch the marker
-   produces one "Updated to vX.Y.Z" toast and `MediaSaver.exe.old` is deleted.
+   produces one "Updated to vX.Y.Z" toast and `MediaSaver.exe.old` is deleted (retried in the background for about
+   10 s while the previous process is still exiting).
 4. Any failure leaves the current exe untouched; the UI shows the message and offers to retry.
 5. `auto_download_updates` (default on; replaces the 2.1.2 `auto_install_updates`, which is ignored when an older
    settings file has it): when on, the UI calls `download_update()` as soon as a check reports `available`. The

@@ -18,7 +18,7 @@ from .fileio import atomic_write_bytes, atomic_write_json, atomic_write_text, pa
 from .net import Net, OfflineError, ReleaseNet
 from .updater import Messages, SelfUpdater, UpdateConfig, UpdateStatus, is_newer, parse_version
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "APPLY_FLAG", "NO_LAUNCH_FLAG", "Messages", "Net", "OfflineError", "ReleaseNet", "SelfUpdater", "UpdateConfig",

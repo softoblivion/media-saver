@@ -99,8 +99,8 @@ After a finished update the next launch shows the toast "Media Saver updated to 
 - Apply: `updates\applied.json` is written, `updates\MediaSaver-<v>.exe --apply-update <pid> <MediaSaver.exe>`
   starts with a clean PyInstaller environment and no console, the app exits. The new exe waits for the pid (at
   most 120 s), renames `MediaSaver.exe` to `MediaSaver.exe.old`, copies itself over it, starts it; every step goes
-  to `updates\apply.log`. A failed copy restores the old exe. The next launch deletes `.old`, the marker, the
-  legacy helper and every download not newer than the running version.
+  to `updates\apply.log`. A failed copy restores the old exe. The next launch deletes `.old` (retried in the
+  background for about 10 s while the exiting process still holds it), the marker, the legacy helper and every download not newer than the running version.
 
 Why not a script: 2.0.0 and 2.1.0 used a `cmd` helper started with `DETACHED_PROCESS`; a detached `cmd` has no
 console, so every console tool it ran (`tasklist`, `find`, `ping`) opened a visible console of its own and the
