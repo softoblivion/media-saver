@@ -215,6 +215,9 @@ def _net_message(exc: BaseException) -> str:
 # =====================================================================================================
 
 class SelfUpdater:
+    OLD_EXE_RETRY_SECONDS = 10.0     # how long startup() keeps trying to delete a locked `<exe>.old`
+    OLD_EXE_RETRY_INTERVAL = 0.5
+
     def __init__(self, config: UpdateConfig, *, spawn: SpawnFn | None = None,
                  urlopen: Callable[..., Any] | None = None) -> None:
         self.config = config
@@ -234,6 +237,7 @@ class SelfUpdater:
         self._running: str | None = None
         self._release: dict[str, Any] | None = None   # facts about the newer release found by the last check
         self._expected_sha: str | None = None         # SHA-256 of the verified file in updates/
+        self._old_exe_thread: threading.Thread | None = None
         self._status: dict[str, Any] = {
             "stage": "idle", "current": config.version, "latest": None, "notes": None, "size": None,
             "published_at": None, "progress": None, "message": MSG_IDLE, "checked_at": None, "can_apply": False,
@@ -286,12 +290,7 @@ class SelfUpdater:
 
     def _startup(self) -> None:
         if self.exe_path:
-            old = self.exe_path + ".old"
-            if os.path.exists(old):
-                try:
-                    os.remove(old)
-                except OSError as exc:
-                    self.log.info("cannot delete %s yet: %s", old, exc)
+            self._delete_old_exe(self.exe_path + ".old")
         updates = self._updates_dir()
         marker = os.path.join(updates, MARKER_NAME)
         if os.path.exists(marker):
@@ -317,6 +316,41 @@ class SelfUpdater:
             version = parse_version(m.group(1))
             if version is not None and current is not None and not is_newer(version, current):
                 self._remove(os.path.join(updates, name))
+
+    def _delete_old_exe(self, old: str) -> None:
+        """Delete `<exe>.old` now, or retry in a daemon thread while the previous process still holds it.
+
+        Right after the swap the previous exe can stay locked for some seconds (the exiting process, an antivirus
+        scan). A file still locked after OLD_EXE_RETRY_SECONDS is left for the next launch.
+        """
+        if not os.path.exists(old):
+            return
+        try:
+            os.remove(old)
+            self.log.info("deleted %s", old)
+            return
+        except OSError:
+            pass
+        self._old_exe_thread = threading.Thread(target=self._retry_delete_old_exe, args=(old,),
+                                                name="selfupdate-old-exe", daemon=True)
+        self._old_exe_thread.start()
+
+    def _retry_delete_old_exe(self, old: str) -> None:
+        start = time.monotonic()
+        deadline = start + self.OLD_EXE_RETRY_SECONDS
+        while True:
+            time.sleep(self.OLD_EXE_RETRY_INTERVAL)
+            try:
+                os.remove(old)
+            except FileNotFoundError:
+                return
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    self.log.info("cannot delete %s yet (%s), left for the next launch", old, exc)
+                    return
+                continue
+            self.log.info("deleted %s after %.1f s", old, time.monotonic() - start)
+            return
 
     def _toast(self, level: str, text: str) -> None:
         if self.on_toast is None:
