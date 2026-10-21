@@ -7,7 +7,9 @@ from one root, the `media-saver_data` folder next to the executable (next to the
 - `<app dir>\\media-saver_data`, where the app dir is the folder of `MediaSaver.exe` in a frozen build and the project root
   when running from source.
 
-Folders are created on first access. The default output folder is `<app dir>\\Downloads`.
+Folders are created on first access. The default output folder is the user's Videos folder plus
+`Media-Saver` (the one deliberate exception to the portable layout: videos belong with the user's videos;
+ARCHITECTURE.md section 4). Under `%MEDIA_SAVER_HOME%` it is `<home>\\Downloads` so tests never touch it.
 """
 from __future__ import annotations
 
@@ -15,7 +17,9 @@ import os
 import sys
 
 DATA_DIR_NAME = "media-saver_data"  # <project>_data
-DOWNLOADS_DIR_NAME = "Downloads"
+DOWNLOADS_DIR_NAME = "Downloads"      # output folder under %MEDIA_SAVER_HOME% (tests, scratch runs)
+OUTPUT_DIR_NAME = "Media-Saver"       # subfolder of the user's Videos folder (default output)
+_FOLDERID_VIDEOS = "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}"
 HOME_ENV = "MEDIA_SAVER_HOME"
 
 
@@ -81,12 +85,37 @@ def default_root() -> str:
     return os.path.join(app_dir(), DATA_DIR_NAME)
 
 
+def videos_dir() -> str:
+    """The user's Videos folder: the Windows known folder (follows a redirected or localized library), else ~\\Videos."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            import ctypes.wintypes
+            import uuid
+
+            class _GUID(ctypes.Structure):
+                _fields_ = [("Data1", ctypes.c_uint32), ("Data2", ctypes.c_uint16), ("Data3", ctypes.c_uint16),
+                            ("Data4", ctypes.c_ubyte * 8)]
+
+            u = uuid.UUID(_FOLDERID_VIDEOS)
+            guid = _GUID(u.time_low, u.time_mid, u.time_hi_version, (ctypes.c_ubyte * 8)(*u.bytes[8:]))
+            out = ctypes.c_wchar_p()
+            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+            if shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(out)) == 0 and out.value:
+                path = out.value
+                ctypes.windll.ole32.CoTaskMemFree(out)  # type: ignore[attr-defined]
+                return path
+        except Exception:  # noqa: BLE001  fall back to the conventional location
+            pass
+    return os.path.join(os.path.expanduser("~"), "Videos")
+
+
 def default_output_dir() -> str:
-    """`<app dir>\\Downloads`; under `%MEDIA_SAVER_HOME%` when that override is set (tests, portable layouts)."""
+    """`<Videos>\\Media-Saver`; under `%MEDIA_SAVER_HOME%` it is `<home>\\Downloads` (tests, scratch runs)."""
     env = os.environ.get(HOME_ENV, "").strip()
     if env:
         return os.path.join(os.path.abspath(os.path.expandvars(os.path.expanduser(env))), DOWNLOADS_DIR_NAME)
-    return os.path.join(app_dir(), DOWNLOADS_DIR_NAME)
+    return os.path.join(videos_dir(), OUTPUT_DIR_NAME)
 
 
 class AppPaths:

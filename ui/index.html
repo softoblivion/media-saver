@@ -100,7 +100,16 @@
           </div>
           <div class="q-actions">
             <button type="button" id="btn-clear" class="btn btn-s btn-ghost" aria-label="Clear finished" title="Remove finished items from the list (files stay on disk)"><span class="ic-slot" data-icon="trash"></span><span>Clear finished</span></button>
-            <button type="button" id="btn-folder" class="btn btn-s" aria-label="Open folder" title="Open the downloads folder"><span class="ic-slot" data-icon="folder"></span><span>Open folder</span></button>
+            <!-- Split button: open the downloads folder, or pick another one from the chevron menu (js/queue.js). -->
+            <div id="folder-split" class="split">
+              <button type="button" id="btn-folder" class="btn btn-s split-main" aria-label="Open folder"><span class="ic-slot" data-icon="folder"></span><span>Open folder</span></button>
+              <button type="button" id="btn-folder-more" class="btn btn-s split-more" aria-label="Downloads folder options" title="Choose where videos are saved" aria-haspopup="menu" aria-expanded="false" aria-controls="folder-menu"><span class="ic-slot" data-icon="chevronDown"></span></button>
+            </div>
+          </div>
+          <div id="folder-menu" class="split-menu glass-lite" role="menu" aria-label="Downloads folder" hidden>
+            <div class="fm-where" aria-hidden="true"><span>Saving to</span><b class="fm-path"></b></div>
+            <button type="button" class="fm-item" role="menuitem" data-act="open"><span class="ic-slot" data-icon="folder"></span><span>Open folder</span></button>
+            <button type="button" class="fm-item" role="menuitem" data-act="change"><span class="ic-slot" data-icon="folderEdit"></span><span>Change folder…</span></button>
           </div>
         </div>
       </section>

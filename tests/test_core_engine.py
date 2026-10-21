@@ -15,6 +15,7 @@ HAS_LINKCLEAN = importlib.util.find_spec("app.core.linkclean") is not None
 class EngineTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ms_engine_")
+        self._old_home = os.environ.get("MEDIA_SAVER_HOME")
         os.environ["MEDIA_SAVER_HOME"] = os.path.join(self.tmp, "home")
         self.events = []
         self.engine = Engine(lambda t, p: self.events.append((t, p)), "9.9.9", use_system_ffmpeg=False,
@@ -22,7 +23,10 @@ class EngineTest(unittest.TestCase):
 
     def tearDown(self):
         self.engine.downloader.shutdown(0.5)
-        os.environ.pop("MEDIA_SAVER_HOME", None)
+        if self._old_home is None:
+            os.environ.pop("MEDIA_SAVER_HOME", None)
+        else:
+            os.environ["MEDIA_SAVER_HOME"] = self._old_home
         # the rotating app.log handler keeps a file open inside the scratch folder; close it before removing
         root = logging.getLogger("mediasaver")
         for h in list(root.handlers):
