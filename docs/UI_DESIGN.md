@@ -246,9 +246,12 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
   abbreviation.
 - Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the primary button) at the left of
   the composer's action row; `Download` takes the rest of the row (`.cmp-btn-slot`), so its morph measures the slot.
-  Below 380 px of row width the `Ctrl+Enter` hint hides. The label text is centred on its own: the icon hangs to its
-  left (negative margin of its width + gap) and the `Ctrl+Enter` hint is out of the flow at the right end, so an
-  invisible hint (empty state) never pushes the text off centre.
+  The label text is centred on its own: the icon hangs to its left (negative margin of its width + gap). The
+  shortcut hint is not in the button: a muted line under it (`.cmp-kbd-hint`, `--t-micro`, `--ink-4`, keys as faint
+  `kbd`), 5 px below, centred on the button; the slot is a column and the action row aligns to the top, so the
+  format toggle stays level with the button. The line's height is always reserved and only its opacity changes
+  (visible while `Download` is `ready`), so neither the button's width nor the row ever moves. The button carries
+  `aria-keyshortcuts="Control+Enter"`; the hint is `aria-hidden`.
 - Quality (per platform, Settings `quality_instagram` / `quality_youtube` / `quality_tiktok` / `quality_twitter`): a spec row (`#cmp-spec`, 34 px) directly
   above the action row: caption "QUALITY", a compact `Segmented` (`seg-q` variant, 28 px options) and a hint line at
   the right. With the format toggle and `Download` below it, it reads as "what you get" right before the press. Not in
@@ -437,7 +440,9 @@ everywhere.
 
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
   TikTok and X videos as MP4 or MP3"; switch "Download updates automatically" (hint "New versions download in the
-  background. Installing needs a restart"; the check itself always runs, so there is no switch for it); sticky toast
+  background. Installing needs a restart"; the check itself always runs, so there is no switch for it); select
+  "Update check" (hint "On launch, then repeated at this interval while the app runs"; options "Every 30 minutes",
+  "Every hour", "Every 6 hours", "Every day", "Every week") directly above that switch; sticky toast
   "Media Saver X.Y.Z is ready" + "Restart"; panel caption "New versions download in the background". Switch "Sound
   when a download finishes" (hint "A short sound for each finished file").
 - The runtime data folder is `media-saver_data\` (never `data\`) wherever copy or mock paths name it (mock log paths:

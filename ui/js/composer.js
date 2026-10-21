@@ -568,7 +568,7 @@ function onJob(job) {
 function initButton() {
   btn.innerHTML = `
     <span class="pm-fill" aria-hidden="true"><span class="pm-liquid"></span></span>
-    <span class="pm-layer pm-label">${icon('down')}<span class="pm-text">Download</span><kbd>Ctrl+Enter</kbd></span>
+    <span class="pm-layer pm-label">${icon('down')}<span class="pm-text">Download</span></span>
     <span class="pm-layer pm-spin" aria-hidden="true"><span class="spinner"></span></span>
     <span class="pm-layer pm-progress"><span class="pm-ptext"></span><span class="pm-pmeta"></span></span>
     <span class="pm-layer pm-done">${icon('check')}<span class="pm-done-text">Done</span></span>`;
