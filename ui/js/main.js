@@ -1,12 +1,12 @@
 // Entry point: scene, material, bridge, components, entrance choreography.
 
 import { connect, call, on, backendMode } from './api.js';
-import { initBackground, setFocused, activity } from './background.js';
-import { initLight, gel, Lens } from './glass.js';
-import { SPRINGS, springAnimate, reducedMotion } from './motion.js';
+import { initScene, setFocused, activity } from './scene.js';
+import { initLight, gel, Lens } from '../vendor/liquid_ui/js/glass.js';
+import { SPRINGS, springAnimate, reducedMotion } from '../vendor/liquid_ui/js/motion.js';
 import { icon, appGlyph } from './icons.js';
 import { nItems } from './format.js';
-import { initToasts, toast } from './toast.js';
+import { initToasts, toast } from '../vendor/liquid_ui/js/toast.js';
 import { initEngine } from './engine.js';
 import { initComposer, focusInput } from './composer.js';
 import { initQueue, getJobs, retryLoginFailures } from './queue.js';
@@ -15,7 +15,7 @@ import { initClipboard } from './clipboard.js';
 import { initUpdate } from './update.js';
 import { initSound } from './sound.js';
 import { initPrefs, getMode, setMode, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
-import { Segmented } from './controls.js';
+import { Segmented } from '../vendor/liquid_ui/js/controls.js';
 import { initQuality } from './quality.js';
 
 function initTitlebar() {
@@ -102,7 +102,7 @@ function entrance() {
 }
 
 async function boot() {
-  initBackground();
+  initScene();
   initLight();
   initToasts();
   initTitlebar();

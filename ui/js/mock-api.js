@@ -2,8 +2,8 @@
 // with a realistic simulation (engine update on start, previews arriving after enqueue, jobs moving
 // through probing -> downloading -> processing -> done with speed and ETA, MP4 and MP3 jobs, all four
 // platforms (Instagram, YouTube, TikTok, X), a login_required job, an "already existed" job, canvas
-// thumbnails, link cleaning close to app/core/linkclean.py, and the app self-update: check, download,
-// apply).
+// thumbnails, link cleaning close to app/core/linkclean.py, and the app self-update: check, download
+// (by itself while "Download updates automatically" is on, as the core does), apply).
 //
 // URL parameters (all optional):
 //   ?mock=1             force the mock even inside pywebview
@@ -486,9 +486,20 @@ export function createMock({ params, emit }) {
         stage: 'available', latest: NEXT_VERSION, notes: NEXT_NOTES, size: 12703247, published_at: now() - 2 * 86400,
         message: '', checked_at: now(), progress: null,
       });
+      autoDownload();
       return;
     }
     setUpdate({ stage: 'up_to_date', latest: APP_VERSION, notes: null, size: null, published_at: now() - 9 * 86400, message: '', checked_at: now() });
+  }
+
+  // Background download (Settings.auto_download_updates), as the core does it: once per `latest`,
+  // never again for the same version after an error; turning the setting on starts it.
+  let autoDownloadFor = null;
+  function autoDownload() {
+    if (!settings.auto_download_updates || update.stage !== 'available' || !update.latest) return;
+    if (autoDownloadFor === update.latest) return;
+    autoDownloadFor = update.latest;
+    runDownloadUpdate();
   }
 
   async function runDownloadUpdate() {
@@ -967,9 +978,14 @@ export function createMock({ params, emit }) {
       Object.assign(settings, patch);
       emit('settings', clone(settings));
       if ('concurrency' in patch) setTimeout(pump, 30);
+      if (patch.auto_download_updates === true) {
+        autoDownloadFor = null;
+        setTimeout(autoDownload, 0);
+      }
       return clone(settings);
     },
     async update_engine() { runUpdate(true); return null; },
+    async update_status() { return clone(update); },
     async check_updates() {
       const at = clone(update);
       setTimeout(runCheck, 0);

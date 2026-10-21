@@ -5,11 +5,11 @@
 // mode and queues them there).
 
 import { call, on } from './api.js';
-import { Lens, gel } from './glass.js';
-import { SPRINGS, springAnimate, whenDone } from './motion.js';
+import { Lens, gel } from '../vendor/liquid_ui/js/glass.js';
+import { SPRINGS, springAnimate, whenDone } from '../vendor/liquid_ui/js/motion.js';
 import { icon } from './icons.js';
 import { plural, nItems } from './format.js';
-import { toast } from './toast.js';
+import { toast } from '../vendor/liquid_ui/js/toast.js';
 import { getMode, getFormat, setMode, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
 
 let pill, lens, settings, jobsRef;

@@ -1,9 +1,12 @@
-// Form controls with Liquid Glass behaviour:
+// Form controls with Liquid Glass behaviour.
 //  - Segmented: a droplet indicator that stretches with its velocity and lifts into refracting
-//    glass while pressed or dragged.
+//    glass while pressed or dragged. Variant `scroll` (chip rows with many options): the track
+//    scrolls horizontally, a tap selects, the droplet scrolls with the options.
 //  - Switch: the thumb turns into a glass droplet while pressed, then springs across.
-//  - Stepper: +/- with a rolling number (critically damped, clipped, one outgoing + one incoming).
-//  - Select: a compact menu (used for the browser cookies choice).
+//  - Stepper: +/- with a rolling number (critically damped, clipped).
+//  - Select: a compact menu button.
+//  - Slider: a range input with a live number (quality).
+// Every control that owns a Lens has destroy(): panels are built and torn down with the card.
 
 import { Spring, SPRINGS, clamp, springEasing, whenDone, reducedMotion } from './motion.js';
 import { Lens, gel } from './glass.js';
@@ -15,14 +18,15 @@ import { escapeHtml } from './format.js';
 
 export class Segmented {
   /**
-   * @param {{label:string, options:{value:string,label:string,title?:string}[], value:string,
-   *          onChange:(v)=>void, cls?:string}} o  cls: size variant ("seg-tb", "seg-l", "seg-q")
+   * @param {{label:string, options:{value:string,label:string,title?:string,disabled?:boolean}[],
+   *          value:string, onChange:(v)=>void, cls?:string, scroll?:boolean}} o
    */
   constructor(o) {
     this.o = o;
     this.value = o.value;
+    this.scroll = !!o.scroll;
     const el = (this.el = document.createElement('div'));
-    el.className = o.cls ? `seg ${o.cls}` : 'seg';
+    el.className = `seg${o.cls ? ` ${o.cls}` : ''}${this.scroll ? ' seg-scroll' : ''}`;
     el.setAttribute('role', 'radiogroup');
     el.setAttribute('aria-label', o.label);
     el.innerHTML = `<span class="seg-drop" aria-hidden="true"></span>` +
@@ -37,24 +41,28 @@ export class Segmented {
       this.drop.style.setProperty('--lift', v.toFixed(3));
       this._render();
     });
+    this.disabled = false;
+    this.off = new Set(o.options.filter((x) => x.disabled).map((x) => x.value));
     this.opts.forEach((b, i) => {
-      // Pointer selection is resolved in the drag handler (pointer capture retargets the click to
-      // the track); this listener only serves keyboard activation (detail === 0).
       b.addEventListener('click', (e) => {
-        if (e.detail === 0 && !this.disabled) this.set(b.dataset.v, true);
+        // Pointer selection of the plain variant is resolved in the drag handler (pointer capture
+        // retargets the click); the scroll variant and keyboard activation select here.
+        if (this.disabled || this.off.has(b.dataset.v)) return;
+        if (this.scroll || e.detail === 0) this.set(b.dataset.v, true);
       });
       b.addEventListener('keydown', (e) => this._key(e, i));
     });
-    this.disabled = false;
-    this._drag();
-    new ResizeObserver(() => this._place(false)).observe(el);
+    if (this.scroll) this._scrollPress();
+    else this._drag();
+    this.ro = new ResizeObserver(() => {
+      this._place(false);
+      this._fades();
+    });
+    this.ro.observe(el);
+    if (this.scroll) el.addEventListener('scroll', () => this._fades(), { passive: true });
     this._sync();
   }
 
-  /**
-   * Disabled: dimmed, out of the tab order, ignores pointer and keys; the value is kept. `title`
-   * goes on the whole control (the options take no pointer events while disabled, so it shows).
-   */
   setDisabled(off, title = '') {
     this.disabled = !!off;
     this.el.classList.toggle('is-disabled', this.disabled);
@@ -64,24 +72,53 @@ export class Segmented {
     this._sync();
   }
 
-  /** Change the tooltip of one option. */
-  setOptionTitle(v, title) {
-    const b = this.opts.find((o) => o.dataset.v === v);
+  /** Disable one option (e.g. GPU without NVENC); its title explains why. */
+  setOptionDisabled(v, off, title = '') {
+    const b = this.opts.find((x) => x.dataset.v === v);
     if (!b) return;
+    if (off) this.off.add(v);
+    else this.off.delete(v);
+    b.classList.toggle('is-off', !!off);
+    b.setAttribute('aria-disabled', String(!!off));
     if (title) b.title = title;
-    else b.removeAttribute('title');
+    else if (!off) b.removeAttribute('title');
   }
 
   _key(e, i) {
     if (this.disabled) return;
     const n = this.opts.length;
-    let j = null;
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % n;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') j = (i - 1 + n) % n;
-    if (j === null) return;
+    let dir = 0;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') dir = 1;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') dir = -1;
+    if (!dir) return;
     e.preventDefault();
+    let j = i;
+    for (let k = 0; k < n; k++) {
+      j = (j + dir + n) % n;
+      if (!this.off.has(this.opts[j].dataset.v)) break;
+    }
     this.opts[j].focus();
     this.set(this.opts[j].dataset.v, true);
+  }
+
+  _scrollPress() {
+    const up = () => this.lift.to(0, SPRINGS.bouncy);
+    this.el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || this.disabled) return;
+      this.lift.to(1, SPRINGS.snappy);
+      addEventListener('pointerup', up, { once: true });
+      addEventListener('pointercancel', up, { once: true });
+    });
+    // A vertical wheel scrolls the chip row while it can still move that way; else the page scrolls.
+    this.el.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      const max = this.el.scrollWidth - this.el.clientWidth;
+      if (max <= 1) return;
+      const next = this.el.scrollLeft + e.deltaY;
+      if ((e.deltaY < 0 && this.el.scrollLeft <= 0) || (e.deltaY > 0 && this.el.scrollLeft >= max - 1)) return;
+      e.preventDefault();
+      this.el.scrollLeft = clamp(next, 0, max);
+    }, { passive: false });
   }
 
   _drag() {
@@ -89,7 +126,7 @@ export class Segmented {
     this.el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || this.disabled) return;
       const r = this.el.getBoundingClientRect();
-      start = { x: e.clientX, left: r.left, moved: false, id: e.pointerId };
+      start = { x: e.clientX, left: r.left, moved: false };
       this.lift.to(1, SPRINGS.snappy);
       this.el.setPointerCapture(e.pointerId);
     });
@@ -97,7 +134,6 @@ export class Segmented {
       if (!start) return;
       if (Math.abs(e.clientX - start.x) > 4) start.moved = true;
       if (!start.moved) return;
-      // The droplet follows the finger, centred under it, clamped to the track.
       const b = this._optRect(this.value);
       const target = clamp(e.clientX - start.left - b.w / 2, 3, this.el.clientWidth - b.w - 3);
       this.x.to(target, SPRINGS.press);
@@ -108,7 +144,6 @@ export class Segmented {
       const left = start.left;
       start = null;
       this.lift.to(0, SPRINGS.bouncy);
-      // Drag: the option under the droplet centre; tap: the option under the pointer.
       const cx = moved ? this.x.value + this._optRect(this.value).w / 2 : e.clientX - left;
       let best = null;
       for (const b of this.opts) {
@@ -116,7 +151,7 @@ export class Segmented {
         if (cx >= l && cx <= l + b.offsetWidth) best = b;
       }
       if (!best) best = cx < this.opts[0].offsetLeft ? this.opts[0] : this.opts[this.opts.length - 1];
-      if (e.type === 'pointercancel' && !moved) return this._place(true);
+      if ((e.type === 'pointercancel' && !moved) || this.off.has(best.dataset.v)) return this._place(true);
       this.set(best.dataset.v, true);
     };
     this.el.addEventListener('pointerup', end);
@@ -130,11 +165,10 @@ export class Segmented {
 
   _render() {
     const v = this.x.velocity;
-    // Stretch along the motion, thinner across it: the droplet "flows".
     const stretch = clamp(Math.abs(v) / 2400, 0, 0.32);
     const lift = this.lift.value;
-    const sx = 1 + stretch + lift * 0.1;
-    const sy = 1 - stretch * 0.35 + lift * 0.16;
+    const sx = 1 + stretch + lift * 0.08;
+    const sy = 1 - stretch * 0.35 + lift * 0.14;
     this.drop.style.width = `${this.w.value.toFixed(2)}px`;
     this.drop.style.transform = `translateX(${this.x.value.toFixed(2)}px) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`;
   }
@@ -142,13 +176,36 @@ export class Segmented {
   _place(animate) {
     const r = this._optRect(this.value);
     if (!r.w) return;
-    if (animate) {
+    const has = this.opts.some((o) => o.dataset.v === this.value);
+    this.drop.style.visibility = has ? '' : 'hidden';
+    if (animate && !reducedMotion.matches) {
       this.x.to(r.x, SPRINGS.bouncy);
       this.w.to(r.w, SPRINGS.bouncy);
     } else {
       this.x.set(r.x);
       this.w.set(r.w);
     }
+    if (this.scroll) this._reveal(animate);
+  }
+
+  /** Scroll variant: fade the side that can still scroll. */
+  _fades() {
+    if (!this.scroll) return;
+    const el = this.el;
+    const max = el.scrollWidth - el.clientWidth;
+    el.classList.toggle('fade-l', max > 1 && el.scrollLeft > 2);
+    el.classList.toggle('fade-r', max > 1 && el.scrollLeft < max - 2);
+  }
+
+  /** Scroll variant: keep the selected chip in view (horizontal only, never the page). */
+  _reveal(smooth) {
+    const r = this._optRect(this.value);
+    const el = this.el;
+    const pad = 24;
+    let left = el.scrollLeft;
+    if (r.x - pad < left) left = r.x - pad;
+    else if (r.x + r.w + pad > left + el.clientWidth) left = r.x + r.w + pad - el.clientWidth;
+    if (Math.abs(left - el.scrollLeft) > 1) el.scrollTo({ left: Math.max(0, left), behavior: smooth ? 'smooth' : 'auto' });
   }
 
   _sync() {
@@ -160,6 +217,7 @@ export class Segmented {
     });
   }
 
+  /** Set the value; `user` = from an interaction (calls onChange). */
   set(v, user = false) {
     if (v === this.value) {
       this._place(true);
@@ -170,17 +228,11 @@ export class Segmented {
     this._place(true);
     if (user) this.o.onChange && this.o.onChange(v);
   }
-}
 
-// ---------------------------------------------------------------------------------------------
-// Format toggle for job cards (MP4 / MP3). Plain markup with a CSS thumb: a queue may hold
-// hundreds of cards, so it has no lens and no springs; the owner delegates clicks on
-// [data-act="fmt"] and reads data-v.
-
-export function formatToggleHtml(value) {
-  const opt = (v, label) =>
-    `<button type="button" role="radio" data-act="fmt" data-v="${v}" aria-checked="${value === v}" tabindex="${value === v ? 0 : -1}">${label}</button>`;
-  return `<span class="fmt-toggle" role="radiogroup" aria-label="Format" data-v="${value}"><i class="fmt-thumb" aria-hidden="true"></i>${opt('mp4', 'MP4')}${opt('mp3', 'MP3')}</span>`;
+  destroy() {
+    this.ro.disconnect();
+    this.lens.destroy();
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -190,6 +242,7 @@ export class Switch {
   constructor({ label, checked, onChange }) {
     this.onChange = onChange;
     this.checked = !!checked;
+    this.disabled = false;
     const el = (this.el = document.createElement('button'));
     el.type = 'button';
     el.className = 'switch';
@@ -205,12 +258,14 @@ export class Switch {
       this._render();
     });
     el.addEventListener('pointerdown', (e) => {
-      if (e.button === 0) this.press.to(1, SPRINGS.snappy);
+      if (e.button === 0 && !this.disabled) this.press.to(1, SPRINGS.snappy);
     });
     const up = () => this.press.to(0, SPRINGS.bouncy);
     el.addEventListener('pointerup', up);
     el.addEventListener('pointerleave', up);
-    el.addEventListener('click', () => this.set(!this.checked, true));
+    el.addEventListener('click', () => {
+      if (!this.disabled) this.set(!this.checked, true);
+    });
     this._sync();
     this._render();
   }
@@ -218,9 +273,9 @@ export class Switch {
   _render() {
     const p = this.pos.value;
     const lift = this.press.value;
-    const W = 52, H = 32, pad = 2;
-    const tw = 28 + lift * 12 + Math.min(Math.abs(this.pos.velocity) * 2, 6);
-    const th = 28 + lift * 2;
+    const W = 46, H = 28, pad = 2;
+    const tw = 24 + lift * 10 + Math.min(Math.abs(this.pos.velocity) * 2, 5);
+    const th = 24 + lift * 2;
     const x = pad + p * (W - pad * 2 - tw);
     this.thumb.style.width = `${tw.toFixed(2)}px`;
     this.thumb.style.height = `${th.toFixed(2)}px`;
@@ -233,21 +288,29 @@ export class Switch {
     this.el.classList.toggle('is-on', this.checked);
   }
 
+  setDisabled(off) {
+    this.disabled = !!off;
+    this.el.disabled = this.disabled;
+  }
+
   set(v, user = false) {
     v = !!v;
     if (v === this.checked) return;
     this.checked = v;
     this._sync();
-    this.pos.to(v ? 1 : 0, SPRINGS.bouncy);
+    if (reducedMotion.matches) this.pos.set(v ? 1 : 0);
+    else this.pos.to(v ? 1 : 0, SPRINGS.bouncy);
     if (user) this.onChange && this.onChange(v);
+  }
+
+  destroy() {
+    this.lens.destroy();
   }
 }
 
 // ---------------------------------------------------------------------------------------------
 // Stepper
 
-// The number roll is critically damped (no overshoot: a bouncing digit swings the old value back
-// into view) and short, so rapid clicks read as a quick count rather than a smear.
 const ROLL = { response: 0.26, damping: 1 };
 
 export class Stepper {
@@ -270,7 +333,6 @@ export class Stepper {
       gel(b);
       b.addEventListener('click', () => this.set(this.value + Number(b.dataset.d), true));
     });
-    // Keyboard on either button: arrows and +/- step, Home / End jump to the limits.
     el.addEventListener('keydown', (e) => {
       const k = e.key;
       let v = null;
@@ -290,7 +352,6 @@ export class Stepper {
     const focused = this.btns.find((b) => b === document.activeElement);
     minus.disabled = this.value <= this.min;
     plus.disabled = this.value >= this.max;
-    // A button that turns disabled under focus would drop focus to <body>; hand it to the other one.
     if (focused && focused.disabled) (focused === minus ? plus : minus).focus();
   }
 
@@ -304,13 +365,6 @@ export class Stepper {
     if (user) this.onChange && this.onChange(v);
   }
 
-  /**
-   * Rolling number: the shown number leaves upward (or downward), the new one rolls in. Exactly one
-   * outgoing and one incoming span exist at any time. An interrupted roll is finished first: the
-   * previous outgoing span is removed and the previous incoming span leaves from where it is now,
-   * so rapid clicks never leave a stale digit behind. At rest there is one span with no inline
-   * transform or opacity (crisp text).
-   */
   _roll(v, dir) {
     const spans = Array.from(this.val.querySelectorAll('.step-num'));
     const old = spans.pop();
@@ -348,15 +402,15 @@ export class Stepper {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Select (menu button)
+// Select (menu button). The menu opens above the button (`up`, default) or below it.
 
 export class Select {
-  constructor({ label, options, value, onChange }) {
+  constructor({ label, options, value, onChange, up = true }) {
     this.options = options;
     this.value = value;
     this.onChange = onChange;
     const el = (this.el = document.createElement('div'));
-    el.className = 'select';
+    el.className = `select${up ? ' is-up' : ''}`;
     el.innerHTML = `<button type="button" class="select-btn" aria-haspopup="listbox" aria-label="${escapeHtml(label)}"><span class="select-label"></span>${icon('chevronDown')}</button>
       <div class="select-menu glass-lite" role="listbox" hidden>${options.map((o) => `<button type="button" role="option" class="select-opt" data-v="${escapeHtml(o.value)}">${icon('check', 'select-check')}<span>${escapeHtml(o.label)}</span></button>`).join('')}</div>`;
     this.btn = el.querySelector('.select-btn');
@@ -368,13 +422,15 @@ export class Select {
       if (!b) return;
       this.set(b.dataset.v, true);
       this.closeMenu();
+      this.btn.focus();
     });
     this.menu.addEventListener('keydown', (e) => {
       const items = Array.from(this.menu.querySelectorAll('.select-opt'));
       const i = items.indexOf(document.activeElement);
       if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
       if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
-      if (e.key === 'Escape') { e.stopPropagation(); this.closeMenu(); this.btn.focus(); }
+      if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); this.closeMenu(); this.btn.focus(); }
+      if (e.key === 'Tab') this.closeMenu();
     });
     this._outside = (e) => { if (!el.contains(e.target)) this.closeMenu(); };
     this._sync();
@@ -382,7 +438,7 @@ export class Select {
 
   openMenu() {
     this.menu.hidden = false;
-    this.menu.animate([{ opacity: 0, transform: 'translateY(-6px) scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    this.menu.animate([{ opacity: 0, transform: 'translateY(6px) scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
     const cur = this.menu.querySelector('.is-on') || this.menu.querySelector('.select-opt');
     cur && cur.focus();
     addEventListener('pointerdown', this._outside, true);
@@ -395,7 +451,7 @@ export class Select {
 
   _sync() {
     const o = this.options.find((x) => x.value === this.value) || this.options[0];
-    this.el.querySelector('.select-label').textContent = o.label;
+    this.el.querySelector('.select-label').textContent = o ? o.label : '';
     this.menu.querySelectorAll('.select-opt').forEach((b) => {
       const on = b.dataset.v === this.value;
       b.classList.toggle('is-on', on);
@@ -408,5 +464,42 @@ export class Select {
     this.value = v;
     this._sync();
     if (user) this.onChange && this.onChange(v);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Slider: a styled range input with the value beside it. onInput while dragging (live number),
+// onChange once on release / key commit.
+
+export class Slider {
+  constructor({ label, min = 0, max = 100, step = 1, value, onChange }) {
+    this.onChange = onChange;
+    this.min = min;
+    this.max = max;
+    const el = (this.el = document.createElement('div'));
+    el.className = 'slider';
+    el.innerHTML = `<input type="range" class="slider-in" min="${min}" max="${max}" step="${step}" aria-label="${escapeHtml(label)}"><output class="slider-val tnum"></output>`;
+    this.input = el.querySelector('input');
+    this.out = el.querySelector('output');
+    this.input.addEventListener('input', () => this._paint(Number(this.input.value)));
+    this.input.addEventListener('change', () => this.onChange && this.onChange(Number(this.input.value)));
+    this.set(value);
+  }
+
+  _paint(v) {
+    const p = (v - this.min) / (this.max - this.min || 1);
+    this.el.style.setProperty('--v', p.toFixed(4));
+    this.out.textContent = String(v);
+  }
+
+  set(v) {
+    if (document.activeElement === this.input && this._dragging) return;
+    this.input.value = String(v);
+    this._paint(Number(this.input.value));
+  }
+
+  setDisabled(off) {
+    this.input.disabled = !!off;
+    this.el.classList.toggle('is-disabled', !!off);
   }
 }

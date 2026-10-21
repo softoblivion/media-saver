@@ -203,6 +203,7 @@ class FakeEngine:
             "can_apply": False,
         }
         self._update_busy = False
+        self._auto_download_for: Optional[str] = None   # `latest` the background download was started for
 
     # -- lifecycle
     def start(self) -> None:
@@ -548,9 +549,14 @@ class FakeEngine:
                 raise ValueError("Format must be mp4 or mp3.")
             if "update_check_interval" in patch and patch["update_check_interval"] not in ("30m", "1h", "6h", "1d", "1w"):
                 raise ValueError("Invalid update check interval.")
+            turned_on = patch.get("auto_download_updates") is True and not self._settings["auto_download_updates"]
             self._settings.update(patch)
             snapshot = dict(self._settings)
+            if turned_on:
+                self._auto_download_for = None
         self._emit("settings", snapshot)
+        if turned_on:
+            self._maybe_auto_download()
         return snapshot
 
     def update_engine(self) -> None:
@@ -563,6 +569,10 @@ class FakeEngine:
             snapshot = dict(self._update)
         self._emit("update", snapshot)
         return snapshot
+
+    def update_status(self) -> dict:
+        with self._lock:
+            return dict(self._update)
 
     def check_updates(self) -> dict:
         with self._lock:
@@ -594,6 +604,18 @@ class FakeEngine:
         finally:
             with self._lock:
                 self._update_busy = False
+        self._maybe_auto_download()
+
+    def _maybe_auto_download(self) -> None:
+        """Background download while auto_download_updates is on: once per `latest` (as app/core/engine.py)."""
+        with self._lock:
+            if not self._settings.get("auto_download_updates") or self._update["stage"] != "available":
+                return
+            latest = self._update["latest"]
+            if not latest or self._auto_download_for == latest:
+                return
+            self._auto_download_for = latest
+        self.download_update()
 
     def download_update(self) -> None:
         with self._lock:

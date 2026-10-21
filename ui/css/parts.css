@@ -1,0 +1,411 @@
+/* Media Saver's own components on top of the Liquid UI kit (vendor/liquid_ui/css/components.css):
+   title bar parts (engine chip, gear, window buttons), the engine popover's component colours,
+   segmented control variants, settings sheet content (path, template tokens, engine versions,
+   Instagram sign-in), the clipboard pill, the thumbnail ghosts of the scene, and the places where
+   Media Saver's layout positions a kit component (update popover width, toasts). */
+
+/* ---------------------------------------------------------------------------------------------
+   Title bar: engine chip */
+
+.eng-chip {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px 0 9px;
+  border: 0;
+  border-radius: var(--r-pill);
+  font: var(--t-control-s);
+  letter-spacing: var(--tr-control);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  --lens-tint: rgba(255, 255, 255, 0.05);
+  --lens-shadow: var(--shadow-s);
+}
+
+.eng-ind {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+}
+
+.eng-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mint);
+  box-shadow: 0 0 10px var(--mint);
+  transition: opacity var(--t-med) ease, background-color var(--t-med) ease, scale var(--t-med) var(--ease-out);
+}
+
+.eng-chip[data-stage="offline"] .eng-dot { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
+.eng-chip[data-stage="error"] .eng-dot { background: var(--rose); box-shadow: 0 0 10px var(--rose); }
+
+.eng-ring {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  transform: rotate(-90deg);
+  opacity: 0;
+  transition: opacity var(--t-med) ease;
+}
+
+.eng-ring circle {
+  fill: none;
+  stroke-width: 2.4;
+}
+
+.eng-ring-track { stroke: rgba(255, 255, 255, 0.18); }
+
+.eng-ring-bar {
+  stroke: var(--accent-ink);
+  stroke-linecap: round;
+  stroke-dasharray: calc(var(--ep, 0.25) * 100) 100;
+  transition: stroke-dasharray 0.35s var(--ease-out);
+}
+
+.eng-chip.is-busy .eng-ring { opacity: 1; }
+.eng-chip.is-busy .eng-dot { opacity: 0; scale: 0.4; }
+.eng-chip.is-busy:not(.is-determinate) .eng-ring { animation: spin 0.9s linear infinite; }
+.eng-chip.is-busy:not(.is-determinate) .eng-ring-bar { stroke-dasharray: 28 100; }
+
+.eng-hover {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font: var(--t-meta);
+  color: var(--ink-2);
+  white-space: nowrap;
+  pointer-events: none;
+  --lite-tint: rgba(20, 22, 42, 0.72);
+}
+
+.eng-hover b { color: var(--ink-1); font-weight: var(--w-strong); font-family: var(--font-text); }
+.eng-hover span { font-family: var(--font-mono); --ff-feat: var(--ff-mono); }
+.eng-hover i { font-style: normal; color: var(--ink-4); }
+
+/* ---------------------------------------------------------------------------------------------
+   Title bar: gear lens and window buttons (minimize, maximize / restore, close) */
+
+.round-lens {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-1);
+  cursor: pointer;
+  --lens-tint: rgba(255, 255, 255, 0.05);
+  --lens-shadow: var(--shadow-s);
+}
+
+.round-lens .ic {
+  width: 18px;
+  height: 18px;
+  transition: rotate 0.5s var(--ease-out);
+}
+
+.round-lens:hover .ic,
+.round-lens.is-source .ic {
+  rotate: 45deg;
+}
+
+.win-btns {
+  display: flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.win-btn {
+  width: 40px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.win-btn .ic { width: 16px; height: 16px; }
+.win-btn:hover { background: var(--fill-3); color: var(--ink-1); }
+.win-close:hover { background: #e5484d; color: #fff; }
+
+/* ---------------------------------------------------------------------------------------------
+   Popovers: the update popover is wider than the kit's default (room for the release notes);
+   the engine popover's component rows are mint when ready, rose when broken. */
+
+.popover.pop-wide {
+  width: min(384px, calc(100vw - 24px));
+}
+
+#engine-pop .comp-ic { color: var(--mint); }
+#engine-pop .comp.is-bad .comp-ic { color: var(--rose); }
+.comp-empty { padding: 12px; color: var(--ink-3); font: var(--t-callout); }
+
+/* ---------------------------------------------------------------------------------------------
+   Settings sheet content */
+
+.set-path {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.path-text {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--well);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  font: var(--t-mono);
+  --ff-feat: var(--ff-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.tpl-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--fill-2);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease;
+}
+
+.token:hover { background: var(--fill-3); }
+.token code { font-size: 12px; color: var(--accent-ink); }
+.token span { font: var(--t-caption); color: var(--ink-3); }
+
+.versions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ver {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--well);
+  min-width: 0;
+}
+
+.ver span { font: var(--t-caption); color: var(--ink-3); }
+.ver b {
+  font: var(--t-mono);
+  font-weight: 500;
+  --ff-feat: var(--ff-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.ver em { font: var(--t-micro); font-style: normal; color: #8ff3dc; }
+.ver.is-bad b { color: var(--rose-ink); }
+
+.ver-foot {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 2px;
+}
+
+.ver-foot small { font: var(--t-caption); color: var(--ink-4); }
+
+.auth-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-ic {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--fill-2);
+  color: var(--ink-2);
+}
+
+.auth-ic .ic { width: 20px; height: 20px; }
+.auth-status.is-on .auth-ic { background: rgba(63, 226, 193, 0.16); color: var(--mint); }
+.auth-status b { display: block; font: var(--t-card); letter-spacing: var(--tr-card); }
+.auth-status small { display: block; font: var(--t-meta); line-height: 1.35; color: var(--ink-3); }
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.app-ver {
+  margin-left: 4px;
+  font: var(--t-mono-s);
+  --ff-feat: var(--ff-mono);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Segmented control variants */
+
+/* Title bar variant (mode switch): a little shorter, on the scene rather than on glass. */
+.seg.seg-tb {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.seg-tb .seg-opt {
+  height: 28px;
+  padding: 0 14px;
+  font: var(--t-control-s);
+  letter-spacing: var(--tr-control);
+}
+
+.seg-tb .seg-drop { height: 28px; }
+
+/* Large variant (format toggle next to Download): matches the 52 px primary button. */
+.seg.seg-l {
+  flex: none;
+  padding: 3px;
+}
+
+.seg-l .seg-opt {
+  height: 46px;
+  min-width: 52px;
+  padding: 0 14px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+}
+
+.seg-l .seg-drop { height: 46px; }
+
+/* Compact variant (quality in the composer's spec row): 34 px, like the title bar switch. */
+.seg-q .seg-opt {
+  height: 28px;
+  padding: 0 12px;
+  font: var(--t-control-s);
+  letter-spacing: var(--tr-control);
+}
+
+.seg-q .seg-drop { height: 28px; }
+
+/* ---------------------------------------------------------------------------------------------
+   Toasts: centred over the queue column (the composer keeps its own column), like the clipboard pill */
+
+.toasts {
+  top: calc(var(--titlebar-h) + 6px);
+  left: calc(var(--cmp-w) + 36px + (100vw - var(--cmp-w) - 54px) / 2);
+  max-width: min(560px, calc(100vw - var(--cmp-w) - 70px));
+}
+
+/* The update popover opens under the version pill at the right, where the toasts drop: while it is
+   open it covers them (its own action says the same as the "ready" toast). */
+body:has(#update-pop.is-open) .toasts {
+  z-index: 41;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Clipboard pill */
+
+.clip-pill {
+  position: fixed;
+  z-index: 30;
+  left: calc(var(--cmp-w) + 36px + (100vw - var(--cmp-w) - 54px) / 2);
+  bottom: 22px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 54px;
+  padding: 0 8px 0 18px;
+  border-radius: var(--r-pill);
+  font: var(--t-body);
+  font-size: 14px;
+  letter-spacing: -0.006em;
+  font-weight: var(--w-medium);
+  white-space: nowrap;
+  --lens-tint: rgba(26, 30, 58, 0.34);
+  --lens-shadow: var(--shadow-l);
+}
+
+.clip-ic { color: var(--accent-ink); }
+.clip-ic .ic { width: 20px; height: 20px; }
+.clip-text b { font-weight: var(--w-display); font-variant-numeric: tabular-nums; }
+.clip-add { margin-left: 6px; height: 36px; padding: 0 14px; }
+.clip-x { width: 34px; height: 34px; }
+
+/* The clipboard pill lives outside #app: its loops hold with the scene as well. */
+html.is-still .clip-pill * {
+  animation-play-state: paused !important;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Scene: soft ghosts of recent thumbnails (js/scene.js), under the kit's vignette and grain */
+
+.scene-ghosts {
+  position: absolute;
+  inset: 0;
+}
+
+.ghost {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: 14vw;
+  aspect-ratio: 9 / 16;
+  border-radius: 30px;
+  background-size: cover;
+  background-position: center;
+  rotate: var(--r);
+  filter: blur(5px) saturate(1.35);
+  opacity: 0;
+  transition: opacity 1.4s var(--ease-out);
+  animation: ghost-float 46s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+.ghost.is-in {
+  opacity: 0.3;
+}
+
+@keyframes ghost-float {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-3vw, 4vh) scale(1.06); }
+  100% { transform: translate(2vw, -3vh) scale(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghost { animation: none; }
+}

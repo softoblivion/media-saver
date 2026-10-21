@@ -2,11 +2,11 @@
 // and "Update now" (update_engine).
 
 import { call, on } from './api.js';
-import { Lens, gel } from './glass.js';
-import { Overlay } from './overlay.js';
+import { Lens, gel } from '../vendor/liquid_ui/js/glass.js';
+import { Overlay } from '../vendor/liquid_ui/js/overlay.js';
 import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
-import { toast } from './toast.js';
+import { toast } from '../vendor/liquid_ui/js/toast.js';
 
 const BUSY = new Set(['starting', 'checking', 'downloading', 'updating']);
 const LABEL = {

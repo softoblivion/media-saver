@@ -5,7 +5,7 @@
 // it through set_settings and reverts it when the backend refuses.
 
 import { call, on } from './api.js';
-import { toast } from './toast.js';
+import { toast } from '../vendor/liquid_ui/js/toast.js';
 
 /** Platform ids in the order of the mode switch (Alt+1..Alt+4). The id `twitter` is shown as "X". */
 export const PLATFORMS = ['instagram', 'youtube', 'tiktok', 'twitter'];

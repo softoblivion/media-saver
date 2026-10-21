@@ -620,7 +620,8 @@ body:not(.is-ready) #app {
   opacity: 0.85;
 }
 
-.pm-spin .spinner { animation-play-state: paused; }
+/* The sending circle is 52 px: a larger spinner than the kit's 18 px default. */
+.pm-spin .spinner { width: 22px; height: 22px; border-width: 2.5px; border-color: rgba(255, 255, 255, 0.28); border-top-color: #fff; animation-play-state: paused; }
 [data-state="sending"] .pm-spin .spinner { animation-play-state: running; }
 
 /* Liquid level of the progress state.

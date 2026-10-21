@@ -1,18 +1,18 @@
 // Settings sheet: every Settings field of BRIDGE_API with English labels, the Instagram block
-// (shown in Instagram mode only), engine versions and the About block with the app version and
-// updates. Grows out of the gear button; changes are saved immediately through set_settings and
+// (shown in Instagram mode only), engine versions, the Updates rows of the kit's update control
+// (js/update.js) and the About block. Grows out of the gear button; changes are saved immediately through set_settings and
 // reverted with a toast when the backend rejects them. `mode`, `format` and the `quality_<platform>`
 // keys are set from the main window (js/mode.js, js/quality.js), not here.
 
 import { call, on } from './api.js';
-import { gel } from './glass.js';
-import { Overlay } from './overlay.js';
-import { Segmented, Switch, Stepper, Select } from './controls.js';
+import { gel } from '../vendor/liquid_ui/js/glass.js';
+import { Overlay } from '../vendor/liquid_ui/js/overlay.js';
+import { Segmented, Switch, Stepper, Select } from '../vendor/liquid_ui/js/controls.js';
 import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
-import { toast } from './toast.js';
+import { toast } from '../vendor/liquid_ui/js/toast.js';
 import { getMode, getFormat, onPref } from './mode.js';
-import { openUpdatePanel, appVersion, setAutoDownload } from './update.js';
+import { updateControl, appVersion } from './update.js';
 
 const TOKENS = [
   { t: '{author}', d: 'author' },
@@ -28,14 +28,7 @@ const BROWSERS = [
   { value: 'brave', label: 'Brave' },
   { value: 'opera', label: 'Opera' },
 ];
-const CHECK_INTERVALS = [
-  { value: '30m', label: 'Every 30 minutes' },
-  { value: '1h', label: 'Every hour' },
-  { value: '6h', label: 'Every 6 hours' },
-  { value: '1d', label: 'Every day' },
-  { value: '1w', label: 'Every week' },
-];
-const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'sound_on_done', 'auto_update', 'auto_download_updates'];
+const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'sound_on_done', 'auto_update'];
 
 let sheet, overlay, body;
 let S = null;          // current Settings
@@ -163,16 +156,16 @@ function build() {
       </section>
 
       <section class="set-group">
+        <h3>Updates</h3>
+        <div class="set-card" data-slot="updates"></div>
+      </section>
+
+      <section class="set-group">
         <h3>About</h3>
         <div class="set-card">
           <div class="set-row">
             <div class="set-label"><span>Media Saver <b class="app-ver"></b></span><small>Downloads Instagram Reels, YouTube, TikTok and X videos as MP4 or MP3</small></div>
-            <div class="set-ctl">
-              <button type="button" class="btn btn-s" data-act="check-updates">${icon('refresh')}<span>Check for updates</span></button>
-            </div>
           </div>
-          ${row('Update check', 'On launch, then repeated at this interval while the app runs', '<span data-slot="update_check_interval"></span>')}
-          ${row('Download updates automatically', 'New versions download in the background. Installing needs a restart', '<span data-slot="auto_download_updates"></span>')}
           ${row('Logs', 'Engine and download logs, for troubleshooting', `<button type="button" class="btn btn-s" data-act="logs">${icon('logs')}<span>Open logs</span></button>`)}
         </div>
       </section>
@@ -207,14 +200,9 @@ function build() {
     onChange: (v) => save({ update_channel: v }),
   });
   slot('update_channel').replaceWith(ctl.update_channel.el);
-  ctl.update_check_interval = new Select({
-    label: 'Update check',
-    options: CHECK_INTERVALS,
-    value: S.update_check_interval || '30m',
-    onChange: (v) => save({ update_check_interval: v }),
-  });
-  slot('update_check_interval').replaceWith(ctl.update_check_interval.el);
-  mkSwitch('auto_download_updates', 'Download updates automatically');
+  // Updates: the kit's rows (status + next action, check interval, automatic download); they save
+  // their own keys and follow the confirmed settings through the update control.
+  updateControl().mountSettings(slot('updates'));
 
   // Filename template: save on blur / Enter, tokens insert at the caret.
   const tpl = body.querySelector('[data-f="filename_template"]');
@@ -256,11 +244,6 @@ function build() {
         else if (a) toast('warning', 'The file has no valid Instagram session');
       }
       if (act === 'update') await call('update_engine');
-      if (act === 'check-updates') {
-        // The sheet folds back into the gear, the update panel grows out of the version label.
-        overlay.close();
-        setTimeout(() => openUpdatePanel({ check: true }), 120);
-      }
     } catch (err) {
       toast('error', err.message);
     }
@@ -309,12 +292,10 @@ function sync() {
   if (document.activeElement !== tpl) tpl.value = S.filename_template || '';
   renderExample();
   for (const f of SWITCHES) if (!busy(f)) ctl[f].set(!!S[f]);
-  if (!busy('auto_download_updates')) setAutoDownload(S.auto_download_updates !== false);
   if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);
   if (!busy('browser_cookies')) ctl.browser_cookies.set(S.browser_cookies || '');
-  if (!busy('update_check_interval')) ctl.update_check_interval.set(S.update_check_interval || '30m');
 }
 
 function renderAuth() {
