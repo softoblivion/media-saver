@@ -130,7 +130,13 @@ def _webview_dir(engine: Any) -> str:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    args = parse_args(argv)
+    raw = list(sys.argv[1:] if argv is None else argv)
+    if raw and raw[0] == "--apply-update":
+        # The downloaded exe swaps the installed one and restarts it: no window, no mutex, no engine.
+        from app.core.selfupdate import run_apply
+
+        return run_apply(raw[1:])
+    args = parse_args(raw)
 
     mutex = winutil.acquire_single_instance(MUTEX_NAME)
     if mutex is None:

@@ -62,7 +62,7 @@ $env:MEDIA_SAVER_HOME = "$env:TEMP\media_saver_scratch"
 `tests/test_core_*` and `test_linkclean.py` cover the core (docs in `ENGINE.md`, `SELF_UPDATE.md`);
 `tests/test_bridge_*.py` cover the shell with a fake window and the fake engine (event buffering / coalescing /
 escaping, delegation, error messages, login cookie logic, the simulated engine itself); no window is opened. The
-self-update tests run the swap helper written by the updater under `cmd.exe` (Windows only, takes a few seconds). `build.ps1` runs
+self-update tests run the apply mode of the updater against a stand-in process (takes a few seconds). `build.ps1` runs
 the whole suite with its own scratch `MEDIA_SAVER_HOME`.
 
 ## 4. Build the exe
@@ -121,7 +121,7 @@ a minute once `.venv` exists.
 | Update offered but "Download" fails with "checksum mismatch" | The release `SHA256SUMS` does not match the uploaded `MediaSaver.exe` (the exe was rebuilt after the sums file was made, or one of them was edited on GitHub). Re-upload both files of the same build (section 7). |
 | "The release has no MediaSaver.exe" / "...no checksum file" | The release was published with other asset names. The names must be exactly `MediaSaver.exe` and `SHA256SUMS`; fix the assets on the release page. |
 | "GitHub limited the request" | The unauthenticated API quota of the network (60 requests per hour and IP) is used up; the check falls back to the release page first, so this appears only when both are limited. Try again later. |
-| Helper does nothing (manual run of `media-saver_data\updates\apply-update.cmd`) | It reads `MS_UPDATE_TARGET` and `MS_UPDATE_NEW` from the environment, so it does nothing when started by double-click; it is meant to be started by the app. |
+| "Restart to update" closed the app but nothing happened | Read `media-saver_data\updates\apply.log`: it says whether the old process ended, whether the swap worked and whether the new exe started. A 2.0.0 or 2.1.0 install cannot update itself (its helper hangs in a console window): download the new `MediaSaver.exe` once by hand. |
 
 Logs: `media-saver_data\logs\` next to the exe (or `%MEDIA_SAVER_HOME%\logs`): `app.log` (core and shell, rotating),
 `shell.log` (shell and pywebview only), `jobs\<job_id>.log` (full yt-dlp output of a failed job). The "open logs"

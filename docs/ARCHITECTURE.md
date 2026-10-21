@@ -25,7 +25,7 @@ A Windows desktop app, shipped as one portable `MediaSaver.exe`, that:
 | Backend | Python 3.14 | pywebview, pythonnet and PyInstaller support it; the stdlib covers HTTP, zip and subprocess control. |
 | Download engine | Standalone `yt-dlp.exe` (nightly channel by default) run as a subprocess; fallback `gallery-dl.exe` (Instagram only) | Standalone builds carry their own Python and dependencies (incl. curl_cffi) and self-update, so the app never depends on its frozen Python being new enough. |
 | Muxing / transcoding | `ffmpeg.exe` + `ffprobe.exe`: system PATH copy if present, otherwise downloaded once from yt-dlp/FFmpeg-Builds into `data\bin` | Merges DASH video + audio, runs the H.264 compatibility pass, encodes MP3. |
-| Self-update | GitHub Releases of `softoblivion/media-saver` (asset `MediaSaver.exe` + `SHA256SUMS`), swap by a small `cmd` helper on restart | No installer, no service, no third-party updater; the same verified-download pattern as the engines. |
+| Self-update | GitHub Releases of `softoblivion/media-saver` (asset `MediaSaver.exe` + `SHA256SUMS`); the downloaded exe swaps itself in (`--apply-update`) on restart | No installer, no service, no third-party updater; the same verified-download pattern as the engines. |
 | Packaging | PyInstaller one-file, windowed, own icon | One exe to double-click. |
 
 ## 3. Repository layout
@@ -36,7 +36,7 @@ media-saver/
   docs/ARCHITECTURE.md       this file
   docs/BRIDGE_API.md         JS <-> Python contract (methods, events, payload types)
   docs/ENGINE.md             update flow, engine command lines, error codes, site quirks, formats, preview
-  docs/SELF_UPDATE.md        app self-update: release layout, check, verify, swap helper
+  docs/SELF_UPDATE.md        app self-update: release layout, check, verify, apply mode
   docs/UI_DESIGN.md          design system, Liquid Glass material, typography, motion, copy rules
   docs/BUILD.md              dev run, build, release procedure, troubleshooting
   docs/releases/vX.Y.Z.md    release notes
@@ -93,7 +93,7 @@ Module table (owner = the session that may write there during a task; see `_work
 - `cache/thumbs/`, `cache/jobs/<job_id>/` (info json, per-job cookie copy, temp files).
 - `logs/app.log` (rotating, 2 MB x 3), `logs/shell.log`, `logs/jobs/<job_id>.log` (full engine stderr of a failed job).
 - `webview/` — WebView2 profile (`storage_path`) of the sign-in window.
-- `updates/` — downloaded `MediaSaver-<version>.exe`, the swap helper, the "applied" marker.
+- `updates/` — downloaded `MediaSaver-<version>.exe`, `apply.log`, the "applied" marker.
 - default output dir: `<Videos>\Media-Saver` (the Windows known folder Videos, so a redirected or localized
   library is followed; `%MEDIA_SAVER_HOME%\Downloads` under the override). This is the project's deliberate
   deviation from the workspace rule "Portable projects" (the user's decision, 2026-10-20): the app's state is
@@ -194,10 +194,10 @@ sees or stores the password.
    with `app.__version__`.
 2. "Download": stream the asset to `data\updates\MediaSaver-<version>.exe.part`, verify the byte size against the
    release asset and the SHA-256 against `SHA256SUMS`, rename to `.exe`; stage `ready`.
-3. "Restart to update": write `data\updates\apply-update.cmd` (waits for this process to exit, replaces
-   `MediaSaver.exe` keeping the old file as `MediaSaver.exe.old` until the new one started, starts the new exe,
-   removes itself), start it detached, close the app. On the next launch the marker in `updates\` produces one
-   "Updated to vX.Y.Z" toast and `MediaSaver.exe.old` is deleted.
+3. "Restart to update": write the marker in `updates\`, start `updates\MediaSaver-<version>.exe --apply-update
+   <pid> <MediaSaver.exe>` and close the app. That exe waits for the pid to end, renames the installed exe to
+   `MediaSaver.exe.old`, copies itself over it and starts it. No script, no console. On the next launch the marker
+   produces one "Updated to vX.Y.Z" toast and `MediaSaver.exe.old` is deleted.
 4. Any failure leaves the current exe untouched; the UI shows the message and offers to retry.
 
 The version lives in `app/__init__.py` only; the build writes it into the exe's version resource.
@@ -237,7 +237,7 @@ class Engine:
 
     def check_updates(self) -> dict: ...                 # start the app-update check; UpdateStatus now, progress via "update"
     def download_update(self) -> None: ...               # background download + verify, progress via "update"
-    def apply_update(self) -> bool: ...                  # start the swap helper; True when the app must now exit
+    def apply_update(self) -> bool: ...                  # start the new exe in apply mode; True when the app must now exit
 
     def auth_status(self) -> dict: ...
     def reload_auth(self) -> dict: ...                   # re-read cookies.txt, emit "auth", return status
@@ -276,7 +276,7 @@ class SelfUpdater:
     def check(self) -> dict                             # blocking; UpdateStatus
     def download_background(self) -> None
     def download(self) -> dict                          # blocking; verifies size + SHA-256; UpdateStatus
-    def apply(self, launch: bool = True) -> bool        # write + start the helper; True when started (launch=False: tests)
+    def apply(self, launch: bool = True) -> bool        # marker + start `<new exe> --apply-update`; True when started
 ```
 
 Payload shapes (State, Job, EngineStatus, UpdateStatus, Auth, Settings, events) are defined once in

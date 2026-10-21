@@ -75,39 +75,36 @@ The check runs on every launch when `check_app_updates` is on (`Engine.start`) a
    A mismatch deletes the `.part` file and ends in "The downloaded file is damaged (checksum mismatch)".
 4. `os.replace` to `MediaSaver-<latest>.exe`, remember the expected SHA-256, stage `ready`.
 
-## 5. Apply (the helper)
+## 5. Apply (the downloaded exe swaps itself in)
 
-`apply()` returns `True` only after the helper is running; the bridge then closes the window the way the title bar
-close button does (`Bridge.apply_update`). Preconditions, each failing with a status error and `False`: stage
-`ready`, the app runs as the packaged exe (`exe_path`), the downloaded file exists and its SHA-256 **re-hashed now**
-still equals the verified one (a changed file is deleted).
+`apply()` returns `True` only after the new exe has been started in apply mode; the bridge then closes the window
+the way the title bar button does. Preconditions: stage `ready`, `exe_path` set (frozen build), the file still
+there with the expected SHA-256 (re-hashed). Steps:
 
-Steps of `apply()`:
+1. Write `updates\applied.json` = `{"version": "<latest>", "at": <epoch>}`.
+2. Start `updates\MediaSaver-<latest>.exe --apply-update <pid> <target>` (`<pid>` = this process, `<target>` =
+   the installed `MediaSaver.exe`; `--no-launch` is appended in tests). The child gets a clean environment
+   (`clean_env()`: `_PYI_*` / `_MEIPASS2` removed, `PYINSTALLER_RESET_ENVIRONMENT=1`) and the flags
+   `CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB` (plain `CREATE_NEW_PROCESS_GROUP` when the job refuses
+   breakaway), stdin / stdout / stderr on `DEVNULL`. There is no `cmd`, no console and no pipe anywhere: a windowed
+   exe starts another windowed exe.
+3. The app exits.
 
-1. Write `updates\applied.json` `{"version": "<latest>", "at": <epoch>}`.
-2. Write `updates\apply-update.cmd` (ASCII, CRLF). The two paths are **not** inside the script: they travel in the
-   environment variables `MS_UPDATE_TARGET` (the running `MediaSaver.exe`) and `MS_UPDATE_NEW` (the downloaded
-   file), so a profile or folder with non-ASCII characters works (a `.cmd` is read in the OEM code page).
-3. Start it: `cmd.exe /c apply-update.cmd`, `cwd` = `updates\`, flags `CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP |
-   DETACHED_PROCESS`, `close_fds`, stdin / stdout / stderr to `DEVNULL`, environment = the current one **without
-   `_PYI*` variables**, plus `PYINSTALLER_RESET_ENVIRONMENT=1` and the two path variables (see 7).
+What the new exe does in apply mode (`run_apply`, reached from `app/main.py` before the single-instance mutex and
+before any window; every step is appended to `updates\apply.log`):
 
-What the helper does:
+1. Wait for `<pid>` to end: `OpenProcess(SYNCHRONIZE)` + `WaitForSingleObject` in one-second slices, at most 120 s.
+   A pid that no longer exists counts as exited.
+2. Swap: remove a stale `<target>.old`, rename `<target>` to `<target>.old`, copy itself (`sys.executable`) over
+   `<target>` and compare sizes. The rename is retried up to 40 times, 0.5 s apart (the old exe may still be held by
+   its own shutdown or by an antivirus scan). When the copy fails, `.old` is moved back and the run stops.
+3. Start `<target>` (clean environment, cwd = its folder) and exit. The copy in `updates\` stays until the new
+   version's `startup()` deletes it as "not newer than the running version".
 
-1. Waits (up to 120 x 1 s) until the app's PID is gone: `tasklist /FI "PID eq <pid>" | find " <pid> "`.
-2. `move /y "%MS_UPDATE_TARGET%" "%MS_UPDATE_TARGET%.old"`, up to 20 tries 1 s apart (the one-file bootloader process
-   and antivirus may still hold the exe for a moment). All 20 fail: give up, the old exe stays.
-3. `move /y "%MS_UPDATE_NEW%" "%MS_UPDATE_TARGET%"`. If that fails, `move` the `.old` file back and give up.
-4. `start "" /D "<exe folder>" "%MS_UPDATE_TARGET%"` (launch is switched off only for tests).
-5. Deletes itself (`(goto) 2>nul & del "%~f0"` as the last line, reached by every path).
-
-System tools are called by full path (`%SystemRoot%\System32\tasklist.exe`, `find.exe`, `ping.exe`), and the one-second
-sleep is `ping -n 2 127.0.0.1`, see 7.
-
-Next launch (`SelfUpdater.startup()`, called by `Engine.start`): delete `<exe>.old`; read `applied.json` and remove it
-(the version equals the running one -> toast "Media Saver updated to vX.Y.Z"; different -> the update did not apply,
-logged as a warning, no toast); delete leftover `updates\MediaSaver-<v>.exe(.part)` with `v <= running` and a
-stale `apply-update.cmd`. Never raises.
+Why not a script: 2.0.0 and 2.1.0 used a `cmd` helper started with `DETACHED_PROCESS`; a detached `cmd` has no
+console, so every console tool it ran (`tasklist`, `find`, `ping`) opened a visible console of its own and the
+`tasklist | find` pipe hung waiting for keyboard input. The helper could not be fixed from the new side: it is the
+old exe that starts it, so 2.0.0 and 2.1.0 installs need one manual download of a newer `MediaSaver.exe`.
 
 ## 6. Failure handling
 
@@ -118,25 +115,29 @@ stale `apply-update.cmd`. Never raises.
 | Interrupted download, size or checksum mismatch | `.part` deleted; status `error`; the next `download_update()` starts over |
 | Disk full / folder not writable | "Could not save the update file" |
 | File changed between download and apply | file deleted, "The downloaded file is damaged (checksum mismatch)", `apply()` returns `False`, the app keeps running |
-| Helper cannot start | marker removed, "Could not start the update helper", app keeps running |
+| The new exe cannot be started in apply mode | marker removed, "Could not start the update helper", app keeps running |
 | Exe locked for 20 s or the move fails | old exe stays (or is restored); the next launch finds a marker with another version, logs "did not apply", and the update is offered again |
 | Running from source | `can_apply` false; `apply()` refuses |
 
-The running exe is never touched before the helper has waited for the app to exit.
+The running exe is never touched before the apply mode has waited for the app to exit; a failed swap moves
+`.old` back, and `apply.log` in `updates\` says what happened.
 
 ## 7. Platform notes (symptom / cause / fix)
 
-- `timeout /t 1 /nobreak` inside the helper returns at once ("Input redirection is not supported") when stdin is
-  redirected, which it is for a detached process started with `stdin=DEVNULL`. The wait loop would spin through its
-  120 iterations in no time. The helper sleeps with `ping -n 2 127.0.0.1 >nul` instead.
-- `find` resolved to `C:\Program Files\Git\usr\bin\find.exe` (Git for Windows ahead of System32 in `PATH`), which
-  breaks the PID test. The helper calls `%SystemRoot%\System32\find.exe` and the other system tools by full path.
-- A process started from a PyInstaller one-file exe inherits `_PYI_*` environment variables; a second launch of the
-  same exe that keeps them reuses the first instance's extraction folder (deleted when the first exits) and fails.
-  The helper environment drops them and sets `PYINSTALLER_RESET_ENVIRONMENT=1` (PyInstaller 6.9+), which makes the
-  new bootloader act as a fresh top-level process.
-- Paths with `%`, spaces, parentheses or non-ASCII characters are safe because they are environment variables that
-  are only expanded inside double quotes.
+- A `cmd` helper started with `DETACHED_PROCESS` has no console; every console child (`tasklist`, `find`, `ping`)
+  then allocates a visible console of its own and a pipe between them breaks (`find` reads its new console and
+  waits for keyboard input). Seen on a friend's PC with 2.1.0: a console window titled `find.exe " <pid> "` hung
+  after "Restart to update". Fix: no script and no console tools at all; the windowed exe does the swap
+  (`run_apply`). `CREATE_NO_WINDOW` is also ignored when combined with `DETACHED_PROCESS`, which is why the
+  window was visible in the first place.
+- A process started from a PyInstaller one-file exe inherits `_PYI_*` variables that make a second launch of the
+  same exe reuse the first one's extraction folder (which is being deleted). `clean_env()` drops them and sets
+  `PYINSTALLER_RESET_ENVIRONMENT=1` (PyInstaller 6.9+), so the apply-mode exe and the relaunched app each extract
+  afresh.
+- A launcher that puts the app in a job object with "kill on close" would end the apply-mode exe together with the
+  app; `CREATE_BREAKAWAY_FROM_JOB` detaches it when the job allows that, otherwise the plain flags are used.
+- `os.replace` of the running exe can fail for a moment after the app exits (its own shutdown, antivirus scan);
+  the rename is retried for up to 20 s.
 
 ## 8. Testing
 
@@ -150,9 +151,9 @@ The running exe is never touched before the helper has waited for the app to exi
   headers of `ReleaseNet`; one operation at a time; download ok (progress, `.part` gone), size mismatch, checksum
   mismatch, missing `SHA256SUMS` and missing entry, network and disk errors with retry; an already downloaded and
   verified file going straight to `ready` (and a corrupt one not); `apply()` refused when not ready, without
-  `exe_path`, after the file changed or vanished, and its marker / helper / spawn arguments; `startup()` toast, stale
-  marker, `.old` deletion, leftover cleanup, broken marker; the helper script itself (Windows only): a stand-in
-  process of two seconds is "the app", the helper really runs under `cmd.exe` with stdin on `NUL`, waits for it,
+  `exe_path`, after the file changed or vanished, and its marker / spawn arguments; `startup()` toast, stale
+  marker, `.old` deletion, leftover cleanup, broken marker; the apply mode itself (`run_apply`): a stand-in
+  process of two seconds is "the app", the function waits for it,
   swaps a dummy target (in a folder with spaces and parentheses), keeps `.old`, restores the old file when the new
   one is missing, and deletes itself.
 - Not covered: a real GitHub release, the PyInstaller one-file restart in a frozen build, antivirus locking the exe,
