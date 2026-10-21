@@ -92,9 +92,9 @@ class Engine:
             on_queue_drained=self._on_queue_drained, runner=runner)
         self.selfupdate = SelfUpdater(self.paths, app_version, self._on_update_status, net=net,
                                       on_toast=lambda level, text: self._emit("toast", {"level": level, "text": text}))
-        # periodic app-update checks on the `update_check_interval` setting; started with the launch check
-        self.update_scheduler = UpdateScheduler(self.selfupdate, self._settings.get()["update_check_interval"],
-                                                logger_name="mediasaver.core.selfupdate.schedule")
+        # periodic app-update checks (fixed 5-minute period, back-off after failures, none while offline);
+        # started with the launch check
+        self.update_scheduler = UpdateScheduler(self.selfupdate, logger_name="mediasaver.core.selfupdate.schedule")
         log.info("engine created, version %s, home %s", app_version, self.paths.root)
 
     # --- events --------------------------------------------------------------------------------------
@@ -254,8 +254,6 @@ class Engine:
                 self.downloader.set_concurrency(new["concurrency"])
             if "update_channel" in changed:
                 self.updater.start_background(force=True)
-            if "update_check_interval" in changed:
-                self.update_scheduler.set_interval(new["update_check_interval"])
             if "auto_download_updates" in changed and new["auto_download_updates"]:
                 with self._lock:
                     self._auto_download_for = None

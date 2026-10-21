@@ -149,7 +149,6 @@ members-only, sensitive content) can use the cookies of a browser chosen in Sett
 | `update_channel` | `nightly` | `nightly` or `stable` channel of yt-dlp |
 | `auto_update` | `true` | Check engines on every start |
 | `auto_download_updates` | `true` | Download a new version in the background; installing is always a click on **Restart** |
-| `update_check_interval` | `30m` | How often the app looks for a new version while it runs: `30m`, `1h`, `6h`, `1d` or `1w` (Settings > Updates > **Check interval**) |
 | `auth_mode` | `auto` | Instagram: `auto` (anonymous first), `always` (session first), `never` |
 | `browser_cookies` | *(empty)* | Optional browser to read cookies from: `firefox`, `edge`, `chrome`, `brave`, `opera` (every platform) |
 | `clipboard_watch` | `true` | Offer links found in the clipboard on window focus |
@@ -213,10 +212,11 @@ GitHub and Codeberg (engine and app updates).
 ## Updates
 
 - **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
-- **The app:** checked on every launch and then every 30 minutes while it runs (Settings > Updates > **Check interval**:
-  every 30 minutes, hour, 6 hours, day or week), or **Check for updates** in the popover of the version
-  pill next to the engine chip or in Settings > Updates. A new version downloads in the background (`auto_download_updates`, on by
-  default) and a notice offers **Restart**; the app never restarts by itself. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
+- **The app:** checked on every launch and then every 5 minutes while it runs; a failed check is retried later with
+  a growing wait of up to an hour, and nothing is checked without a network connection. **Check for updates** in the
+  popover of the version pill next to the engine chip or in Settings > Updates checks at once. **Download updates
+  automatically** (`auto_download_updates`, on by default) fetches a new version in the background and a notice
+  offers **Restart**; installing still needs **Restart to update**, the app never restarts by itself. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
   against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: the downloaded exe waits
   for the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new
   one started) and relaunches it. If anything fails the current exe stays untouched. Closing the window ends the

@@ -2,11 +2,13 @@
 // "Updates" rows of a settings sheet. It renders an UpdateStatus and talks to the app only through
 // the bridge functions the app passes in (docs/LIQUID_UI.md, section 7, "Bridge contract"):
 //   methods  update_status(), check_updates(), download_update(), apply_update(), open_url(url),
-//            get_settings(), set_settings({auto_download_updates | update_check_interval})
+//            get_settings(), set_settings({auto_download_updates})
 //   event    update  (UpdateStatus)
 // The control never downloads or restarts on its own: the app's updater downloads by itself when
 // auto_download_updates is on; the user starts every other step. The first `available` of a
 // version raises one toast (not with automatic download), `ready` one sticky toast with "Restart".
+// The app's updater checks on launch and then every five minutes on its own; the page has no
+// interval control.
 //
 // Stages: idle / up_to_date -> "Check for updates"; checking -> indeterminate bar; available ->
 // latest version, size, date, release notes, "Download"; downloading -> determinate bar; ready ->
@@ -14,22 +16,13 @@
 
 import { gel, Lens } from './glass.js';
 import { Overlay } from './overlay.js';
-import { Switch, Select } from './controls.js';
+import { Switch } from './controls.js';
 import { icon } from './icons.js';
 import { escapeHtml, bytes, shortDate, shortDateTime, timeAgo } from './format.js';
 import { toast } from './toast.js';
 
 const IDLE = { stage: 'idle', current: '', latest: null, notes: null, size: null, published_at: null, progress: null, message: '', checked_at: null, can_apply: false };
 const CAN_CHECK = new Set(['idle', 'up_to_date', 'error']);
-
-/** The five check intervals of the contract (ids and labels), used when the app passes none. */
-export const UPDATE_INTERVALS = [
-  { id: '30m', label: 'Every 30 minutes' },
-  { id: '1h', label: 'Every hour' },
-  { id: '6h', label: 'Every 6 hours' },
-  { id: '1d', label: 'Every day' },
-  { id: '1w', label: 'Every week' },
-];
 
 /**
  * Mount the update control.
@@ -44,7 +37,6 @@ export const UPDATE_INTERVALS = [
  *     version?: string,           // shown until the first status arrives
  *     status?: object,            // initial UpdateStatus (e.g. State.update)
  *     settings?: object,          // initial settings; else get_settings() is called
- *     intervals?: {id,label}[],   // Options.update_intervals
  *     hasActiveWork?: () => boolean,
  *     restartWarning?: string,    // toast text when hasActiveWork() is true at restart
  *     onStatus?: (status) => void,
@@ -61,14 +53,12 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
     version: '',
     status: null,
     settings: null,
-    intervals: UPDATE_INTERVALS,
     hasActiveWork: () => false,
     restartWarning: 'Work in progress stops when the app restarts',
     onStatus: null,
     onSettings: null,
     ...options,
   };
-  if (!o.intervals || !o.intervals.length) o.intervals = UPDATE_INTERVALS;
   const product = o.product;
   const open = openUrl || ((url) => call('open_url', url));
 
@@ -315,9 +305,9 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
 
   /**
    * Render the "Updates" rows of a settings sheet into `host` (a `.set-card`): the status line
-   * with the next action, "Check interval" (select) and "Download updates automatically"
-   * (switch). Changes are saved with set_settings; a refusal shows the sentence as a toast and
-   * restores the confirmed value. Returns { el, refresh(), destroy() }.
+   * with the next action and "Download updates automatically" (switch). Changes are saved with
+   * set_settings; a refusal shows the sentence as a toast and restores the confirmed value.
+   * Returns { el, refresh(), destroy() }.
    */
   function mountSettings(host) {
     const inflight = new Map();
@@ -326,9 +316,8 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
       <div class="set-row set-row-col" data-row="update">
         <div class="upd-line"><span class="upd-status" data-upd-status></span><span class="upd-acts" data-upd-acts></span></div>
       </div>
-      <div class="set-row" data-row="update_check_interval"><div class="set-label"><span>Check interval</span><small>On launch, then repeated while the app runs</small></div><div class="set-ctl" data-slot="update_check_interval"></div></div>
-      <div class="set-row" data-row="auto_download_updates"><div class="set-label"><span>Download updates automatically</span><small>Installing still needs a restart</small></div><div class="set-ctl" data-slot="auto_download_updates"></div></div>`);
-    const rows = Array.from(host.querySelectorAll('[data-row="update"], [data-row="update_check_interval"], [data-row="auto_download_updates"]'));
+      <div class="set-row" data-row="auto_download_updates"><div class="set-label"><span>Download updates automatically</span><small>Checked every 5 minutes; installing still needs a restart</small></div><div class="set-ctl" data-slot="auto_download_updates"></div></div>`);
+    const rows = Array.from(host.querySelectorAll('[data-row="update"], [data-row="auto_download_updates"]'));
     const st = host.querySelector('[data-upd-status]');
     const acts = host.querySelector('[data-upd-acts]');
     const s0 = settings || {};
@@ -352,13 +341,6 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
       }
     }
 
-    const interval = new Select({
-      label: 'Check interval',
-      options: o.intervals.map((x) => ({ value: x.id, label: x.label })),
-      value: s0.update_check_interval,
-      onChange: (v) => save('update_check_interval', v, () => interval.set(settings && settings.update_check_interval)),
-    });
-    host.querySelector('[data-slot="update_check_interval"]').append(interval.el);
     const auto = new Switch({
       label: 'Download updates automatically',
       checked: s0.auto_download_updates,
@@ -387,14 +369,12 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
       /** Show confirmed settings; a control with a save in flight keeps its local value. */
       refresh() {
         if (!settings) return;
-        if (!busyKey('update_check_interval')) interval.set(settings.update_check_interval);
         if (!busyKey('auto_download_updates')) auto.set(settings.auto_download_updates);
       },
       destroy() {
         blocks.delete(block);
         acts.removeEventListener('click', onActs);
         auto.destroy();
-        interval.closeMenu();
         rows.forEach((r) => r.remove());
       },
     };
