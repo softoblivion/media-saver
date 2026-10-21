@@ -253,6 +253,16 @@
 
 .pop-title { font: var(--t-headline); letter-spacing: var(--tr-headline); }
 .pop-sub { margin-top: 3px; font: var(--t-callout); letter-spacing: var(--tr-callout); color: var(--ink-3); }
+.pop-auto {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font: var(--t-caption);
+  letter-spacing: var(--tr-caption);
+  color: var(--accent-ink);
+}
+.pop-auto svg { width: 12px; height: 12px; flex: none; }
 
 .pop-progress {
   position: relative;

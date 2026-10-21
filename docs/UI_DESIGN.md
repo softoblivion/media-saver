@@ -293,7 +293,24 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
 | `error` | "Could not check for updates" / "The download did not finish" | the message in a rose box | Try again (repeats the interrupted step) |
 
 Progress ticks only move the bar and the numbers, so the notes keep their scroll position. The first `available` of a
-session (initial state or event) raises one toast "Media Saver X.Y.Z is available" with a "View" action.
+session (initial state or event) raises one toast "Media Saver X.Y.Z is available" with a "View" action (not raised
+when automatic install is on: the install toast below follows instead).
+
+Automatic install (`Settings.auto_install_updates`, default off; ARCHITECTURE 5.7 item 5). `js/update.js` follows the
+confirmed value of the setting (`setAutoInstall`, called by the settings sheet and from the initial state; an
+unconfirmed optimistic switch never starts a download). While it is on:
+
+- stage `available`: `download_update()` is called once per `latest` (a repeated `available` of the same version, or an
+  `error` after the automatic download, never starts another one; "Try again" stays manual);
+- stage `ready` (and `can_apply`): if no job is `queued` / `probing` / `downloading` / `processing` (`getJobs()` of
+  `js/queue.js`), the toast "Installing Media Saver X.Y.Z, the app restarts" shows and `apply_update()` is called
+  about 1.5 s later (a job that appears in that time sends it back to waiting); with active jobs it waits on the `job` /
+  `job_removed` events (no polling) and does the same the moment the queue is idle. `apply_update()` is called once
+  per `latest` unless it fails;
+- turning the switch on while a version is `available` or `ready` starts the same flow at once; turning it off
+  cancels a pending wait or countdown;
+- the panel shows a small accent caption under the sub-line: "Installs automatically", or "Installs automatically once
+  downloads finish" while it waits for the queue. The manual `Download` / `Restart to update` buttons keep working.
 
 Release notes Markdown: everything is HTML-escaped first; then `#` headings (level 1 as a title, others as small caps
 labels), `-` / `*` / `+` bullets with continuation lines, blank-line paragraphs, `**bold**`, `` `code` `` and
@@ -309,7 +326,8 @@ everywhere.
   `python -m http.server 5173 --bind 127.0.0.1 --directory ui`, open `/?mock=1`. Mock URL flags (header of
   `js/mock-api.js`): `demo=1` (every state on both platforms, MP3 jobs, queued jobs with pending previews),
   `jobs=N` (N finished jobs, every third YouTube), `mode=youtube`, `format=mp3`, `update=available|uptodate|error`
-  (launch check result; `error` fails the first check and finds 2.1.0 on "Try again"), `hold=1` (queued jobs never
+  (launch check result; `error` fails the first check and finds 2.1.0 on "Try again"), `autoinstall=1` (starts with
+  "Install updates automatically" on), `hold=1` (queued jobs never
   start: previews and format toggles stay inspectable), `clip=0`, `fast=1`, `offline=1`.
 - The page makes no network request: fonts, icons and images are local or `data:` URLs (checked in the browser's
   network log with the mock).
@@ -366,7 +384,9 @@ everywhere.
   | Clipboard pill | "N links on the clipboard" + "Add" | the same; links of the other platform only: "N Instagram links on the clipboard" + "Add to Instagram" |
 
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels and
-  YouTube videos as MP4 or MP3"; switch "Check for updates on launch".
+  YouTube videos as MP4 or MP3"; switch "Install updates automatically" (hint "Download a new version in the background and restart when the queue is
+  idle"; the launch check itself always runs, so there is no switch for it); toast before an automatic restart
+  "Installing Media Saver X.Y.Z, the app restarts"; panel caption "Installs automatically".
 - The runtime data folder is `media-saver_data\` (never `data\`) wherever copy or mock paths name it (mock log paths:
   `D:\Apps\MediaSaver\media-saver_data\logs\jobs\<id>.log`). The default output dir is the core's decision (the
   user's Videos folder + `Media-Saver`, BRIDGE_API Settings); the UI only shows `Settings.output_dir`. The mock's

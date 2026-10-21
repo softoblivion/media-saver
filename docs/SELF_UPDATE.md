@@ -62,7 +62,9 @@ previous one, so a failed check never leaves a stale "latest".
 Offline and limit errors are told apart by the exception text of `Net` (`HTTP 403` / `HTTP 429` -> limit message);
 `Net` retries three times, so an offline check takes about eight seconds before it reports.
 
-The check runs on every launch when `check_app_updates` is on (`Engine.start`) and on the "Check for updates" button.
+The check runs on every launch (`Engine.start`; only the headless CLI and tests pass `app_updates=False`) and on
+the "Check for updates" button. Automatic download and install is the UI's job and a separate setting,
+`auto_install_updates` (default off): ARCHITECTURE.md 5.7, item 5.
 
 ## 4. Download and verification
 

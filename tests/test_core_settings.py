@@ -20,14 +20,14 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(set(d), {"output_dir", "filename_template", "mode", "format", "quality_instagram",
                                   "quality_youtube", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
-                                  "check_app_updates", "auth_mode", "browser_cookies", "clipboard_watch",
+                                  "auto_install_updates", "auth_mode", "browser_cookies", "clipboard_watch",
                                   "open_folder_when_done"})
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
         self.assertEqual(d["quality_instagram"], "max")
         self.assertEqual(d["quality_youtube"], "max")
         self.assertEqual(d["mode"], "instagram")
         self.assertEqual(d["format"], "mp4")
-        self.assertTrue(d["check_app_updates"])
+        self.assertFalse(d["auto_install_updates"])
         self.assertEqual(d["concurrency"], 2)
         self.assertIn(os.path.basename(d["output_dir"]), ("Downloads", "Media-Saver"))  # override / Videos default
 
@@ -79,7 +79,7 @@ class SettingsTest(unittest.TestCase):
             {"concurrency": 0}, {"concurrency": 5}, {"concurrency": 2.5}, {"concurrency": True},
             {"quality_instagram": "4k"}, {"quality_instagram": "720"}, {"quality_youtube": "1080"},
             {"h264_compat": "yes"}, {"update_channel": "beta"}, {"auth_mode": "x"},
-            {"mode": "tiktok"}, {"format": "wav"}, {"check_app_updates": 1},
+            {"mode": "tiktok"}, {"format": "wav"}, {"auto_install_updates": 1},
             {"browser_cookies": "safari"}, {"output_dir": ""}, {"output_dir": "relative\\dir"},
             {"filename_template": ""}, {"filename_template": "{author}"}, {"filename_template": "{foo}_{shortcode}"},
             {"filename_template": "a/b_{shortcode}"}, {"filename_template": "{shortcode}" + "x" * 120},

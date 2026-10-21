@@ -386,7 +386,7 @@ platforms are accepted. `--format` sets the format of the queued links (default:
 values are JSON when they parse (`quality_youtube=720` arrives as the number 720, which the YouTube quality setting accepts).
 With `--set concurrency=1` and several links, the CLI shows the preview of the waiting jobs
 (`preview: 'title' by 'author', 43 s, thumb`). Exit code 0 = all jobs done, 1 = some failed, 2 = engine not
-usable. `--json` prints raw events. The run also starts the app self-update check (`check_app_updates`), which
+usable. `--json` prints raw events. The run never starts the app self-update check (`app_updates=False`), which
 reports an error while the repository has no release.
 
 ## 8. Site and tool quirks (2026-10)

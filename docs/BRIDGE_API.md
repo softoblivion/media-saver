@@ -192,7 +192,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "can_apply": false                        // true when a verified file is ready and the app runs as MediaSaver.exe
 }
 ```
-- `idle` before the first check (or when `check_app_updates` is off); `up_to_date` when `latest <= current`.
+- `idle` before the first check; `up_to_date` when `latest <= current`. The check runs on every launch.
 - `ready`: the file is downloaded, its size and SHA-256 match the release; `apply_update()` is allowed.
 - `error`: `message` says what failed (offline, checksum mismatch, GitHub limit); `check_updates()` or
   `download_update()` may be called again.
@@ -217,7 +217,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "concurrency": 2,                              // 1..4, shared by both modes
   "update_channel": "nightly",                   // "nightly" | "stable"
   "auto_update": true,                           // engines on every launch
-  "check_app_updates": true,                     // app self-update check on every launch
+  "auto_install_updates": false,                 // download and install a found update without a click (the UI drives it: see ARCHITECTURE 5.7)
   "auth_mode": "auto",                           // "auto" (anonymous first, then session) | "always" | "never"; Instagram only
   "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by both platforms
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus

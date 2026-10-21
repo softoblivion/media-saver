@@ -189,7 +189,7 @@ sees or stores the password.
 
 `app/core/selfupdate.py` (details and the release layout in `docs/SELF_UPDATE.md`):
 
-1. On launch (setting `check_app_updates`) and on "Check for updates": read the latest release of
+1. On every launch (always; no setting switches the check off) and on "Check for updates": read the latest release of
    `softoblivion/media-saver` (tag `vX.Y.Z`, asset `MediaSaver.exe`, asset `SHA256SUMS`, notes), compare SemVer
    with `app.__version__`.
 2. "Download": stream the asset to `data\updates\MediaSaver-<version>.exe.part`, verify the byte size against the
@@ -199,6 +199,17 @@ sees or stores the password.
    `MediaSaver.exe.old`, copies itself over it and starts it. No script, no console. On the next launch the marker
    produces one "Updated to vX.Y.Z" toast and `MediaSaver.exe.old` is deleted.
 4. Any failure leaves the current exe untouched; the UI shows the message and offers to retry.
+5. `auto_install_updates` (default off; a missing key in an older settings file means off): when on, the UI
+   calls `download_update()` as soon as a check reports `available` and `apply_update()` as soon as the file is
+   `ready` and no job is queued or running (otherwise it waits for the queue to drain), with a toast before the
+   restart. When off, nothing is downloaded or installed without the user's click. The core never downloads or
+   applies on its own.
+
+Deviation from the workspace recipe (`_workspace/RECIPES.md`, section 1, "Apply"): the recipe lets the running
+app rename itself and relaunch; Media Saver lets the downloaded exe do the swap after the app exited (verified
+with real builds on 2026-10-20). Both avoid helper scripts and consoles; the swap-by-the-new-exe variant keeps
+the shutdown path of the app unchanged and tolerates the PyInstaller bootloader still holding the old file
+for a moment.
 
 The version lives in `app/__init__.py` only; the build writes it into the exe's version resource.
 
@@ -218,7 +229,7 @@ class Engine:
                                         # (app_updates=False: never check GitHub for app releases);
                                         # the shell passes open_folder=winutil.open_path
     def start(self) -> None: ...        # non-blocking: load settings/history, start updater, preview + queue workers,
-                                        # the app-update check (when check_app_updates)
+                                        # the app-update check (always; app_updates=False only for cli / tests)
     def shutdown(self) -> None: ...     # cancel running jobs, kill process trees, save history; returns within 3 s
 
     def get_state(self) -> dict: ...    # State object of BRIDGE_API.md (app_version, engine, update, auth, settings, jobs)

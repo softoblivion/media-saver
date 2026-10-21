@@ -144,7 +144,7 @@ use the cookies of a browser chosen in Settings.
 | `concurrency` | `2` | Parallel downloads, 1–4, shared by both modes |
 | `update_channel` | `nightly` | `nightly` or `stable` channel of yt-dlp |
 | `auto_update` | `true` | Check engines on every start |
-| `check_app_updates` | `true` | Check GitHub Releases for a newer Media Saver on every start |
+| `auto_install_updates` | `false` | Download and install a new version without asking (the check itself always runs) |
 | `auth_mode` | `auto` | Instagram: `auto` (anonymous first), `always` (session first), `never` |
 | `browser_cookies` | *(empty)* | Optional browser to read cookies from: `firefox`, `edge`, `chrome`, `brave`, `opera` (both platforms) |
 | `clipboard_watch` | `true` | Offer links found in the clipboard on window focus |
@@ -200,11 +200,13 @@ Codeberg (engine and app updates).
 ## Updates
 
 - **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
-- **The app:** checked on every launch (`check_app_updates`), or **Check for updates** from the version label next
+- **The app:** checked on every launch, or **Check for updates** from the version label next
   to the engine chip. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
   against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: the downloaded exe waits
   for the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new
-  one started) and relaunches it. If anything fails the current exe stays untouched.
+  one started) and relaunches it. If anything fails the current exe stays untouched. With **Install updates
+  automatically** on (Settings, off by default) the download and the restart happen by themselves once the queue
+  is idle.
 - Versions 2.0.0 and 2.1.0 cannot update themselves (their updater hung in a console window): download the
   current `MediaSaver.exe` once by hand; from 2.1.1 on the update applies in place.
 - Every release ships two assets: `MediaSaver.exe` and `SHA256SUMS`. Release notes live in

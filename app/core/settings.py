@@ -45,7 +45,7 @@ def defaults() -> dict[str, Any]:
         "concurrency": 2,
         "update_channel": "nightly",
         "auto_update": True,
-        "check_app_updates": True,
+        "auto_install_updates": False,
         "auth_mode": "auto",
         "browser_cookies": "",
         "clipboard_watch": True,
@@ -108,7 +108,7 @@ def validate_value(key: str, value: Any) -> Any:
         return _choice(key, value, PLATFORMS, "Mode")
     if key == "format":
         return _choice(key, value, FORMATS, "Format")
-    if key in ("h264_compat", "skip_existing", "auto_update", "check_app_updates", "clipboard_watch",
+    if key in ("h264_compat", "skip_existing", "auto_update", "auto_install_updates", "clipboard_watch",
                "open_folder_when_done"):
         return _bool(key, value)
     if key == "concurrency":
