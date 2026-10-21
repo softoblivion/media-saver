@@ -17,20 +17,17 @@ While a binary is being replaced the BinaryGate is held exclusively, so no job s
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
 import re
 import shutil
-import socket
 import threading
 import time
-import urllib.error
-import urllib.request
 import zipfile
 from typing import Any, Callable
 
+from ..vendor.selfupdate import Net, OfflineError, parse_sums, replace_file, sha256_file  # noqa: F401  (shared)
 from .downloader import BinaryGate, ProcessRunner
 from .paths import AppPaths, atomic_write_json
 
@@ -59,123 +56,8 @@ NO_SYSTEM_FFMPEG_ENV = "MEDIA_SAVER_NO_SYSTEM_FFMPEG"
 UA = "MediaSaver/1 (+https://github.com/yt-dlp/yt-dlp; Windows)"
 
 
-class OfflineError(Exception):
-    """The network is unreachable (or the host refuses us: GitHub 403/429)."""
-
-
 class VerifyError(Exception):
     pass
-
-
-# =====================================================================================================
-# HTTP
-# =====================================================================================================
-
-class Net:
-    """urllib with a User-Agent, timeouts and retries."""
-
-    def __init__(self, user_agent: str = UA, timeout: float = 20.0, retries: int = 3) -> None:
-        self.user_agent, self.timeout, self.retries = user_agent, timeout, retries
-
-    def _open(self, url: str, method: str = "GET"):
-        req = urllib.request.Request(url, method=method, headers={"User-Agent": self.user_agent})
-        return urllib.request.urlopen(req, timeout=self.timeout)
-
-    def _retry(self, fn, url: str):
-        last: Exception | None = None
-        for attempt in range(self.retries):
-            try:
-                return fn()
-            except urllib.error.HTTPError as exc:
-                if exc.code in (403, 429):
-                    raise OfflineError(f"{url}: HTTP {exc.code}") from exc
-                if exc.code < 500:
-                    raise
-                last = exc
-            except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError, OSError) as exc:
-                last = exc
-            time.sleep(min(4.0, 1.0 + attempt * 1.5))
-        raise OfflineError(f"{url}: {last}")
-
-    def get_bytes(self, url: str, limit: int = 4 << 20) -> bytes:
-        def go():
-            with self._open(url) as resp:
-                return resp.read(limit)
-        return self._retry(go, url)
-
-    def get_text(self, url: str) -> str:
-        return self.get_bytes(url).decode("utf-8", errors="replace")
-
-    def reachable(self, url: str) -> bool:
-        try:
-            with urllib.request.urlopen(urllib.request.Request(url, method="HEAD", headers={"User-Agent": self.user_agent}),
-                                        timeout=8):
-                return True
-        except urllib.error.HTTPError:
-            return True  # the host answered
-        except Exception:  # noqa: BLE001
-            return False
-
-    def download(self, url: str, dest: str, on_progress: Callable[[int, int | None], None] | None = None) -> str:
-        """Stream to dest (normally a .part path); returns its SHA-256 hex."""
-        def go():
-            sha = hashlib.sha256()
-            with self._open(url) as resp, open(dest, "wb") as fh:
-                total = resp.headers.get("Content-Length")
-                total_i = int(total) if total and total.isdigit() else None
-                done = 0
-                last = 0.0
-                while True:
-                    chunk = resp.read(256 * 1024)
-                    if not chunk:
-                        break
-                    fh.write(chunk)
-                    sha.update(chunk)
-                    done += len(chunk)
-                    now = time.monotonic()
-                    if on_progress and now - last > 0.2:
-                        last = now
-                        on_progress(done, total_i)
-                if total_i is not None and done < total_i:
-                    raise ConnectionError(f"short read {done}/{total_i}")
-            if on_progress:
-                on_progress(done, total_i)
-            return sha.hexdigest()
-        return self._retry(go, url)
-
-
-def parse_sums(text: str) -> dict[str, str]:
-    """`<sha256>  <name>` (or `<sha256> *<name>`) lines -> {name: sha}."""
-    out: dict[str, str] = {}
-    for line in text.splitlines():
-        m = re.match(r"^\s*([0-9a-fA-F]{64})\s+\*?(.+?)\s*$", line)
-        if m:
-            out.setdefault(m.group(2), m.group(1).lower())
-    return out
-
-
-def sha256_file(path: str) -> str | None:
-    try:
-        h = hashlib.sha256()
-        with open(path, "rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
-        return h.hexdigest()
-    except OSError:
-        return None
-
-
-def replace_file(src: str, dest: str, attempts: int = 10) -> None:
-    """os.replace with retries: a just-finished process or antivirus may still hold the target."""
-    last: OSError | None = None
-    for _ in range(attempts):
-        try:
-            os.replace(src, dest)
-            return
-        except PermissionError as exc:
-            last = exc
-            time.sleep(0.5)
-    raise last  # type: ignore[misc]
 
 
 def parse_hash_sidecar(text: str) -> str | None:
@@ -232,7 +114,7 @@ class Updater:
         self.on_status = on_status
         self.gate = gate or BinaryGate()
         self.runner = runner or ProcessRunner()
-        self.net = net or Net()
+        self.net = net or Net(UA)
         if use_system_ffmpeg is None:
             use_system_ffmpeg = os.environ.get(NO_SYSTEM_FFMPEG_ENV, "") not in ("1", "true", "yes")
         self.use_system_ffmpeg = use_system_ffmpeg
