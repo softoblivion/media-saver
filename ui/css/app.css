@@ -569,8 +569,15 @@ body:not(.is-ready) #app {
 
 .pm-layer .ic { width: 20px; height: 20px; }
 
+/* The label text is centred on its own: the icon hangs to its left (its width + the gap are taken back). */
+.pm-label .ic { margin-left: -29px; }
+
+/* Out of the flow: the icon + text group stays centred in the button, the hint sits at the right end. */
 .pm-label kbd {
-  margin-left: 4px;
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   background: rgba(255, 255, 255, 0.2);
   transition: opacity 0.3s ease;
 }

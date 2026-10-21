@@ -16,8 +16,7 @@
 //   &format=mp3         start with MP3 as the default format
 //   &update=available   the launch check finds 2.1.0 (also: uptodate, error; default uptodate)
 //                       "error" fails the first check and finds 2.1.0 on "Try again"
-//   &autoinstall=1      start with "Install updates automatically" on (the found version downloads and
-//                       installs by itself; combine with &hold=1 to see the apply wait for the queue)
+//   &autodownload=0     start with "Download updates automatically" off
 //   &hold=1             queued jobs never start (to look at previews and format toggles)
 //   &clip=0             start with an empty clipboard (no clipboard prompt)
 //   &fast=1             run the simulation 4x faster
@@ -343,11 +342,12 @@ const DEFAULT_SETTINGS = {
   concurrency: 2,
   update_channel: 'nightly',
   auto_update: true,
-  auto_install_updates: false,
+  auto_download_updates: true,
   auth_mode: 'auto',
   browser_cookies: '',
   clipboard_watch: true,
   open_folder_when_done: false,
+  sound_on_done: true,
 };
 
 const APP_VERSION = '2.0.0';
@@ -379,7 +379,7 @@ export function createMock({ params, emit }) {
   const settings = clone(DEFAULT_SETTINGS);
   if (['youtube', 'tiktok', 'twitter'].includes(params.get('mode'))) settings.mode = params.get('mode');
   if (params.get('format') === 'mp3') settings.format = 'mp3';
-  if (params.get('autoinstall') === '1') settings.auto_install_updates = true;
+  if (params.get('autodownload') === '0') settings.auto_download_updates = false;
   let auth = { logged_in: false, user_id: null, source: null, saved_at: null };
   let engine = {
     stage: 'starting',
@@ -847,11 +847,12 @@ export function createMock({ params, emit }) {
     concurrency: (v) => Number.isInteger(v) && v >= 1 && v <= 4,
     update_channel: (v) => ['nightly', 'stable'].includes(v),
     auto_update: (v) => typeof v === 'boolean',
-    auto_install_updates: (v) => typeof v === 'boolean',
+    auto_download_updates: (v) => typeof v === 'boolean',
     auth_mode: (v) => ['auto', 'always', 'never'].includes(v),
     browser_cookies: (v) => ['', 'firefox', 'edge', 'chrome', 'brave', 'opera'].includes(v),
     clipboard_watch: (v) => typeof v === 'boolean',
     open_folder_when_done: (v) => typeof v === 'boolean',
+    sound_on_done: (v) => typeof v === 'boolean',
   };
 
   // ---- the API --------------------------------------------------------------------------------

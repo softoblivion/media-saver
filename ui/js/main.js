@@ -13,6 +13,7 @@ import { initQueue, getJobs, retryLoginFailures } from './queue.js';
 import { initSettings } from './settings.js';
 import { initClipboard } from './clipboard.js';
 import { initUpdate } from './update.js';
+import { initSound } from './sound.js';
 import { initPrefs, getMode, setMode, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
 import { Segmented } from './controls.js';
 import { initQuality } from './quality.js';
@@ -127,6 +128,7 @@ async function boot() {
   initQueue(state);
   initSettings(state);
   initClipboard(state.settings, getJobs);
+  initSound(state);
 
   on('toast', (t) => t && toast(t.level || 'info', t.text));
   on('window', (w) => {

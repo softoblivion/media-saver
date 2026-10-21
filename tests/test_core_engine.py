@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 
@@ -37,6 +38,23 @@ class EngineTest(unittest.TestCase):
             if not os.path.exists(self.tmp):
                 break
             time.sleep(0.1)
+
+    def test_periodic_update_check_runs_while_alive_and_stops_on_shutdown(self):
+        calls = []
+        stages = iter(["up_to_date", "ready", "up_to_date"])
+        self.engine.APP_RECHECK_S = 0.05
+        self.engine.selfupdate.check_background = lambda: calls.append(1)
+        self.engine.selfupdate.status = lambda: {"stage": next(stages, "up_to_date")}
+        t = threading.Thread(target=self.engine._recheck_loop, daemon=True)
+        t.start()
+        time.sleep(0.3)
+        self.engine.shutdown()
+        t.join(1.0)
+        self.assertFalse(t.is_alive())
+        self.assertGreaterEqual(len(calls), 2)  # the "ready" round is skipped, the others check
+        n = len(calls)
+        time.sleep(0.15)
+        self.assertEqual(len(calls), n)
 
     def test_paths_from_env(self):
         self.assertEqual(self.engine.paths.root, os.path.join(self.tmp, "home"))

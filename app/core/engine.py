@@ -79,6 +79,7 @@ class Engine:
         self._open_folder = open_folder if open_folder is not None else self._default_open_folder
         self._lock = threading.RLock()
         self._started = False
+        self._stop = threading.Event()  # set by shutdown(): ends the periodic app-update check
         self._settings = settingsmod.SettingsStore(self.paths.settings_file)
         self._gate = BinaryGate()
         runner = runner or ProcessRunner()
@@ -145,9 +146,24 @@ class Engine:
             log.exception("self-update startup cleanup failed")
         if self._app_updates is not False:
             self.selfupdate.check_background()
+            threading.Thread(target=self._recheck_loop, name="selfupdate-recheck", daemon=True).start()
+
+    APP_RECHECK_S = 6 * 3600  # while the app runs, look for a new release again every 6 hours
+
+    def _recheck_loop(self) -> None:
+        """Periodic app-update check; lives only while the app runs (daemon thread, ends on shutdown). A found
+        version is downloaded by the UI when `auto_download_updates` is on; installing is always a click."""
+        while not self._stop.wait(self.APP_RECHECK_S):
+            if self.selfupdate.status()["stage"] in ("downloading", "ready"):
+                continue
+            try:
+                self.selfupdate.check_background()
+            except Exception:  # noqa: BLE001
+                log.exception("periodic update check failed")
 
     def shutdown(self) -> None:
         log.info("engine shutdown")
+        self._stop.set()
         self.downloader.shutdown(timeout=2.5)
 
     # --- state ---------------------------------------------------------------------------------------
