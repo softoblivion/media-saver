@@ -166,13 +166,16 @@ ErrorCode: `login_required`, `private`, `not_found`, `rate_limited`, `network`, 
   "components": {
     "yt-dlp":     { "version": "2026.10.18.234512", "channel": "nightly", "updated": true, "ok": true },
     "gallery-dl": { "version": "1.30.10", "updated": false, "ok": true },
-    "ffmpeg":     { "version": "9.0.2", "source": "system" | "bundled", "ok": true }   // bundled builds report e.g. "N-127709-g5993347a1b-20261019"
+    "ffmpeg":     { "version": "9.0.2", "source": "system" | "bundled", "ok": true },  // bundled builds report e.g. "N-127709-g5993347a1b-20261019"
+    "deno":       { "version": "2.9.7", "source": "system" | "bundled", "ok": true }   // JavaScript runtime for yt-dlp's YouTube challenge solver
   },
   "last_check": 1760950000.0
 }
 ```
 `ready` means jobs can run. `offline` also lets jobs run when the binaries exist. mp3 jobs and merging need
 ffmpeg; when `components.ffmpeg.ok` is false the updater fetches a static build on the next pass (`update_engine()`).
+`deno` is optional for the job itself: YouTube jobs run without it, but yt-dlp then reports the deprecated path and
+may miss formats; when `components.deno.ok` is false the updater fetches the runtime on the next pass.
 
 ### UpdateStatus
 ```json

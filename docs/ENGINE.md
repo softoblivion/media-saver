@@ -2,7 +2,9 @@
 
 Owner: core worker. Contract: `docs/ARCHITECTURE.md` (sections 4–6) and `docs/BRIDGE_API.md` (payloads).
 Measured on 2026-10-20 with yt-dlp nightly 2026.10.10.233141, gallery-dl 1.32.17, ffmpeg 9.0.2 (Gyan, PATH) and
-the FFmpeg-Builds master build N-127709 (bundled path). No JavaScript runtime (deno) installed (see §8).
+the FFmpeg-Builds master build N-127709 (bundled path). The format tables of §4 were probed without a JavaScript
+runtime; since 2.1.0 the updater installs deno (2.9.7 on 2026-10-20) and yt-dlp runs its challenge solver with it
+(§2 step 5, §8).
 
 ## 1. Modules
 
@@ -26,7 +28,8 @@ the FFmpeg-Builds master build N-127709 (bundled path). No JavaScript runtime (d
 
 `Engine.start()` emits the current `engine` status, then `Updater.start_background()` runs one pass:
 
-1. `checking`: detect binaries (`yt-dlp.exe --version`, `gallery-dl.exe --version`, `ffmpeg -version`).
+1. `checking`: detect binaries (`yt-dlp.exe --version`, `gallery-dl.exe --version`, `ffmpeg -version`,
+   `deno --version`).
 2. Connectivity: HEAD `https://github.com/` and `https://codeberg.org/`. Both unreachable -> no updates;
    stage `offline` when yt-dlp exists, else `error` ("No internet: the download engine is not installed").
 3. yt-dlp (channel from settings, `nightly` default):
@@ -42,17 +45,30 @@ the FFmpeg-Builds master build N-127709 (bundled path). No JavaScript runtime (d
    `https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip`
    (~200 MB), verify against `checksums.sha256`, extract only `*/bin/ffmpeg.exe` and `*/bin/ffprobe.exe`,
    delete the zip. A bundled copy is re-checked every 30 days (zip SHA compared with the stored one).
-   Env `MEDIA_SAVER_NO_SYSTEM_FFMPEG=1` (or `Updater(use_system_ffmpeg=False)`) disables PATH detection.
-5. gallery-dl (fallback engine, Instagram only, always the stable channel): GitHub releases of mikf/gallery-dl no
+   Env `MEDIA_SAVER_NO_SYSTEM_FFMPEG=1` (or `Updater(use_system_ffmpeg=False)`) disables PATH detection (for
+   ffmpeg and deno alike).
+5. deno (JavaScript runtime for yt-dlp's YouTube challenge solver, needed since yt-dlp 2025.10 deprecated
+   extraction without one): `bin/deno.exe` ("bundled") -> PATH ("system") -> download
+   `https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip` (~41 MB; the
+   `latest/download/` redirect needs no GitHub API quota), verify against the sidecar
+   `deno-x86_64-pc-windows-msvc.zip.sha256sum`, extract the single `deno.exe` (~93 MB) to `bin/deno.exe.part`,
+   verify it against `deno-x86_64-pc-windows-msvc.sha256sum`, swap under the gate, delete the zip. The sidecars
+   are PowerShell `Get-FileHash` output (`Hash      : <UPPER-CASE SHA>`, CRLF), parsed by `parse_hash_sidecar`
+   (first 64-hex token). Re-checked every 30 days like ffmpeg (sidecar SHA compared with the stored one). Observed
+   on 2026-10-20: release v2.9.7, zip SHA `a0c3101b…f2238` (42 630 221 bytes), deno.exe SHA `e020f3e2…9b33`.
+   A missing deno is installed even with `auto_update=false`; a failed install never blocks the engine (the
+   `deno` component just stays `ok: false` and YouTube runs on the deprecated path).
+6. gallery-dl (fallback engine, Instagram only, always the stable channel): GitHub releases of mikf/gallery-dl no
    longer carry binaries (2026-10: assets list empty, `latest/download/gallery-dl.exe` is a 404). The exe is
    published on Codeberg: `https://codeberg.org/mikf/gallery-dl/releases/download/latest/gallery-dl.exe` with
    `.../latest/SHA256SUMS`. Same SHA logic; SHA differs -> `gallery-dl.exe --config-ignore -U` (it has
    `-U/--update`, `--update-to stable|dev`, `--update-check`), still differs -> fresh verified download.
-6. State in `bin/versions.json` (`yt-dlp.channel`, `ffmpeg.downloaded_at`, `ffmpeg.zip_sha`, `last_check`).
-7. Final stage: `ready` (yt-dlp works; without ffmpeg the message says merging and MP3 need it and the next engine
+7. State in `bin/versions.json` (`yt-dlp.channel`, `ffmpeg.downloaded_at`, `ffmpeg.zip_sha`, `deno.downloaded_at`,
+   `deno.zip_sha`, `last_check`).
+8. Final stage: `ready` (yt-dlp works; without ffmpeg the message says merging and MP3 need it and the next engine
    update fetches it), `offline`, or `error`.
 
-`auto_update=false` skips step 3–5 updates but still installs missing binaries. `update_engine()` and a change of
+`auto_update=false` skips step 3–6 updates but still installs missing binaries. `update_engine()` and a change of
 `update_channel` run a forced pass. A pass requested while one runs queues one more forced pass.
 
 Gate: jobs and the preview worker hold `BinaryGate` shared while a yt-dlp / gallery-dl subprocess runs; replacing a
@@ -64,7 +80,8 @@ session; when it ran, the same rung is retried once. Later jobs skip the retry a
 
 ## 3. Job pipeline and exact command lines
 
-All subprocesses: `creationflags=CREATE_NO_WINDOW`, stdin `DEVNULL`, env `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`
+All subprocesses: `creationflags=CREATE_NO_WINDOW`, stdin `DEVNULL`, env `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`,
+`DENO_DIR=cache\deno` (the deno cache yt-dlp's solver creates stays in the data folder, not in `%LOCALAPPDATA%`)
 (and `PYTHONHOME`/`PYTHONPATH` removed), output decoded as UTF-8 with `errors="replace"`, each process assigned to
 a Win32 Job Object with `KILL_ON_JOB_CLOSE`; cancel / timeout / shutdown calls `TerminateJobObject` (kills
 yt-dlp and its ffmpeg children), fallback `taskkill /T /F`. Working dir and temp files: `cache/jobs/<id>/`,
@@ -79,6 +96,7 @@ Common yt-dlp prefix (`Y`):
 ```
 yt-dlp.exe --no-config --encoding utf-8 --color never --socket-timeout 20 --retries 3 --extractor-retries 2 --no-mtime
            [--no-playlist                                    (YouTube jobs)]
+           [--js-runtimes deno:<path to deno.exe>            (when the updater found deno: bin\deno.exe or PATH)]
            [--cookies cache\jobs\<id>\cookies.txt | --cookies-from-browser <browser>]
 ```
 
@@ -134,12 +152,14 @@ Measured: `yt-dlp -J` of a YouTube video 2.1–2.3 s; preview including the thum
    or the chosen audio format id.
 5. Download, mp3 (ffmpeg checked first: missing -> `ffmpeg_missing` before any download subprocess):
    ```
-   Y --load-info-json info.json -f "ba/b" -x --audio-format mp3 --audio-quality 0 --ffmpeg-location <ffmpeg.exe>
+   Y --load-info-json info.json -f "ba/b" -S channels:2 -x --audio-format mp3 --audio-quality 0 --ffmpeg-location <ffmpeg.exe>
      -o cache\jobs\<id>\media.%(ext)s --no-part --force-overwrites <same progress / print arguments>
    ```
    Stages: "Downloading audio", then the `ExtractAudio` postprocessor lines (`[[IDLPP]]{"s":"started",
    "pp":"ExtractAudio"}` / `finished`, confirmed on this nightly) -> "Converting to MP3", then "Saving file". No
-   merge, no H.264 pass; `quality_instagram`, `quality_youtube` and `h264_compat` are ignored. Final fields: `width/height/fps/vcodec` null,
+   merge, no H.264 pass; `quality_instagram`, `quality_youtube` and `h264_compat` are ignored. `-S channels:2` puts
+   stereo / mono tracks before the 5.1 ones YouTube lists with deno (yt-dlp's default order ranks more channels
+   higher and would downmix the 6-channel source into the MP3). Final fields: `width/height/fps/vcodec` null,
    `acodec` "mp3", `duration_s` from ffprobe, `filesize`. A job whose info json lists only formats with
    `acodec == "none"` fails early with `not_found` "This video has no sound, so there is nothing to save as MP3."
    (also when ffmpeg reports "unable to obtain file audio codec"). Output: libmp3lame VBR q0, ~240 kbit/s; 48 kHz
@@ -236,7 +256,9 @@ Findings:
 - `h264_compat`: an AVC format with the same area (±2 %) and fps (±1) wins over the non-AVC best (YouTube 1080p:
   299 / 137 instead of VP9 / AV1); otherwise the best stays and the H.264 pass runs (YouTube 1440p / 2160p, current
   Instagram reels). A lower-resolution AVC is never preferred (quality first).
-- Audio: original / default language first (`language_preference`), then non-DRC, then AAC when `h264_compat`,
+- Audio: original / default language first (`language_preference`), then non-DRC, then stereo / mono over
+  surround (`audio_channels` > 2; with deno YouTube also lists 6-channel 258 AAC 388 kbit/s, 380 AC-3 and 328
+  E-AC-3, which would otherwise win on bitrate and put a 5.1 track into the MP4), then AAC when `h264_compat`,
   then direct https, then `abr`, then sample rate. A muxed video (YouTube 18) gets no second audio track.
 - Resulting `-f`: `<video_id>+<audio_id>/<video_id>/bv*+ba/b` (fallbacks only matter when the chosen ids vanish).
   When the info json has no usable video metadata: `-f "bv*+ba/b" -S "res,fps,br[,vcodec:avc,acodec:aac]"`
@@ -313,9 +335,9 @@ Real samples (yt-dlp nightly 2026.10.10, in `tests/test_core_errors.py` and `tes
   `not_found` (1.2 s).
 - YouTube 24/7 stream id `jfKfPfyJRdk` without a JS runtime: "ERROR: [youtube] jfKfPfyJRdk: This live stream
   recording is not available." -> `not_found` (live message).
-- Every YouTube call prints "WARNING: [youtube] No supported JavaScript runtime could be found. Only deno is
-  enabled by default; … YouTube extraction without a JS runtime has been deprecated, and some formats may be
-  missing." (warning only, §8).
+- Without deno every YouTube call prints "WARNING: [youtube] No supported JavaScript runtime could be found. Only
+  deno is enabled by default; … YouTube extraction without a JS runtime has been deprecated, and some formats may
+  be missing." (warning only; gone once the updater installed deno, §8).
 - Not observed on this machine (patterns from yt-dlp's YouTube extractor texts, covered by tests): the bot check
   "Sign in to confirm you’re not a bot", age gate, private / members-only, rate-limited session, premieres.
 
@@ -344,7 +366,9 @@ Core files: `test_linkclean` (Instagram table, YouTube table, extraction, mixed 
 history v2), `test_core_preview` (preview fetch / reuse / failure / timeout / cancel / remove / gate / order),
 `test_core_youtube` (YouTube error samples, ladder, `can_login`, platform texts), `test_core_ladder` (Instagram
 ladder + full pipeline with a fake runner), `test_core_history`, `test_core_errors`, `test_core_progress`,
-`test_core_names`, `test_core_auth`, `test_core_updater`. The fakes live in `tests/core_fakes.py`.
+`test_core_names`, `test_core_auth`, `test_core_updater` (install / up to date / 30-day refresh / offline / bad
+checksum of every component, deno included; `test_core_youtube` checks that the bundled deno path reaches the yt-dlp
+command line). The fakes live in `tests/core_fakes.py`.
 
 Real network (never the user's folders; cmd syntax):
 ```
@@ -374,11 +398,17 @@ Instagram:
   transcoded; old reels are AVC and are not.
 
 YouTube:
-- yt-dlp warns on every call that no JavaScript runtime (deno) was found and that YouTube extraction without one
-  is deprecated ("some formats may be missing"). On 2026-10-20 all formats up to 2160p were still listed and
-  downloaded at full speed anonymously, without the bot check. The engine updater does not install deno; if a
-  later yt-dlp drops formats or downloads get throttled / HTTP 403, adding deno (or `--js-runtimes`) to the
-  updater is the fix to evaluate.
+- Since yt-dlp 2025.10 YouTube extraction needs a JavaScript runtime for the player challenges; without one
+  yt-dlp warns on every call ("No supported JavaScript runtime could be found … deprecated, and some formats may
+  be missing"). On 2026-10-20 the warning-only path still listed every resolution up to 2160p; with deno the same
+  video lists 61 formats instead of 53 (back: muxed `18`, AVC `136` and VP9 `247` at 720p, surround audio `258`
+  AAC 5.1, `380` AC-3, `328` E-AC-3, multichannel HE-AAC `256`, `773`) and the warning is gone.
+  yt-dlp only auto-detects deno on PATH, so the engine passes the bundled copy explicitly:
+  `--js-runtimes deno:<bin\deno.exe>` (the option takes the exe path or its folder). yt-dlp then runs
+  `deno run --ext=js --no-code-cache --no-prompt --no-remote --no-lock --node-modules-dir=none --no-config --no-npm
+  --cached-only -` and writes a small cache (`dep_analysis_cache_v2`, `node_analysis_cache_v2`, `npm/`) to
+  `DENO_DIR`, which the engine points at `cache\deno`. The official yt-dlp exe bundles the solver scripts
+  (`yt_dlp_ejs`), so `--remote-components` stays off (default).
 - The bot check ("Sign in to confirm you’re not a bot") did not appear on this machine; when it does, the job
   ends with `login_required` and the browser-cookies hint, and with `browser_cookies` set the browser rung runs.
 - Shorts at `quality_youtube` "max" are 2160x3840 VP9 / AV1: with `h264_compat` they go through a 4K H.264 pass

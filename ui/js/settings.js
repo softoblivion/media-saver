@@ -299,7 +299,7 @@ function renderVersions() {
     ? `<div class="ver ${x.ok ? '' : 'is-bad'}"><span>${name}</span><b>${escapeHtml(x.version || '—')}</b>${x.updated ? '<em>updated</em>' : ''}</div>`
     : `<div class="ver"><span>${name}</span><b>—</b></div>`;
   const busy = engine && ['starting', 'checking', 'downloading', 'updating'].includes(engine.stage);
-  box.innerHTML = `${item('yt-dlp', c['yt-dlp'])}${item('gallery-dl', c['gallery-dl'])}${item('FFmpeg', c.ffmpeg)}
+  box.innerHTML = `${item('yt-dlp', c['yt-dlp'])}${item('gallery-dl', c['gallery-dl'])}${item('FFmpeg', c.ffmpeg)}${item('Deno', c.deno)}
     <div class="ver-foot"><small>${engine && engine.last_check ? `Checked ${escapeHtml(dateTime(engine.last_check))}` : ''}</small>
     <button type="button" class="btn btn-s" data-act="update" ${busy ? 'disabled' : ''}>${icon('refresh')}<span>${busy ? 'Updating…' : 'Update now'}</span></button></div>`;
   box.querySelectorAll('.btn').forEach((b) => gel(b));
