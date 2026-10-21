@@ -259,9 +259,10 @@ class JobTests(FakeBase):
         state = self.engine.get_state()
         self.assertEqual(set(state), {"app_version", "engine", "update", "auth", "settings", "jobs"})
         self.assertEqual(state["update"]["stage"], "idle")
-        for key in ("mode", "format", "auto_download_updates", "update_check_interval", "update_channel",
+        for key in ("mode", "format", "auto_download_updates", "update_channel",
                     "open_folder_when_done"):
             self.assertIn(key, state["settings"])
+        self.assertNotIn("update_check_interval", state["settings"])
         for mode in ("instagram", "youtube", "tiktok", "twitter"):
             self.assertEqual(self.engine.set_settings({"mode": mode})["mode"], mode)
         with self.assertRaises(ValueError):

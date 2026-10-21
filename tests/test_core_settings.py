@@ -20,7 +20,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(set(d), {"output_dir", "filename_template", "mode", "format", "quality_instagram",
                                   "quality_youtube", "quality_tiktok", "quality_twitter", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
-                                  "auto_download_updates", "update_check_interval", "auth_mode", "browser_cookies", "clipboard_watch", "sound_on_done",
+                                  "auto_download_updates", "auth_mode", "browser_cookies", "clipboard_watch", "sound_on_done",
                                   "open_folder_when_done"})
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
         self.assertEqual(d["quality_instagram"], "max")
@@ -28,8 +28,8 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(d["mode"], "instagram")
         self.assertEqual(d["format"], "mp4")
         self.assertTrue(d["auto_download_updates"])
-        self.assertEqual(d["update_check_interval"], "30m")
-        self.assertEqual(S.UPDATE_CHECK_INTERVALS, ("30m", "1h", "6h", "1d", "1w"))
+        self.assertNotIn("update_check_interval", d)
+        self.assertFalse(hasattr(S, "UPDATE_CHECK_INTERVALS"))
         self.assertEqual(d["concurrency"], 2)
         self.assertIn(os.path.basename(d["output_dir"]), ("Downloads", "Media-Saver"))  # override / Videos default
 
@@ -84,7 +84,6 @@ class SettingsTest(unittest.TestCase):
             {"quality_instagram": "4k"}, {"quality_instagram": "720"}, {"quality_youtube": "1080"},
             {"h264_compat": "yes"}, {"update_channel": "beta"}, {"auth_mode": "x"},
             {"mode": "vimeo"}, {"format": "wav"}, {"auto_download_updates": 1},
-            {"update_check_interval": "5m"}, {"update_check_interval": 1800}, {"update_check_interval": None},
             {"quality_tiktok": "720"}, {"quality_twitter": "1080"},
             {"browser_cookies": "safari"}, {"output_dir": ""}, {"output_dir": "relative\\dir"},
             {"filename_template": ""}, {"filename_template": "{author}"}, {"filename_template": "{foo}_{shortcode}"},
@@ -101,15 +100,32 @@ class SettingsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             S.apply_patch(S.defaults(), ["quality"])
 
-    def test_older_file_without_the_interval_key_gets_the_default(self):
+    def test_file_without_auto_download_key_loads_as_on(self):
         with open(self.path, "w", encoding="utf-8") as fh:
-            json.dump({"concurrency": 3, "auto_download_updates": False}, fh)
+            json.dump({"concurrency": 3}, fh)
         data = S.load(self.path)
-        self.assertEqual(data["update_check_interval"], "30m")
+        self.assertIs(data["auto_download_updates"], True)
         self.assertEqual(data["concurrency"], 3)
         with open(self.path, "w", encoding="utf-8") as fh:
-            json.dump({"update_check_interval": "1w"}, fh)
-        self.assertEqual(S.load(self.path)["update_check_interval"], "1w")
+            json.dump({"auto_download_updates": False}, fh)
+        self.assertIs(S.load(self.path)["auto_download_updates"], False)
+
+    def test_file_of_an_older_version_with_the_interval_key_loads_silently(self):
+        original = json.dumps({"concurrency": 3, "update_check_interval": "1w", "auto_download_updates": False})
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write(original)
+        with self.assertNoLogs("mediasaver.core.settings", level="WARNING"):
+            data = S.load(self.path)
+        self.assertNotIn("update_check_interval", data)
+        self.assertEqual(data["concurrency"], 3)
+        self.assertIs(data["auto_download_updates"], False)
+        with open(self.path, "r", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), original)          # loading does not rewrite the file
+        store = S.SettingsStore(self.path)
+        self.assertNotIn("update_check_interval", store.get())
+        store.update({"concurrency": 4})                   # the next save drops the stale key
+        with open(self.path, "r", encoding="utf-8") as fh:
+            self.assertNotIn("update_check_interval", json.load(fh))
 
     def test_save_load_roundtrip_atomic(self):
         store = S.SettingsStore(self.path)

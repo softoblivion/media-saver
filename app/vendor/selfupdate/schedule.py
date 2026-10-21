@@ -1,50 +1,47 @@
-"""UpdateScheduler: repeat the update check on a user-set interval while the app runs.
+"""UpdateScheduler: repeat the update check every few minutes while the app runs.
 
 The launch check stays the host app's own `check_background()` call; the scheduler runs the periodic ones. The
-interval is a setting key (`update_check_interval`, one of the keys of CHECK_INTERVALS) stored by the host app.
+period is fixed by the library (no setting): CHECK_PERIOD seconds with a small random offset, longer after a
+failed check, and no check at all while Windows reports no network connection.
 """
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
-# (setting key, period in seconds), in the order a settings UI lists them
-CHECK_INTERVALS: tuple[tuple[str, int], ...] = (
-    ("30m", 1800), ("1h", 3600), ("6h", 21600), ("1d", 86400), ("1w", 604800),
-)
-DEFAULT_CHECK_INTERVAL = "30m"
+from .net import network_available
 
-_PERIODS = dict(CHECK_INTERVALS)
-
-
-def interval_seconds(key: str) -> int:
-    """Period of a setting key; an unknown key gives the default's period."""
-    return _PERIODS.get(key, _PERIODS[DEFAULT_CHECK_INTERVAL])
+CHECK_PERIOD = 300          # seconds between periodic checks
+CHECK_JITTER = 30           # each wait is CHECK_PERIOD +/- up to this many seconds
+ERROR_BACKOFF_MAX = 3600    # the wait doubles after every failed check, up to this
 
 
 class UpdateScheduler:
-    """Calls `updater.check_background()` once per period in a daemon thread. Never raises.
+    """Calls `updater.check_background()` about every CHECK_PERIOD seconds in a daemon thread. Never raises.
 
-    The first periodic check runs one period after `start()`; `set_interval()` restarts the wait from now. A check
-    skipped because a check or download is already running is not queued: the next period tries again. While the
-    updater's stage is `ready` (an update waits for the restart) the periodic check is skipped.
+    The first periodic check runs one period after `start()`. Each wait is the period plus a random offset of up
+    to CHECK_JITTER seconds either way, so several apps started together do not call GitHub in the same second.
+    While the updater's stage is `error` the wait doubles with every further check (CHECK_PERIOD, 2x, 4x ... up
+    to ERROR_BACKOFF_MAX) and returns to CHECK_PERIOD after the first check that ends in another stage. When
+    `online()` reports no network the check is skipped without counting as a failure. While the stage is `ready`
+    (an update waits for the restart) the periodic check is skipped. A check skipped because a check or download
+    is already running is not queued: the next period tries again.
     """
 
-    def __init__(self, updater: Any, interval_key: str, logger_name: str = "selfupdate.schedule") -> None:
+    def __init__(self, updater: Any, logger_name: str = "selfupdate.schedule",
+                 online: Callable[[], bool] = network_available) -> None:
         self.updater = updater
         self.log = logging.getLogger(logger_name)
-        self._key = interval_key if interval_key in _PERIODS else DEFAULT_CHECK_INTERVAL
-        self._period_override: Optional[float] = None  # tests only: seconds that replace the table period
+        self._online = online
+        self._period_override: Optional[float] = None  # tests only: seconds that replace CHECK_PERIOD
         self._cond = threading.Condition()
         self._thread: Optional[threading.Thread] = None
         self._stopped = False
         self._next: Optional[float] = None
-
-    @property
-    def interval_key(self) -> str:
-        return self._key
+        self._failures = 0
 
     @property
     def next_check_at(self) -> Optional[float]:
@@ -52,23 +49,30 @@ class UpdateScheduler:
         with self._cond:
             return self._next
 
-    def _period(self) -> float:
-        return self._period_override if self._period_override is not None else float(interval_seconds(self._key))
+    @property
+    def failures(self) -> int:
+        """Consecutive periodic checks that found the updater in stage `error` (drives the back-off)."""
+        with self._cond:
+            return self._failures
+
+    def _base(self) -> float:
+        return self._period_override if self._period_override is not None else float(CHECK_PERIOD)
+
+    def _wait(self) -> float:
+        """The next wait in seconds: the base period, doubled per failure up to the cap, plus the jitter."""
+        base = self._base()
+        cap = ERROR_BACKOFF_MAX * base / CHECK_PERIOD
+        period = min(base * (2 ** self._failures), cap)
+        jitter = min(float(CHECK_JITTER), period * 0.1)
+        return max(0.0, period + random.uniform(-jitter, jitter))
 
     def start(self) -> None:
         with self._cond:
             if self._thread is not None or self._stopped:
                 return
-            self._next = time.time() + self._period()
+            self._next = time.time() + self._wait()
             self._thread = threading.Thread(target=self._loop, name="selfupdate-schedule", daemon=True)
             self._thread.start()
-
-    def set_interval(self, key: str) -> None:
-        with self._cond:
-            self._key = key if key in _PERIODS else DEFAULT_CHECK_INTERVAL
-            if self._thread is not None and not self._stopped:
-                self._next = time.time() + self._period()
-            self._cond.notify_all()
 
     def stop(self) -> None:
         with self._cond:
@@ -83,14 +87,27 @@ class UpdateScheduler:
                     self._cond.wait(self._next - time.time())
                 if self._stopped:
                     return
-                self._next = time.time() + self._period()
+                stage = self._stage()
+                if stage == "error":
+                    self._failures += 1
+                else:
+                    self._failures = 0
+                self._next = time.time() + self._wait()
             try:
-                if not self._update_waiting():
-                    self.updater.check_background()
+                if stage == "ready":
+                    continue
+                if not self._online():
+                    self.log.debug("no network connection, update check skipped")
+                    continue
+                self.updater.check_background()
             except Exception:  # noqa: BLE001
                 self.log.exception("scheduled update check failed")
 
-    def _update_waiting(self) -> bool:
-        """True while a verified update waits for the restart: a check would only re-verify the same file."""
+    def _stage(self) -> str:
         status = getattr(self.updater, "status", None)
-        return callable(status) and (status() or {}).get("stage") == "ready"
+        if not callable(status):
+            return ""
+        try:
+            return str((status() or {}).get("stage") or "")
+        except Exception:  # noqa: BLE001
+            return ""

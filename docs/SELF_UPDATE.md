@@ -92,8 +92,9 @@ After a finished update the next launch shows the toast "Media Saver updated to 
   plus a `HEAD` for the size. SemVer compare against `app.__version__`. A verified file already in `updates\` goes
   straight to `ready`.
 - When: on every launch (`Engine.start`; only the headless CLI and tests pass `app_updates=False`), on the "Check
-  for updates" button, and on the `update_check_interval` setting while the app runs (`30m` / `1h` / `6h` / `1d` /
-  `1w`, default `30m`; the vendored `UpdateScheduler`, `Engine.update_scheduler`). The background download is the engine's job
+  for updates" button, and every 5 minutes while the app runs (the vendored `UpdateScheduler`, `Engine.update_scheduler`; fixed
+  period, not a setting; a failed check is retried later with a wait that doubles up to one hour; no check without
+  a network connection). The background download is the engine's job
   (`Engine._maybe_auto_download`), setting `auto_download_updates` (default on); the page only shows the status;
   the restart is always a click: ARCHITECTURE.md 5.7, items 5-6.
 - Download: `SHA256SUMS` first (nothing is downloaded without a checksum), then the exe to

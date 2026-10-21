@@ -346,7 +346,7 @@ window is unfocused, the document hidden, after 60 s without input (`idleMs`), o
   the panel's action say the same).
 - Settings "Updates" group (between Engine and About): the kit's `mountSettings` rows: the status line with
   "Checked <date, time>" and the next action (Check for updates / Download / a percentage while downloading / Restart
-  to update), "Check interval" (select) and "Download updates automatically" (switch). They save their own keys and
+  to update) and "Download updates automatically" (switch). They save their own keys and
   follow confirmed settings; the About group keeps the app name, version and "Open logs".
 
 ### 6.2 Update panel states (UpdateStatus.stage)
@@ -489,9 +489,8 @@ everywhere.
 
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
   TikTok and X videos as MP4 or MP3"; the "Updates" rows are the kit's copy: switch "Download updates automatically"
-  (hint "Installing still needs a restart"; the check itself always runs, so there is no switch for it), select
-  "Check interval" (hint "On launch, then repeated while the app runs"; options "Every 30 minutes", "Every hour",
-  "Every 6 hours", "Every day", "Every week") directly above that switch; sticky toast "Media Saver X.Y.Z is ready"
+  (hint "Checked every 5 minutes; installing still needs a restart"; the check itself always runs and its period is
+  fixed, so there is no switch or select for it); sticky toast "Media Saver X.Y.Z is ready"
   + "Restart"; restart warning (Media Saver's) "Downloads in progress will stop when the app restarts" + "Restart
   anyway"; panel caption "New versions download in the background". Switch "Sound
   when a download finishes" (hint "A short sound for each finished file").

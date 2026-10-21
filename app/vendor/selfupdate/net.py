@@ -16,6 +16,22 @@ class OfflineError(Exception):
     """The network is unreachable (or the host refuses us: GitHub 403/429)."""
 
 
+def network_available() -> bool:
+    """False only when Windows reports no network connection at all (WinINet `InternetGetConnectedState`).
+
+    No packet is sent: the call reads the connection state Windows already tracks, so it is cheap enough for a
+    periodic timer. On any other platform or when the call fails the answer is True and the request itself
+    decides.
+    """
+    try:
+        import ctypes
+
+        flags = ctypes.c_ulong(0)
+        return bool(ctypes.windll.wininet.InternetGetConnectedState(ctypes.byref(flags), 0))  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001
+        return True
+
+
 class Net:
     """urllib with a User-Agent, timeouts and retries."""
 

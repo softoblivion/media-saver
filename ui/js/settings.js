@@ -200,8 +200,8 @@ function build() {
     onChange: (v) => save({ update_channel: v }),
   });
   slot('update_channel').replaceWith(ctl.update_channel.el);
-  // Updates: the kit's rows (status + next action, check interval, automatic download); they save
-  // their own keys and follow the confirmed settings through the update control.
+  // Updates: the kit's rows (status + next action, automatic download); they save their own keys and
+  // follow the confirmed settings through the update control.
   updateControl().mountSettings(slot('updates'));
 
   // Filename template: save on blur / Enter, tokens insert at the caret.

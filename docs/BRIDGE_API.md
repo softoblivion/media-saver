@@ -57,7 +57,7 @@ produces the payloads. A field not listed here does not exist; add it here first
 Update UI: the version pill, the update popover and the "Updates" rows of the settings sheet are the update control
 of the vendored Liquid UI kit (`ui/vendor/liquid_ui/js/update.js`, mounted by `ui/js/update.js`, UI_DESIGN.md 6.1).
 It calls `update_status`, `check_updates`, `download_update`, `apply_update`, `open_url`, `get_settings` and
-`set_settings` (`auto_download_updates`, `update_check_interval`) and listens to `update` and, through
+`set_settings` (`auto_download_updates`) and listens to `update` and, through
 `ui/js/update.js`, to `settings`. The kit's contract matches these methods; two return values differ and the kit
 accepts both: `download_update()` returns `null` (the status follows by events) and `apply_update()` returns `null`
 and rejects when the update is not ready (the kit ignores the result and shows a rejection as a toast).
@@ -241,8 +241,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "concurrency": 2,                              // 1..4, shared by all modes
   "update_channel": "nightly",                   // "nightly" | "stable"
   "auto_update": true,                           // engines on every launch
-  "auto_download_updates": true,                 // download a found update in the background; installing is always the user's "Restart" (ARCHITECTURE 5.7)
-  "update_check_interval": "30m",                // "30m" | "1h" | "6h" | "1d" | "1w": app-update check period while running; missing in an older file -> "30m"
+  "auto_download_updates": true,                 // download a found update in the background; installing is always the user's "Restart" (ARCHITECTURE 5.7); missing in an older file -> true. The app-update check runs every 5 minutes and is not a setting; a stored `update_check_interval` of 2.4.x - 2.6.x is dropped on load
   "auth_mode": "auto",                           // "auto" (anonymous first, then session) | "always" | "never"; Instagram only
   "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by every platform
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus

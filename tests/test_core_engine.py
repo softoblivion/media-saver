@@ -54,14 +54,27 @@ class EngineTest(unittest.TestCase):
         time.sleep(0.15)
         self.assertEqual(len(calls), n)
 
-    def test_update_check_interval_setting_drives_the_scheduler(self):
-        self.assertEqual(self.engine.get_settings()["update_check_interval"], "30m")
-        self.assertEqual(self.engine.update_scheduler.interval_key, "30m")
-        self.engine.set_settings({"update_check_interval": "1d"})
-        self.assertEqual(self.engine.update_scheduler.interval_key, "1d")
-        with self.assertRaises(ValueError):
-            self.engine.set_settings({"update_check_interval": "5m"})
-        self.assertEqual(self.engine.update_scheduler.interval_key, "1d")
+    def test_scheduler_has_a_fixed_five_minute_period_and_no_interval_setting(self):
+        from app.vendor.selfupdate import CHECK_JITTER, CHECK_PERIOD
+        self.assertEqual(CHECK_PERIOD, 300)
+        sched = self.engine.update_scheduler
+        self.assertFalse(hasattr(sched, "interval_key"))
+        self.assertFalse(hasattr(sched, "set_interval"))
+        self.assertNotIn("update_check_interval", self.engine.get_settings())
+        self.assertTrue(self.engine.get_settings()["auto_download_updates"])
+        self.assertIsNone(sched.next_check_at)
+        before = time.time()
+        sched.start()
+        try:
+            after = time.time()
+            nxt = sched.next_check_at
+            self.assertIsNotNone(nxt)
+            self.assertGreaterEqual(nxt, before + CHECK_PERIOD - CHECK_JITTER - 1)
+            self.assertLessEqual(nxt, after + CHECK_PERIOD + CHECK_JITTER + 1)
+        finally:
+            sched.stop()
+        # a stored value of an older version is ignored, not an error
+        self.assertNotIn("update_check_interval", self.engine.set_settings({"update_check_interval": "1d"}))
 
     def _stub_updater(self, stage="available"):
         """Replace the self-updater's status / download with a stub; returns (calls, state)."""
