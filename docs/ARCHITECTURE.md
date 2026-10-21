@@ -4,10 +4,11 @@
 
 A Windows desktop app, shipped as one portable `MediaSaver.exe`, that:
 
-1. Downloads Instagram Reels (and video posts) and YouTube videos and Shorts in the highest quality the site serves
-   at the moment, as MP4, or as MP3 audio.
+1. Downloads Instagram Reels (and video posts), YouTube videos and Shorts, TikTok videos and X (Twitter) posts in
+   the highest quality the site serves at the moment, as MP4, or as MP3 audio.
 2. Accepts many links at once (pasted text, drag and drop, clipboard), cleans them to the canonical form and
-   downloads them as a queue; one mode (Instagram or YouTube) is active at a time, each with its own queue view.
+   downloads them as a queue; one mode (Instagram, YouTube, TikTok or X) is active at a time, each with its own
+   queue view.
 3. Shows a preview (thumbnail, title, author, duration) of every queued link before it downloads.
 4. Updates its download engines on every launch, so extractor breakage on the sites' side is fixed by upstream
    updates without a rebuild of the app, and updates itself from GitHub Releases.
@@ -53,7 +54,7 @@ media-saver/
   app/core/selfupdate.py     check / download / verify / apply of a new MediaSaver.exe
   app/core/downloader.py     job queue, preview fetch, subprocess runner, progress parsing, formats, fallbacks
   app/core/auth.py           cookies.txt read/write, auth status
-  app/core/linkclean.py      link extraction and canonicalisation for both platforms
+  app/core/linkclean.py      link extraction and canonicalisation for the four platforms
   app/core/engine.py         facade used by the bridge (section 6)
   app/core/cli.py            headless harness: python -m app.core.cli <links>
   ui/                        index.html, css/, js/ (incl. js/mock-api.js), assets/ (icon, fonts)
@@ -89,7 +90,7 @@ Module table (owner = the session that may write there during a task; see `_work
   (`<project>_data`, workspace rule "Portable projects").
 - `bin/` — yt-dlp.exe, gallery-dl.exe, ffmpeg.exe, ffprobe.exe (only when not taken from PATH), `versions.json`.
 - `auth/cookies.txt` — Netscape cookie jar of the in-app Instagram sign-in.
-- `settings.json`, `history.json` (finished / failed jobs of both platforms survive restarts, last 300).
+- `settings.json`, `history.json` (finished / failed jobs of every platform survive restarts, last 300).
 - `cache/thumbs/`, `cache/jobs/<job_id>/` (info json, per-job cookie copy, temp files).
 - `logs/app.log` (rotating, 2 MB x 3), `logs/shell.log`, `logs/jobs/<job_id>.log` (full engine stderr of a failed job).
 - `webview/` — WebView2 profile (`storage_path`) of the sign-in window.
@@ -133,8 +134,8 @@ blocks on it (links can be queued; jobs wait until the engine is ready).
    (5.4) when that succeeded; thumbnail fetched and cached.
 2. Download from the saved info json (`--load-info-json`) so the site is hit once for metadata, then media.
 3. mp4: best video + best audio, sorted by resolution, then fps, then bitrate, capped by the platform's quality
-   setting (`quality_instagram`: low = short side <= 480, medium <= 720, max = best; `quality_youtube`: 360,
-   720, max = best up to 2160p); merge to MP4.
+   setting (`quality_instagram`, `quality_tiktok`, `quality_twitter`: low = short side <= 480, medium <= 720, max =
+   best; `quality_youtube`: 360, 720, max = best up to 2160p); merge to MP4.
    mp3: best audio only, extracted / encoded to MP3 by ffmpeg (`-x --audio-format mp3 --audio-quality 0`).
 4. H.264 compatibility (setting `h264_compat`, default on, mp4 only): if the chosen video codec is not AVC, transcode
    video with libx264 (CRF 16, preset slow, yuv420p), keep AAC audio or encode AAC 256k; prefer an AVC format at
@@ -150,7 +151,7 @@ blocks on it (links can be queued; jobs wait until the engine is ready).
 
 ### 5.3 Link cleaning
 
-Both platforms, from any text (`app/core/linkclean.py`, rules and edge cases in its docstring and tests):
+All four platforms, from any text (`app/core/linkclean.py`, rules and edge cases in its docstring and tests):
 
 - Instagram canonical form: `https://www.instagram.com/reel/<shortcode>` (`/reels/`, `/tv/`, `/<username>/reel/`
   map to `/reel/`; `/p/<shortcode>` stays `/p/`), nothing after the shortcode.
@@ -158,25 +159,34 @@ Both platforms, from any text (`app/core/linkclean.py`, rules and edge cases in 
   `https://www.youtube.com/shorts/<id>` (kind `shorts`); accepted inputs include `youtu.be/<id>`, `m.`, `music.`,
   `/embed/`, `/v/`, `/live/`, `youtube-nocookie.com`, `?v=` anywhere in the query; `t=`, `list=`, `si=`,
   `feature=` and fragments are dropped. Playlists, channels, searches are `unsupported_path`.
-- The UI passes the current mode; a valid link of the other platform comes back as `other_platform` so the UI can
-  offer to switch.
+- TikTok canonical form: `https://www.tiktok.com/@<user>/video/<id>` (kind `video`; `@/video/<id>` when the input
+  carries no user) and the short links `https://vm.tiktok.com/<code>`, `https://vt.tiktok.com/<code>`,
+  `https://www.tiktok.com/t/<code>` (kind `share`, resolved by yt-dlp at download time, so the preview of a short
+  link arrives only after the engine followed it). Photo posts, profiles, sounds, tags, LIVE are `unsupported_path`.
+- X canonical form: `https://x.com/<user>/status/<id>` (kind `post`; `https://x.com/i/status/<id>` without a user);
+  `twitter.com`, `mobile.`, `/i/web/status/`, `/statuses/`, `/video/1`, `/photo/1`, `?s=20&t=` all fold into it.
+  Profiles, Spaces, broadcasts, lists and `t.co` short links are `unsupported_path`. A post with several videos is
+  a playlist in yt-dlp's terms; the first entry with video formats is taken (`_pick_entry`), as for carousels.
+- The UI passes the current mode; a valid link of another platform comes back as `other_platform` (with its
+  `platform` filled) so the UI can offer to switch.
 
 ### 5.4 Preview of queued links
 
 Right after `enqueue` a preview worker (one thread, serial, lowest priority) fetches metadata of every queued job
-that has none: anonymous `yt-dlp -J` (Instagram) / `yt-dlp -J` (YouTube), stores the info json in the job cache,
+that has none: anonymous `yt-dlp -J` on every platform, stores the info json in the job cache,
 fills `title`, `author`, `duration_s`, `thumbnail` and sets `previewed`. The download step reuses the stored info
 when it is younger than 10 minutes and the same auth rung applies. A failed preview is silent (the job shows the
 link until the download probes it). Preview fetches respect the engine gate and stop while the engine updates.
 
 ### 5.5 Modes and formats
 
-- `settings.mode` is the platform shown by the UI; both platforms' jobs live in one job table and one history; the
+- `settings.mode` is the platform shown by the UI; the jobs of every platform live in one job table and one history; the
   UI filters by `job.platform`. Duplicate detection is per platform + id. Concurrency is shared.
 - `settings.format` is the default for new jobs; `enqueue(..., format)` and `set_job_format(id, format)` override it
   per job while queued. mp3 ignores the quality settings and `h264_compat`.
 - Quality is a per-platform setting shown in the main window next to the mode and format controls (not in the
-  settings sheet): `quality_instagram` and `quality_youtube`; a job uses the setting of its platform at start.
+  settings sheet): `quality_instagram`, `quality_youtube`, `quality_tiktok`, `quality_twitter`; a job uses the
+  setting of its platform at start.
 
 ### 5.6 Instagram sign-in
 

@@ -25,7 +25,7 @@ produces the payloads. A field not listed here does not exist; add it here first
 | Method | Args | Returns | Notes |
 |---|---|---|---|
 | `ready()` | — | `State` | First call of the UI. Starts the engine when the window has not done so yet, enables event delivery. |
-| `clean_links(text, platform)` | `text: str`, `platform: Platform \| null` | `CleanResult` | Pure, no side effects. `platform` null = links of both platforms are valid; otherwise links of the other platform get error `other_platform`. |
+| `clean_links(text, platform)` | `text: str`, `platform: Platform \| null` | `CleanResult` | Pure, no side effects. `platform` null = links of every platform are valid; otherwise links of the other platforms get error `other_platform`. |
 | `enqueue(text, platform, format)` | `text: str` (any text with links), `platform: Platform \| null`, `format: Format \| null` | `EnqueueResult` | Cleans, de-duplicates, adds jobs. `format` null = the `format` setting. |
 | `set_job_format(id, format)` | `id: str`, `format: Format` | `Job \| null` | Per-item override; only while the job is `queued`. `null` when the job is not queued or unknown. Emits `job`. |
 | `cancel(id)` | `id: str` | `bool` | |
@@ -68,7 +68,13 @@ produces the payloads. A field not listed here does not exist; add it here first
 
 ## 4. Types
 
-Platform: `"instagram" | "youtube"`. Format: `"mp4" | "mp3"`.
+Platform: `"instagram" | "youtube" | "tiktok" | "twitter"`. Format: `"mp4" | "mp3"`.
+
+Platform ids and display names: `instagram` Instagram, `youtube` YouTube, `tiktok` TikTok, `twitter` X (the service
+formerly called Twitter; the id stays `twitter` because yt-dlp's extractor and the historic URLs use it, the UI
+shows "X"). Kinds per platform: Instagram `reel` | `p`; YouTube `video` | `shorts`; TikTok `video` (a full URL with
+the numeric id) | `share` (a short link `vm.tiktok.com/<code>`, `vt.tiktok.com/<code>`, `tiktok.com/t/<code>` whose
+target id is unknown until the engine follows it); X `post`.
 
 ### State
 ```json
@@ -78,7 +84,7 @@ Platform: `"instagram" | "youtube"`. Format: `"mp4" | "mp3"`.
   "update": UpdateStatus,
   "auth": Auth,
   "settings": Settings,
-  "jobs": [Job]          // newest first, both platforms; the UI shows the jobs of the current mode
+  "jobs": [Job]          // newest first, every platform; the UI shows the jobs of the current mode
 }
 ```
 
@@ -91,7 +97,7 @@ Platform: `"instagram" | "youtube"`. Format: `"mp4" | "mp3"`.
       "clean": "https://www.instagram.com/reel/DAbC123xYz_",   // null when invalid
       "shortcode": "DAbC123xYz_",                              // platform media id; null when invalid
       "platform": "instagram",                                 // Platform | null
-      "kind": "reel",                                          // "reel" | "p" (Instagram) | "video" | "shorts" (YouTube) | null
+      "kind": "reel",                                          // "reel" | "p" (Instagram) | "video" | "shorts" (YouTube) | "video" | "share" (TikTok) | "post" (X) | null
       "error": null                                            // null | "not_supported" | "unsupported_path" | "no_shortcode" | "other_platform"
     }
   ],
@@ -101,12 +107,19 @@ Platform: `"instagram" | "youtube"`. Format: `"mp4" | "mp3"`.
   "duplicates": 0
 }
 ```
-- `not_supported`: a URL whose host is neither Instagram nor YouTube (was `not_instagram` in 1.x).
+- `not_supported`: a URL whose host belongs to none of the four platforms (was `not_instagram` in 1.x).
 - `other_platform`: a valid link of the platform that was not requested; `clean`, `shortcode`, `platform`, `kind`
   are filled so the UI can offer to switch modes. Counted as invalid.
 - Canonical forms: Instagram `https://www.instagram.com/reel/<shortcode>` and `/p/<shortcode>`; YouTube
   `https://www.youtube.com/watch?v=<id>` (kind `video`) and `https://www.youtube.com/shorts/<id>` (kind `shorts`),
   `<id>` = 11 characters `[A-Za-z0-9_-]`. Nothing after the id: no `?t=`, `&list=`, `&feature=`, `#`, `/`.
+  TikTok `https://www.tiktok.com/@<user>/video/<id>` (kind `video`, `<id>` = 15..25 digits, the `@<user>` segment
+  kept as given when the input has it, `https://www.tiktok.com/@/video/<id>` when it does not: yt-dlp accepts both)
+  and short links `https://vm.tiktok.com/<code>`, `https://vt.tiktok.com/<code>`, `https://www.tiktok.com/t/<code>`
+  (kind `share`, `shortcode` = `<code>`, 6..20 characters `[A-Za-z0-9]`, host kept). X
+  `https://x.com/<user>/status/<id>` (kind `post`, `<id>` = 10..25 digits, `<user>` kept when the input has it,
+  `https://x.com/i/status/<id>` otherwise; `twitter.com`, `mobile.twitter.com`, `/i/web/status/`, `/statuses/`,
+  `/video/1` and `/photo/1` tails all map to it). `shortcode` is the numeric id or the short-link code.
 
 ### EnqueueResult
 ```json
@@ -123,7 +136,7 @@ Platform: `"instagram" | "youtube"`. Format: `"mp4" | "mp3"`.
   "url": "https://www.instagram.com/reel/DAbC123xYz_",
   "shortcode": "DAbC123xYz_",               // platform media id
   "platform": "instagram",                  // Platform
-  "kind": "reel",                           // "reel" | "p" | "video" | "shorts"
+  "kind": "reel",                           // "reel" | "p" | "video" | "shorts" | "share" | "post" (see Types)
   "format": "mp4",                          // Format; fixed once the job leaves "queued"
   "status": "queued" | "probing" | "downloading" | "processing" | "done" | "error" | "canceled",
   "stage_text": "Downloading video",       // short line for the current stage
@@ -212,14 +225,16 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "format": "mp4",                               // Format default for new jobs
   "quality_instagram": "max",                    // "low" | "medium" | "max": short side <= 480 / <= 720 / best (mp4 only)
   "quality_youtube": "max",                      // "360" | "720" | "max": short side <= 360 / <= 720 / best, up to 2160p (mp4 only)
+  "quality_tiktok": "max",                       // "low" | "medium" | "max": short side <= 480 / <= 720 / best, up to 1080p (mp4 only)
+  "quality_twitter": "max",                      // "low" | "medium" | "max": short side <= 480 / <= 720 / best, up to 1080p (mp4 only)
   "h264_compat": true,                           // mp4 only
   "skip_existing": true,
-  "concurrency": 2,                              // 1..4, shared by both modes
+  "concurrency": 2,                              // 1..4, shared by all modes
   "update_channel": "nightly",                   // "nightly" | "stable"
   "auto_update": true,                           // engines on every launch
   "auto_install_updates": false,                 // download and install a found update without a click (the UI drives it: see ARCHITECTURE 5.7)
   "auth_mode": "auto",                           // "auto" (anonymous first, then session) | "always" | "never"; Instagram only
-  "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by both platforms
+  "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by every platform
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus
   "open_folder_when_done": false                 // open output dir when the whole queue finishes
 }

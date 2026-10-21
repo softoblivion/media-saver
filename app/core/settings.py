@@ -19,7 +19,11 @@ log = logging.getLogger("mediasaver.core.settings")
 
 QUALITIES_INSTAGRAM = ("low", "medium", "max")   # short side <= 480 / <= 720 / best
 QUALITIES_YOUTUBE = ("360", "720", "max")        # short side <= 360 / <= 720 / best (1080p, 1440p, 2160p)
-PLATFORMS = ("instagram", "youtube")
+QUALITIES_TIKTOK = ("low", "medium", "max")      # short side <= 480 / <= 720 / best (1080p)
+QUALITIES_TWITTER = ("low", "medium", "max")     # short side <= 480 / <= 720 / best (1080p)
+PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
+QUALITY_KEYS = {"instagram": "quality_instagram", "youtube": "quality_youtube", "tiktok": "quality_tiktok",
+                "twitter": "quality_twitter"}
 FORMATS = ("mp4", "mp3")
 CHANNELS = ("nightly", "stable")
 AUTH_MODES = ("auto", "always", "never")
@@ -40,6 +44,8 @@ def defaults() -> dict[str, Any]:
         "format": "mp4",
         "quality_instagram": "max",
         "quality_youtube": "max",
+        "quality_tiktok": "max",
+        "quality_twitter": "max",
         "h264_compat": True,
         "skip_existing": True,
         "concurrency": 2,
@@ -104,6 +110,10 @@ def validate_value(key: str, value: Any) -> Any:
         return _choice(key, value, QUALITIES_INSTAGRAM, "Instagram quality")
     if key == "quality_youtube":
         return _choice(key, value, QUALITIES_YOUTUBE, "YouTube quality")
+    if key == "quality_tiktok":
+        return _choice(key, value, QUALITIES_TIKTOK, "TikTok quality")
+    if key == "quality_twitter":
+        return _choice(key, value, QUALITIES_TWITTER, "X quality")
     if key == "mode":
         return _choice(key, value, PLATFORMS, "Mode")
     if key == "format":

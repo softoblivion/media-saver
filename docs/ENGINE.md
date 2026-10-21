@@ -14,7 +14,7 @@ runtime; since 2.1.0 the updater installs deno (2.9.7 on 2026-10-20) and yt-dlp 
 | `settings.py` | Defaults, per-key validation (ValueError, English text), `SettingsStore` (thread-safe, tmp + `os.replace`); `PLATFORMS`, `FORMATS`. |
 | `auth.py` | Netscape cookies.txt writer/reader, `read_auth_status`, cookies import validation, sidecar `auth/auth.json` (`source`, `saved_at`, `invalid`). Instagram only. |
 | `updater.py` | Engine bootstrap / update (`Updater`), `Net` (urllib with UA, timeouts, retries), SHA-256 verification. |
-| `linkclean.py` | Link extraction from free text and canonicalisation for Instagram and YouTube (`clean_text(text, platform)`, `clean_link`); rules in its docstring. |
+| `linkclean.py` | Link extraction from free text and canonicalisation for Instagram, YouTube, TikTok and X (`clean_text(text, platform)`, `clean_link`); rules in its docstring. |
 | `downloader.py` | `ProcessRunner` (hidden subprocess, Job Object tree kill), `BinaryGate`, progress parsing, error classification per platform, format selection, auth ladder per platform, `Downloader` (job table, download workers, preview worker, history). |
 | `engine.py` | `Engine` facade of ARCHITECTURE section 6 (integrator); `logs/app.log` rotating handler on the `mediasaver` logger. |
 | `cli.py` | Headless harness: `python -m app.core.cli` (§7). |
@@ -87,7 +87,8 @@ a Win32 Job Object with `KILL_ON_JOB_CLOSE`; cancel / timeout / shutdown calls `
 yt-dlp and its ffmpeg children), fallback `taskkill /T /F`. Working dir and temp files: `cache/jobs/<id>/`,
 removed when the job ends (also when a queued job with a preview is canceled or removed).
 
-Job fields added in 2.0: `platform` (`instagram` | `youtube`), `kind` (`reel` | `p` | `video` | `shorts`), `format`
+Job fields added in 2.0: `platform` (`instagram` | `youtube`; 2.2 adds `tiktok` | `twitter`), `kind` (`reel` | `p` |
+`video` | `shorts`; TikTok `video` | `share`, X `post`), `format`
 (`mp4` | `mp3`, changeable with `set_format` only while `queued`; a worker that takes the job sets `probing` under
 the lock first, so the format is frozen from then on), `previewed`.
 
@@ -240,15 +241,43 @@ Findings:
   compressed) copies with the same bitrate. Audio HLS formats 233/234 have `acodec: null`.
 - Downloads ran at full line speed: 256 MB (BBB 1080p60 AVC + AAC) in ~7 s, 40.6 MB in ~6 s, no throttling.
 
-### 4.3 The choice (`select_formats`, done in Python on the info json so it is testable and deterministic)
+### 4.3 TikTok (2026-10-20, anonymous)
 
-- Candidates: formats with a `format_id`, without `has_drm`, not mhtml / storyboard. Video = `vcodec` not
-  null / "none" and a width or height. Audio = `vcodec == "none"` and `acodec` not null / "none".
+`https://www.tiktok.com/@tiktok/video/7106594312292453675` (24 s, vertical): 14 muxed https mp4 formats, every one
+with AAC audio. `h264_540p_*` (576x1024) at 377 / 547 / 1071 kbit/s, `bytevc1_540p` (H.265) 555, `bytevc1_720p`
+640, **`bytevc1_1080p` 1094** (1080x1920), each listed twice (`-0` / `-1`: two CDN URLs of the same file), plus
+`audio` (audio only, `acodec: "mp4"`, no bitrate) and `download` (`format_note: "watermarked"`, `preference: -2`, no
+size). No `fps` in the info json. Findings: the top size is HEVC only, so `h264_compat` converts it like a VP9
+reel; AVC exists up to 540p here. The watermarked copy must never win: `_usable_format` drops any format whose
+`format_note` contains "watermark". A second test post answered "Your IP address is blocked from accessing this
+post" (`not_found`, TikTok "blocked" message). Forms `@/video/<id>`, `embed/<id>`, `vm.tiktok.com/<code>` all
+resolve to the same video through yt-dlp.
+
+### 4.4 X (2026-10-20, anonymous)
+
+`https://x.com/i/status/1577855540407197696` (30 s, 720x900): `http-632` 320x400, `http-950` 480x600,
+**`http-2176` 720x900** (progressive mp4 files, `vcodec: null`, `acodec: null`: the info json announces no codecs,
+the files are H.264 + AAC), the same three sizes as HLS video-only `hls-138/253/473` (`avc1.*`, `acodec: "none"`)
+and HLS audio `hls-audio-32000/64000/128000` (`acodec: null`). `uploader` is the display name, `uploader_id` the
+@handle, `channel` null; `title` is "<display name> - <text>", `description` the text with a trailing `t.co` link.
+Findings: the progressive file is the right pick (one request, muxed, direct), so `_is_video` accepts a format
+with a size and unknown codecs, `_has_audio` treats unknown-on-both-sides as muxed, the AVC swap and the announced
+H.264 pass skip unknown codecs (`_finalize` still converts when ffprobe finds a non-AVC stream). `starwars`
+test post 665052190608723968 fails in yt-dlp's `twitter:amplify` path (HTTP 500 "Domain Not Found"): old Amplify
+videos are gone, not a bug of ours. A post with several videos comes back as a playlist with full entries;
+`_pick_entry` takes the first with video formats.
+
+### 4.5 The choice (`select_formats`, done in Python on the info json so it is testable and deterministic)
+
+- Candidates: formats with a `format_id`, without `has_drm`, not mhtml / storyboard, not "watermarked". Video =
+  `vcodec` not null / "none" and a width or height, or a width or height with both codecs unknown (X). Audio =
+  `vcodec == "none"` and `acodec` not null / "none".
 - "max": highest pixel area, then fps, then direct https over HLS (HLS peak `tbr` is not comparable and fragment
   downloads are slower), then video-only over muxed, then bitrate (`vbr`/`tbr`).
 - Quality is per platform: a job reads the setting of its own platform (`job.platform`) when it starts; mp3 reads
   neither. `select_formats(info, platform, quality, h264_compat)`, caps in `QUALITY_CAPS`:
-  Instagram `quality_instagram`: "low" = short side ≤ 480, "medium" = ≤ 720, "max" = best available;
+  Instagram `quality_instagram`, TikTok `quality_tiktok`, X `quality_twitter`: "low" = short side ≤ 480, "medium" =
+  ≤ 720, "max" = best available;
   YouTube `quality_youtube`: "360" = short side ≤ 360, "720" = ≤ 720, "max" = best available (1080p, 1440p, 2160p:
   whatever the video has). A capped choice is the same ranking as "max" limited to short side ≤ cap × 1.02 (keeps
   716x1274 for "medium" and 1088x1936 where a cap is near it; vertical Shorts are capped by their width); when
@@ -277,13 +306,13 @@ Ladder (`plan_ladder(auth_mode, has_session, browser, platform)`):
 - Instagram: `auto` = anonymous -> session (`auth/cookies.txt` exists and valid) -> browser (`browser_cookies`
   set) -> gallery-dl + session; `always` = the same without anonymous (anonymous when no credentials at all);
   `never` = anonymous only. Each yt-dlp session attempt uses `cache/jobs/<id>/cookies.txt`.
-- YouTube: anonymous -> browser (only when `browser_cookies` is set). `auth_mode` and the Instagram session do not
-  apply; no session rung, no gallery-dl rung. `can_login` is always false for YouTube jobs.
+- YouTube, TikTok, X: anonymous -> browser (only when `browser_cookies` is set). `auth_mode` and the Instagram
+  session do not apply; no session rung, no gallery-dl rung. `can_login` is always false for these jobs.
 
-After a failed attempt (`ladder_action`, both platforms): `network`, `disk`, `ffmpeg_missing`, `engine_missing`,
+After a failed attempt (`ladder_action`, every platform): `network`, `disk`, `ffmpeg_missing`, `engine_missing`,
 `not_found`, `canceled` stop; `login_required`, `private`, `unknown` go to the next rung; `rate_limited` on the
 anonymous rung goes to a signed-in rung when there is one, otherwise waits 30 s then 90 s and retries the same rung
-(max 2; stage text "<Instagram|YouTube> is limiting requests, waiting 30 s"); `extractor` triggers self-heal (§2)
+(max 2; stage text "<Instagram|YouTube|TikTok|X> is limiting requests, waiting 30 s"); `extractor` triggers self-heal (§2)
 once, then the next rung. Final error (`pick_final_error`): the last error when it is definitive (network, disk,
 ffmpeg/engine missing, not_found, private, rate_limited), else the most telling one in the order
 private > login_required > rate_limited > not_found > last.
@@ -294,8 +323,9 @@ Session invalid (Instagram): when yt-dlp prints "cookies are no longer valid" or
 the core sets `invalid: true` in `auth/auth.json` (status becomes logged out), emits `auth` and a warning toast.
 
 Classification (`classify_error(text, platform)`): regexes run on the `ERROR:` / `[error]` lines first, then on the
-whole stderr; first match wins. Instagram uses the table below; YouTube uses the disk and ffmpeg rows, then the
-YouTube rows, then the rest of the table, with the YouTube texts (no message of a YouTube job names Instagram).
+whole stderr; first match wins. Instagram uses the table below; YouTube, TikTok and X use the disk and ffmpeg rows,
+then their own rows, then the rest of the table, with their own texts (`PLATFORM_MESSAGES`: no message of a job
+names another site).
 
 | Code | Matched (case-insensitive) | Message |
 |---|---|---|
@@ -306,13 +336,24 @@ YouTube rows, then the rest of the table, with the YouTube texts (no message of 
 | *YouTube* rate_limited | `rate-limited by YouTube`, `has been rate-limited`, `try again later` | YouTube has temporarily limited requests. Wait a while or choose a browser in Settings > Browser cookies. |
 | *YouTube* not_found (live) | `live event`, `Premieres in`, `Premiere will begin`, `live stream`, `This live`, `is a live` | Live streams and premieres are not supported. |
 | *YouTube* not_found | `Video unavailable`, `This video is not available`, `This video is unavailable`, `has been removed`, `no longer available`, `has been terminated`, `not made this video available`, `not available in your country` | Video not found: it was deleted, is unavailable or the link is wrong. |
+| *TikTok* not_found (blocked) | `IP address is blocked`, `not available in your country/region`, `geo-restricted` | TikTok does not serve this video to your network (region or IP block). Try another connection. |
+| *TikTok* private | `Video is private`, `This post is private`, `friends only`, `only visible to` | This video is private or limited to the creator's friends. |
+| *TikTok* login_required | `requires login`, `log in to view`, `Sign in to`, `age-restricted`, `Use --cookies` | TikTok wants a signed-in browser for this video. Choose a browser in Settings > Browser cookies. |
+| *TikTok* not_found (live) | `is a live`, `live stream`, `LIVE room` | TikTok LIVE streams are not supported. |
+| *TikTok* not_found (no video) | `photo slideshow`, `image post`, `Unsupported post type` | This TikTok is a photo post or has no video. |
+| *TikTok* not_found | `Video not available`, `has been removed`, `has been deleted`, `Unable to find video`, `item does not exist`, `status_code: 100` | Video not found: it was deleted, is unavailable or the link is wrong. |
+| *X* login_required | `NSFW tweet requires authentication`, `requires authentication`, `age-restricted`, `Sign in to`, `Use --cookies` | X shows this post only to signed-in users (age-restricted or sensitive content). Choose a browser in Settings > Browser cookies. |
+| *X* private | `protected tweet`, `protected account`, `suspended account`, `account is/has been suspended` | This account is protected or suspended: the post is not public. |
+| *X* not_found (live) | `broadcast`, `live stream`, `is live`, `audio space` | X live broadcasts and Spaces are not supported. |
+| *X* not_found (no video) | `No video could be found in this tweet`, `has no video`, `only images` | This post has no video. |
+| *X* not_found | `tweet is unavailable`, `Tweet not found`, `No status found`, `has been deleted`, `does not exist`, `Could not find tweet` | Post not found: it was deleted, is unavailable or the link is wrong. |
 | not_found (no video) | `There is no video in this post`, `No video formats found` | This post has no video. (YouTube: This video has nothing to download.) |
 | private | `only available for registered users who follow this account`, `This account is private`, `private account` | This account is private: only followers can see the video. |
 | rate_limited | `HTTP Error 429`, `Too Many Requests`, `exceeded the rate-limit`, `Please wait a few minutes` | Instagram has temporarily limited requests. Wait a while or sign in. |
 | login_required | `rate-limit reached or login required`, `login required`, `redirect(ed) to (the) login page`, `registered users`, `empty media response`, `Restricted Video`, `HTTP Error 401`, `AuthorizationError`, `checkpoint_required`, `challenge_required`, `cookies are no longer valid`, `use --cookies` | Instagram won't show this video without signing in. Sign in to Instagram in the app. |
 | not_found | `HTTP Error 404`, `404 Not Found`, `NotFoundError`, `Page Not Found`, `isn't available`, `Media not found`, `post was/has been removed/deleted` | Post not found: it was deleted or the link is wrong. |
-| network | `getaddrinfo failed`, `Failed to resolve`, `timed out`, `Connection reset/refused/aborted`, `Failed to connect`, `curl: (5/6/7/28/35/52/56)`, `TransportError`, `urlopen error`, `SSL: `, `HTTP Error 5xx` | Can't reach Instagram / YouTube. Check your internet connection. |
-| extractor | `Unable to extract`, `Failed to parse JSON`, `please report this issue`, `Unsupported URL`, `KeyError`/`TypeError`/`IndexError`/`AttributeError`, `Traceback`, `Requested format is not available`, `AbortExtraction` | Instagram / YouTube changed its site and the engine can't read it yet. Try again later. |
+| network | `getaddrinfo failed`, `Failed to resolve`, `timed out`, `Connection reset/refused/aborted`, `Failed to connect`, `curl: (5/6/7/28/35/52/56)`, `TransportError`, `urlopen error`, `SSL: `, `HTTP Error 5xx` | Can't reach Instagram / YouTube / TikTok / X. Check your internet connection. |
+| extractor | `Unable to extract`, `Failed to parse JSON`, `please report this issue`, `Unsupported URL`, `KeyError`/`TypeError`/`IndexError`/`AttributeError`, `Traceback`, `Requested format is not available`, `AbortExtraction` | Instagram / YouTube / TikTok / X changed its site and the engine can't read it yet. Try again later. |
 | unknown | anything else | Unknown error. See the log for details. |
 
 `engine_missing` / `ffmpeg_missing` are also raised directly when the binary path is missing; a subprocess timeout
@@ -344,18 +385,21 @@ Real samples (yt-dlp nightly 2026.10.10, in `tests/test_core_errors.py` and `tes
 ## 6. File names, history, settings rules
 
 - `filename_template` tokens `{author}` `{shortcode}` `{date}` (YYYY-MM-DD) `{title}` (≤ 60); must contain
-  `{shortcode}` (Instagram shortcode or YouTube video id; else different videos collide). Extension `.mp4` or
-  `.mp3` by `job.format`, so the same video can exist in both formats. Author fallback when empty: `instagram` /
-  `youtube`. Sanitising: whitespace -> space, `<>:"/\|?*` and control chars -> `_`, repeated separators
+  `{shortcode}` (Instagram shortcode, YouTube video id, TikTok numeric id or short-link code, X status id; else
+  different videos collide). Extension `.mp4` or `.mp3` by `job.format`, so the same video can exist in both
+  formats. Author fallback when empty: the platform id (`instagram` / `youtube` / `tiktok` / `twitter`). TikTok
+  author = `uploader` (the @handle), X author = `uploader_id` (the @handle); X title = post text without its
+  trailing `t.co` link. Sanitising: whitespace -> space, `<>:"/\|?*` and control chars -> `_`, repeated separators
   collapsed, trailing dots/spaces stripped, reserved names (`CON`, `NUL`, `COM1`…, `LPT9`) prefixed with `_`,
   ≤ 150 chars, empty -> shortcode. Example: `Blender_aqz-KE-bpKQ.mp3`, `teddysphotos_DQCkNLtgqEe.mp4`.
-- `history.json`: `{"version": 2, "jobs": [...]}`, last 300 finished jobs (both platforms) plus active ones,
+- `history.json`: `{"version": 2, "jobs": [...]}`, last 300 finished jobs (every platform) plus active ones,
   written atomically when a job is added, previewed, finishes, is canceled or removed, and on shutdown. Active
   jobs at exit (or found active on load) come back as `canceled` with stage_text "Interrupted when the app
   closed". Thumbnails are stored as files and re-read on load. Every restored job has `previewed = true`.
 - Migration: version 1 entries (no `platform` / `kind` / `format`) load as `platform` "instagram", `kind` "p" for
   `/p/` URLs else "reel", `format` "mp4". Unknown values in version 2 entries fall back the same way (YouTube
-  kind from the URL: `/shorts/` -> "shorts", else "video"). The next save writes version 2.
+  kind from the URL: `/shorts/` -> "shorts", else "video"; TikTok `/video/` -> "video", else "share"; X always
+  "post"). An unknown platform falls back to Instagram. The next save writes version 2.
 - Settings: unknown keys ignored, a bad value on load falls back to its default, a broken file gives defaults.
 
 ## 7. How to test
@@ -415,6 +459,21 @@ YouTube:
   (slow); "720" gives AVC 136 without a pass (there is no 1080p cap any more).
 - `--no-playlist` is always passed; canonical URLs never carry `list=` anyway.
 - The thumbnail of a regular video is `maxresdefault.webp` (converted by ffmpeg), of a Shorts video a `hq720` jpg.
+
+TikTok:
+- Formats are muxed https mp4 files (H.264 up to 540p, HEVC `bytevc1` up to 1080p on the probed video), each
+  listed twice with different CDN URLs; `fps` is absent. The `download` format is the watermarked copy
+  (`format_note: "watermarked"`) and is skipped. Some posts are refused by IP ("Your IP address is blocked from
+  accessing this post"), reported as `not_found` with the TikTok "blocked" text; the ladder stops (a browser
+  session does not lift an IP block).
+- Short links (`vm.` / `vt.tiktok.com/<code>`, `tiktok.com/t/<code>`) are passed to yt-dlp as they are; the
+  preview's info json carries the real id and author, the job keeps the code as its shortcode (file name).
+
+X:
+- The progressive `http-*` formats report no codecs; see §4.4 for how the format choice treats them. Old Amplify
+  videos (2015-era posts) fail inside yt-dlp with HTTP 500 "Domain Not Found".
+- `uploader_id` is the handle, `uploader` the display name; the `description` ends with the post's own `t.co`
+  link, which the title strips.
 
 Tools:
 - yt-dlp `--update-to stable` from a newer nightly says "is up to date" (no implicit downgrade); the updater then

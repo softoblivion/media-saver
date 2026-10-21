@@ -16,6 +16,15 @@ YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL1&t=5"
 YT_CLEAN = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 SHORTS = "https://youtube.com/shorts/abcdefghijk?feature=share"
 YOUTU_BE = "https://youtu.be/dQw4w9WgXcQ?si=zzz"
+TT = "https://www.tiktok.com/@tiktok/video/7106594312292453675?is_from_webapp=1&sender_device=pc"
+TT_CLEAN = "https://www.tiktok.com/@tiktok/video/7106594312292453675"
+TT_SHORT = "https://vm.tiktok.com/ZMabcdEF1/"
+TT_SHORT_CLEAN = "https://vm.tiktok.com/ZMabcdEF1"
+TT_T = "https://www.tiktok.com/t/ZT8abcdef"
+X = "https://x.com/oshtru/status/1577855540407197696?s=20"
+X_CLEAN = "https://x.com/oshtru/status/1577855540407197696"
+X_OLD = "https://twitter.com/oshtru/status/1577855540407197696"
+X_I = "https://twitter.com/i/status/1577855540407197696"
 
 
 class FakeBase(unittest.TestCase):
@@ -68,7 +77,43 @@ class LinkTests(FakeBase):
 
     def test_bad_platform_is_rejected(self):
         with self.assertRaises(ValueError):
-            self.engine.clean_links(IG, "tiktok")
+            self.engine.clean_links(IG, "vimeo")
+
+    def test_tiktok_and_x_links_clean_to_canonical_forms(self):
+        result = self.engine.clean_links(f"{TT} {TT_SHORT} {TT_T} {X} {X_OLD} {X_I}")
+        self.assertEqual([i["clean"] for i in result["items"]],
+                         [TT_CLEAN, TT_SHORT_CLEAN, TT_T, X_CLEAN, X_CLEAN, "https://x.com/i/status/1577855540407197696"])
+        self.assertEqual([i["platform"] for i in result["items"]], ["tiktok"] * 3 + ["twitter"] * 3)
+        self.assertEqual([i["kind"] for i in result["items"]], ["video", "share", "share", "post", "post", "post"])
+        self.assertEqual([i["shortcode"] for i in result["items"]],
+                         ["7106594312292453675", "ZMabcdEF1", "ZT8abcdef"] + ["1577855540407197696"] * 3)
+        # The simulated engine de-duplicates by platform and id, so twitter.com/i/status/<id> folds into the user form.
+        self.assertEqual((result["valid"], result["invalid"], result["duplicates"]), (4, 0, 2))
+        self.assertEqual(len(result["clean_text"].split("\n")), 4)
+
+    def test_vt_short_link_keeps_its_host(self):
+        item = self.engine.clean_links("https://vt.tiktok.com/ZSabc12345/")["items"][0]
+        self.assertEqual((item["clean"], item["kind"]), ("https://vt.tiktok.com/ZSabc12345", "share"))
+
+    def test_platform_filter_marks_the_other_three(self):
+        text = f"{IG} {YT} {TT} {X}"
+        for platform in ("instagram", "youtube", "tiktok", "twitter"):
+            with self.subTest(platform=platform):
+                result = self.engine.clean_links(text, platform)
+                errors = {i["platform"]: i["error"] for i in result["items"]}
+                self.assertEqual(errors, {p: (None if p == platform else "other_platform")
+                                          for p in ("instagram", "youtube", "tiktok", "twitter")})
+                self.assertEqual((result["valid"], result["invalid"]), (1, 3))
+                for item in result["items"]:
+                    self.assertTrue(item["clean"] and item["shortcode"] and item["kind"])
+
+    def test_unsupported_paths_on_the_new_hosts(self):
+        result = self.engine.clean_links(
+            "https://www.tiktok.com/@tiktok https://x.com/home x.com/oshtru https://t.co/AbCdEfGhIj https://box.com/a")
+        self.assertEqual([i["error"] for i in result["items"]],
+                         ["unsupported_path", "unsupported_path", "unsupported_path", "unsupported_path",
+                          "not_supported"])
+        self.assertEqual((result["valid"], result["invalid"]), (0, 5))
 
 
 class JobTests(FakeBase):
@@ -82,6 +127,60 @@ class JobTests(FakeBase):
             self.assertEqual(job["format"], "mp3")
             self.assertFalse(job["previewed"])
             self.assertEqual(job["status"], "queued")
+
+    def test_enqueue_tiktok_and_x_links(self):
+        result = self.engine.enqueue(f"{TT} {TT_SHORT} {X} {X_OLD}", None, "mp4")
+        self.assertEqual(result["skipped"], [{"input": X_OLD, "reason": "duplicate"}])
+        self.assertEqual([(j["platform"], j["kind"], j["shortcode"], j["url"]) for j in result["added"]], [
+            ("tiktok", "video", "7106594312292453675", TT_CLEAN),
+            ("tiktok", "share", "ZMabcdEF1", TT_SHORT_CLEAN),
+            ("twitter", "post", "1577855540407197696", X_CLEAN),
+        ])
+        for job in result["added"]:
+            self.assertEqual((job["format"], job["status"], job["previewed"]), ("mp4", "queued", False))
+
+    def test_enqueue_with_platform_filter_skips_the_others(self):
+        result = self.engine.enqueue(f"{IG} {TT} {X}", "twitter")
+        self.assertEqual([j["platform"] for j in result["added"]], ["twitter"])
+        self.assertEqual(result["skipped"], [{"input": IG, "reason": "invalid"}, {"input": TT, "reason": "invalid"}])
+
+    def test_demo_preview_for_tiktok_and_x(self):
+        self.engine.set_settings({"concurrency": 4})
+        added = self.engine.enqueue(f"{TT} {X}")["added"]
+        for job in added:
+            self.assertTrue(self.wait_for(lambda j=job: any(
+                t == "job" and p["id"] == j["id"] and p["previewed"] for t, p in list(self.events))))
+        previews = {p["platform"]: p for t, p in list(self.events) if t == "job" and p["previewed"]}
+        self.assertEqual((previews["tiktok"]["author"], previews["tiktok"]["title"]),
+                         ("demo_tt_7106", "Demo TikTok 7106594312292453675"))
+        self.assertEqual((previews["twitter"]["author"], previews["twitter"]["title"]),
+                         ("demo_x_1577", "Demo post 1577855540407197696"))
+
+    def test_tiktok_and_x_jobs_finish(self):
+        with mock.patch("app.fake_engine.time.sleep", lambda s: None):
+            self.engine.enqueue(f"{TT} {X}")
+            self.assertTrue(self.wait_for(lambda: len(self.engine.get_state()["jobs"]) == 2 and all(
+                j["status"] == "done" for j in self.engine.get_state()["jobs"]), 20))
+        done = {j["platform"]: j for j in self.engine.get_state()["jobs"]}
+        self.assertTrue(done["tiktok"]["filepath"].endswith(".mp4"))
+        self.assertEqual(done["twitter"]["title"], "Demo post 1577855540407197696")
+
+    def test_simulated_failure_for_the_new_platforms(self):
+        cases = [
+            ("tiktok", "video", "failAAAA1", "TikTok changed something and the video could not be read. Try again later."),
+            ("twitter", "post", "failBBBB1", "X changed something and the video could not be read. Try again later."),
+        ]
+        for platform, kind, code, message in cases:
+            with self.subTest(platform=platform):
+                found = (platform, kind, code, f"https://example.invalid/{code}")
+                with mock.patch("app.fake_engine._match_link", lambda token, f=found: f), mock.patch(
+                        "app.fake_engine.time.sleep", lambda s: None):
+                    self.engine.enqueue("https://example.invalid/" + code)
+                    self.assertTrue(self.wait_for(lambda: any(
+                        j["platform"] == platform and j["status"] == "error" for j in self.engine.get_state()["jobs"]), 20))
+                job = next(j for j in self.engine.get_state()["jobs"] if j["platform"] == platform)
+                self.assertEqual((job["error"]["code"], job["error"]["message"], job["error"]["can_login"]),
+                                 ("extractor", message, False))
 
     def test_default_format_comes_from_settings_and_platform_filters_links(self):
         self.engine.set_settings({"format": "mp3"})
@@ -162,10 +261,42 @@ class JobTests(FakeBase):
         self.assertEqual(state["update"]["stage"], "idle")
         for key in ("mode", "format", "auto_install_updates", "update_channel", "open_folder_when_done"):
             self.assertIn(key, state["settings"])
+        for mode in ("instagram", "youtube", "tiktok", "twitter"):
+            self.assertEqual(self.engine.set_settings({"mode": mode})["mode"], mode)
         with self.assertRaises(ValueError):
-            self.engine.set_settings({"mode": "tiktok"})
+            self.engine.set_settings({"mode": "vimeo"})
         with self.assertRaises(ValueError):
             self.engine.set_settings({"format": "avi"})
+
+
+class QualitySettingsTests(FakeBase):
+    def test_defaults_for_all_four_platforms(self):
+        settings = self.engine.get_state()["settings"]
+        self.assertEqual([settings[f"quality_{p}"] for p in ("instagram", "youtube", "tiktok", "twitter")],
+                         ["max"] * 4)
+
+    def test_tiktok_and_x_quality_accept_low_medium_max(self):
+        for key in ("quality_tiktok", "quality_twitter"):
+            for value in ("low", "medium", "max"):
+                with self.subTest(key=key, value=value):
+                    self.assertEqual(self.engine.set_settings({key: value})[key], value)
+                    self.assertEqual(self.engine.get_settings()[key], value)
+
+    def test_invalid_tiktok_and_x_quality_is_rejected(self):
+        cases = [("quality_tiktok", "Invalid TikTok quality."), ("quality_twitter", "Invalid X quality.")]
+        for key, message in cases:
+            for value in ("360", "720", "high", "", None):
+                with self.subTest(key=key, value=value):
+                    with self.assertRaises(ValueError) as ctx:
+                        self.engine.set_settings({key: value})
+                    self.assertEqual(str(ctx.exception), message)
+        self.assertEqual(self.engine.get_settings()["quality_tiktok"], "max")
+
+    def test_settings_event_carries_the_new_keys(self):
+        self.engine.set_settings({"quality_tiktok": "low"})
+        events = [p for t, p in list(self.events) if t == "settings"]
+        self.assertEqual(events[-1]["quality_tiktok"], "low")
+        self.assertEqual(events[-1]["quality_twitter"], "max")
 
 
 class AppUpdateTests(FakeBase):

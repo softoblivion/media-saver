@@ -124,7 +124,8 @@ number), the engine hover card and the select menu.
   `rgba(4,6,16,.32)`.
 - Identity "lagoon": accent `#5d8dff`, accent-2 `#8a6cff`, gradient `#48a2ff -> #6a7bff -> #9c62ff`; mint `#3fe2c1`
   (success, done), amber `#ffc457` (duplicates, "already saved"), rose `#ff6482` (errors). Deliberately not the
-  pink-orange gradient of Instagram; no Instagram logo or marks anywhere.
+  pink-orange gradient of Instagram; no logo, mark or brand colour of Instagram, YouTube, TikTok or X anywhere (kind
+  glyphs are original line icons: `reel`, `post`, `video`, `shorts`).
 - Radii (concentric, inner = outer - padding): 6, 10, 14, 18, 22, 28, 34, pill.
 - Spacing: 4 pt grid (`--s-1..8`).
 - Shadows: `--shadow-s/m/l`, deeper under larger surfaces.
@@ -183,10 +184,13 @@ Behaviours:
   state sets the level without travel (`.pm-instant` for one style flush), so a new batch never drains from the last
   batch's value. Below 380 px of action-row width the speed / percentage moves under the text (two lines).
 - Link chips: each chip appears showing the original link, then its text width springs to the clean short form
-  (`reel/<code>`, `watch?v=<id>`, `shorts/<id>`) while the original blurs away; invalid chips shake once; chips of the
-  other platform appear without morph or shake. After `Download` the chips fly out toward the queue. A mode switch
-  rebuilds the chips (the text is cleaned again for the new platform).
-- Mode switch: cards of the other platform get `[hidden]` (no rebuild, no refetch; 150 cards switch in ~3 ms), the
+  (`shortLink` in `js/format.js`, by platform first, then kind: Instagram `reel/<code>`, `p/<code>`; YouTube
+  `watch?v=<id>`, `shorts/<id>`; TikTok `video/<id>`, `t/<code>` for a short link; X `status/<id>`) while the original
+  blurs away; invalid chips shake once; chips of another platform appear without morph or shake, with a "Switch to
+  <their platform>" action. A chip shrinks only as far as its note or action needs (`flex: 0 1 auto`, no fixed max
+  width), so 19-digit TikTok and X ids stay whole in the 332 px composer. After `Download` the chips fly out toward
+  the queue. A mode switch rebuilds the chips (the text is cleaned again for the new platform).
+- Mode switch: cards of the other platforms get `[hidden]` (no rebuild, no refetch; 150 cards switch in ~3 ms), the
   first 8 cards of the new mode settle in with a 28 ms stagger.
 - Preview: a pending card (queued, `previewed` false) shows a skeleton bar for the title and a sheen over the
   thumbnail; both are CSS loops bound to `.is-pending`, which drops when `previewed` turns true even if every field
@@ -209,40 +213,47 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
 
 | File | Content |
 |---|---|
-| `index.html` | Static layout: title bar (brand, mode slot, version label, engine chip, gear, window buttons), composer, queue, overlay hosts (engine popover, update popover, settings sheet). |
+| `index.html` | Static layout: title bar (brand, mode slot, version label, engine chip, gear, window buttons), composer (one `c-other` counter template that `js/composer.js` clones per platform), queue, overlay hosts (engine popover, update popover, settings sheet). |
 | `css/tokens.css`, `base.css`, `glass.css`, `components.css`, `app.css` | Fonts, type roles and tokens; reset + feature rule + scene + buttons; material; components; screen layout. |
 | `assets/fonts/` | `InterVariable.woff2`, `GeistMono-Variable.woff2`, `LICENSE-Inter.txt`, `LICENSE-GeistMono.txt` (section 3). |
-| `js/main.js` | Boot, title bar, mode switch, window buttons, entrance, auth -> auto retry of Instagram `login_required` jobs. |
-| `js/mode.js` | Current mode, default format and per-platform quality (`settings.mode`, `format`, `quality_instagram`, `quality_youtube`): local apply at once, `set_settings` persist, revert on refusal, stale-echo guard, `onPref(key)` subscribers, `html[data-mode]`, `html[data-format]`. |
-| `js/quality.js` | Quality control of the composer's spec row: one `Segmented` per platform (only the mode's one visible), hint line, disabled in MP3, the H.264 note on YouTube Max. |
+| `js/main.js` | Boot, title bar, mode switch (four options, Alt+1..Alt+4), window buttons, entrance, auth -> auto retry of Instagram `login_required` jobs. |
+| `js/mode.js` | `PLATFORMS` (`instagram`, `youtube`, `tiktok`, `twitter`, in mode-switch order), `PLATFORM_NAME` (Instagram, YouTube, TikTok, X), `QUALITIES`, `QUALITY_KEY`; current mode, default format and per-platform quality (`settings.mode`, `format`, `quality_<platform>`): local apply at once, `set_settings` persist, revert on refusal, stale-echo guard, `onPref(key)` subscribers, `html[data-mode]`, `html[data-format]`. There is no "other platform" helper: a switch action always names the platform of the item in question. |
+| `js/quality.js` | Quality control of the composer's spec row: one `Segmented` per platform (only the mode's one visible), hint line, disabled in MP3, the H.264 note on YouTube Max only. |
 | `js/api.js` | `window.__msEvent`, `pywebviewready` wait (1.5 s), mock fallback, `call()` / `on()`. |
 | `js/mock-api.js` | Full mock of BRIDGE_API (section 7 lists the URL flags). |
 | `js/motion.js`, `js/glass.js`, `js/background.js` | Springs, material, scene. |
 | `js/engine.js` | Engine status chip (dot / ring progress), hover card with versions, popover with components and `update_engine`. |
 | `js/update.js` | Version label, the update popover (`check_updates`, `download_update`, `apply_update`, event `update`), the one "available" toast, safe Markdown for release notes. |
-| `js/composer.js` | Input capsule, live clean preview for the mode, other-platform chips with "Switch to ...", counters, tools, Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), Ctrl+Enter, format toggle, `Download` morph with the liquid level (one batch per platform). |
-| `js/clipboard.js` | Clipboard prompt pill on start and on `window` focus when `clipboard_watch`; offers the mode's links, or the other platform's links with "Add to <platform>". |
-| `js/queue.js` | Queue header (counts of the mode, "Clear finished", the "Open folder" split button with its folder menu, `open_output_dir` / `choose_output_dir`, the "Videos now go to ..." toast on an `output_dir` change), job cards of every platform (others `[hidden]`), preview skeleton, per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
-| `js/settings.js`, `js/controls.js`, `js/overlay.js` | Settings sheet (no quality row: quality lives in the main window), Segmented (with `setDisabled`, `setOptionTitle`) / Switch / Stepper / Select / `formatToggleHtml`, sheet & popover morph. |
-| `js/toast.js`, `js/icons.js`, `js/format.js` | Toasts, original line icons (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes. |
+| `js/composer.js` | Input capsule, live clean preview for the mode, chips of other platforms with "Switch to <their platform>", counters (one "N <platform>" pill per other platform present), tools, Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), Ctrl+Enter, format toggle, `Download` morph with the liquid level (one batch per platform). |
+| `js/clipboard.js` | Clipboard prompt pill on start and on `window` focus when `clipboard_watch`; offers the mode's links, or else the links of one other platform (the one with the most fresh links) with "Add to <platform>". |
+| `js/queue.js` | Queue header (counts of the mode, "Clear finished", the "Open folder" split button with its folder menu, `open_output_dir` / `choose_output_dir`, the "Videos now go to ..." toast on an `output_dir` change), job cards of every platform (others `[hidden]`), card shape (`tall`: Reels, Shorts, TikTok; `wide`: YouTube videos and X posts, an X post turns `tall` once its width / height or its thumbnail shows a vertical video), placeholder glyph from `kindGlyph`, author with `@` on Instagram, TikTok and X (handles), plain on YouTube (channel names), preview skeleton, per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
+| `js/settings.js`, `js/controls.js`, `js/overlay.js` | Settings sheet (no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), Segmented (with `setDisabled`, `setOptionTitle`) / Switch / Stepper / Select / `formatToggleHtml`, sheet & popover morph. |
+| `js/toast.js`, `js/icons.js`, `js/format.js` | Toasts, original line icons (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`) and `kindGlyph(platform, kind)` (Instagram `reel` / `post`, YouTube `video` / `shorts`, TikTok `shorts`, X `video`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes (all by platform). |
 | `assets/icon.svg`, `assets/icon-1024.png` | App icon: glass droplet with a down arrow (PNG rendered from the SVG with headless Edge). |
 
 ### 6.1 Placement decisions
 
-- Mode switch (Instagram / YouTube): a `Segmented` (`seg-tb` variant, 34 px) in the title bar right after the app
-  name. The mode scopes the whole window (composer, queue, clipboard prompt, settings), so it sits above both columns
-  rather than inside the composer; it reads as the app's top-level navigation, and on the left it never collides with
-  the right cluster at the minimum width of 940 px. It is a sibling of the drag region. Alt+1 / Alt+2 switch modes.
+- Mode switch (Instagram / YouTube / TikTok / X): a `Segmented` (`seg-tb` variant, 34 px) in the title bar right
+  after the app name, options in the order of `PLATFORMS`. The mode scopes the whole window (composer, queue,
+  clipboard prompt, settings), so it sits above both columns rather than inside the composer; it reads as the app's
+  top-level navigation. It is a sibling of the drag region (`.tb-mode`, `flex: none`). Alt+1..Alt+4 switch modes
+  (matched on `KeyboardEvent.code` `Digit1..4`, so keyboard layouts that type another character with Alt+digit
+  still work); each option's tooltip names its shortcut. Width check at the 940 x 640 minimum window (four platforms,
+  measured in the mock): the four full labels need 278 px (Instagram 88, YouTube 80, TikTok 67, X 37, plus the 6 px track
+  padding); the switch ends at x = 428 and the right cluster starts at x = 565 with "Engine ready", so 137 px stay
+  free, more than the longest chip text ("Updating 100%", about 10 px wider) and the version label's update dot
+  need. The labels are therefore not shortened and no compact variant exists; "X" is the service's own name, not an
+  abbreviation.
 - Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the primary button) at the left of
   the composer's action row; `Download` takes the rest of the row (`.cmp-btn-slot`), so its morph measures the slot.
   Below 380 px of row width the `Ctrl+Enter` hint hides.
-- Quality (per platform, Settings `quality_instagram` / `quality_youtube`): a spec row (`#cmp-spec`, 34 px) directly
+- Quality (per platform, Settings `quality_instagram` / `quality_youtube` / `quality_tiktok` / `quality_twitter`): a spec row (`#cmp-spec`, 34 px) directly
   above the action row: caption "QUALITY", a compact `Segmented` (`seg-q` variant, 28 px options) and a hint line at
   the right. With the format toggle and `Download` below it, it reads as "what you get" right before the press. Not in
   the composer header: the counters live there and can show four pills (ready, invalid, duplicates, other), which
   would collide with a three-option control at the 940 px minimum (composer content 332 px wide). At 940 x 640 the row
   fits the longest hint ("Best, up to 4K") in full; below 290 px of row width the hint hides (the option tooltips carry
-  the same text). One `Segmented` per platform, only the current mode's one visible: each keeps its own value, and a
+  the same text). One `Segmented` per platform (four), only the current mode's one visible: each keeps its own value, and a
   mode switch swaps options and value with a small transform-only settle (no opacity: the droplet is a lens). Saved
   through `js/mode.js` like the format (optimistic, reverted with a toast when refused, stale echoes ignored). In MP3
   the control stays in place, dimmed (`.seg.is-disabled`: opacity 0.42, out of the tab order, no pointer), with the
@@ -253,6 +264,11 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
   |---|---|---|---|
   | Instagram | `low`: Low, `medium`: Medium, `max`: Max | "≤ 480p", "≤ 720p", "Best" | "Low: up to 480p, the smallest files", "Medium: up to 720p", "Max: the best the Reel has" |
   | YouTube | `360`: 360p, `720`: 720p, `max`: Max | "≤ 360p", "≤ 720p", "Best, up to 4K" | "360p: up to 360p, the smallest files", "720p: up to 720p", "Max: the best the video has, up to 4K", plus, while H.264 for editing is on, ". With H.264 for editing on, 1440p and 4K are converted to H.264, which takes minutes" |
+  | TikTok | `low`: Low, `medium`: Medium, `max`: Max | "≤ 480p", "≤ 720p", "Best" | "Low: up to 480p, the smallest files", "Medium: up to 720p", "Max: the best the video has, up to 1080p" |
+  | X | `low`: Low, `medium`: Medium, `max`: Max | "≤ 480p", "≤ 720p", "Best" | "Low: up to 480p, the smallest files", "Medium: up to 720p", "Max: the best the post has, up to 1080p" |
+
+  The H.264 note is YouTube-only (TikTok HEVC sources are converted by the same "H.264 for editing" pass, but at
+  1080p at most it takes seconds, so the tooltip does not warn).
 - Queue header row (`#q-head`, a capsule lens): title "Queue" and the counts of the mode on the left; on the right
   the ghost button "Clear finished" and the downloads folder split button (`#folder-split`): the main half "Open
   folder" (`open_output_dir()`, `title` = the current `output_dir`) and a 28 px chevron half ("Downloads folder
@@ -317,15 +333,17 @@ labels), `-` / `*` / `+` bullets with continuation lines, blank-line paragraphs,
 `[text](https://...)` links opened through `open_url`. Nothing else is interpreted.
 
 Keyboard: Ctrl+Enter downloads, Ctrl+V anywhere pastes into the capsule, Esc closes the top overlay, arrows move the
-segmented selection (mode, format, quality, settings) and the per-item format toggle, Alt+1 / Alt+2 switch modes, visible `:focus-visible` rings
+segmented selection (mode, format, quality, settings) and the per-item format toggle, Alt+1..Alt+4 switch modes (Instagram, YouTube, TikTok, X), visible `:focus-visible` rings
 everywhere.
 
 ## 7. Runtime notes
 
 - Served by the shell from `http://127.0.0.1:<port>/` (ES modules do not load from `file://`). Dev preview:
   `python -m http.server 5173 --bind 127.0.0.1 --directory ui`, open `/?mock=1`. Mock URL flags (header of
-  `js/mock-api.js`): `demo=1` (every state on both platforms, MP3 jobs, queued jobs with pending previews),
-  `jobs=N` (N finished jobs, every third YouTube), `mode=youtube`, `format=mp3`, `update=available|uptodate|error`
+  `js/mock-api.js`): `demo=1` (every state on every platform, MP3 jobs, queued jobs with pending previews; TikTok: one
+  done job that took the H.264 pass and one queued short link; X: one done job and one `extractor` error "X changed
+  something and the video could not be read. Try again later.", `can_login` false), `jobs=N` (N finished jobs spread
+  over Instagram, YouTube, TikTok, X in turn), `mode=youtube|tiktok|twitter`, `format=mp3`, `update=available|uptodate|error`
   (launch check result; `error` fails the first check and finds 2.1.0 on "Try again"), `autoinstall=1` (starts with
   "Install updates automatically" on), `hold=1` (queued jobs never
   start: previews and format toggles stay inspectable), `clip=0`, `fast=1`, `offline=1`.
@@ -336,14 +354,20 @@ everywhere.
 - Drag region: `.tb-drag` and the app name carry `pywebview-drag-region`; buttons are siblings, not children, because
   pywebview also drags from descendants of a drag element. Double-click on the drag area toggles maximize.
 - Every lens owns one `<filter>` element; destroy lenses (`lens.destroy()`) when removing their element (toasts do).
-- `mode`, `format`, `quality_instagram` and `quality_youtube` are written by `js/mode.js` only; while its own
+- `mode`, `format` and `quality_<platform>` (instagram, youtube, tiktok, twitter) are written by `js/mode.js` only; while its own
   `set_settings` is in flight it ignores the `settings` echo for that key, so fast toggling never flips back.
   `js/settings.js` applies the same guard to its own controls (switches, segmented controls, the stepper, the
   browser select): while a save of a key is in flight, neither its answer nor a `settings` event moves that control;
   the answer of the last save sets it. The mock
   validates the quality values and picks the simulated resolution from the job's platform setting at start (Instagram
   480 / 720 / 1080; YouTube 360 / 720 / Max = 2160p for videos, which then always takes the H.264 pass while it is on,
-  1080p for Shorts).
+  1080p for Shorts; TikTok 480 / 720 / 1080 vertical, HEVC source, so the H.264 pass runs while it is on; X 480 / 720 /
+  1080 landscape, AVC source, no pass). The mock cleans TikTok and X links by the canonical forms of BRIDGE_API
+  (CleanResult): TikTok `/@user/video/<id>` (kind `video`), `vm.` / `vt.tiktok.com/<code>` and `tiktok.com/t/<code>`
+  (kind `share`, host kept); X `/<user>/status/<id>`, `/i/status/<id>`, `/i/web/status/<id>` (kind `post`); profiles,
+  photo posts, other paths and `t.co` links are `unsupported_path`. Stage texts of TikTok and X jobs are the core's:
+  "Fetching info", "Downloading video", "Downloading audio", "Merging tracks", "Converting to H.264", "Converting to
+  MP3", "Done".
 - A job without `platform` counts as Instagram, and a job without `previewed` counts as previewed (older payloads
   never show an endless skeleton).
 
@@ -351,19 +375,22 @@ everywhere.
 
 - The UI is English only (US). Buttons, labels and titles use sentence case: "Download", "Paste", "Clean links",
   "Copy clean links", "Sign in to Instagram", "Clear finished", "Open folder", "Change folder…", "Update now", "Check for updates",
-  "Restart to update", "Try again". Platform and format names keep their own case: Instagram, YouTube, Reels, Shorts,
-  MP4, MP3, H.264, FFmpeg.
+  "Restart to update", "Try again". Platform and format names keep their own case: Instagram, YouTube, TikTok, X,
+  Reels, Shorts, MP4, MP3, H.264, FFmpeg.
 - Plurals go through `plural(n, [singular, plural])` in `js/format.js` ("1 link" / "2 links"); never hard-code a
   form. Item nouns go through `itemNoun(n, platform)` / `nItems(n, platform, format)`: Instagram "Reel" / "Reels",
-  YouTube "video" / "videos", and " as MP3" appended for MP3 ("Queued 3 Reels", "Queued 2 videos as MP3").
+  YouTube, TikTok and X "video" / "videos", and " as MP3" appended for MP3 ("Queued 3 Reels", "Queued 2 videos as
+  MP3").
 - Formats are en-US: decimal point, units B / KB / MB / GB and MB/s, "fps", relative time "just now", "5 min ago",
   "2 h ago", "yesterday", dates like "Oct 20" / "Oct 18, 2026". No `ru` / `ru-RU` locale arguments anywhere.
 - Strings the core emits (stage text, error messages, UpdateStatus.message) are shown as received; the mock mirrors
   them: "Queued", "Fetching info", "Downloading video", "Downloading audio", "Merging tracks", "Converting to H.264",
-  "Converting to MP3", "Already downloaded", "Done". A YouTube `login_required` message comes from the core; the UI
-  adds no sign-in button for YouTube jobs.
-- The product name is "Media Saver" everywhere (title bar, update panel, toasts, About). Only "Instagram" and
-  "YouTube" name the services; do not abbreviate them. No Instagram or YouTube logos or marks.
+  "Converting to MP3", "Already downloaded", "Done". A YouTube, TikTok or X `login_required` message comes from the
+  core; the UI adds no sign-in button for those jobs (`can_login` is only ever true for Instagram).
+- The product name is "Media Saver" everywhere (title bar, update panel, toasts, About). Only "Instagram",
+  "YouTube", "TikTok" and "X" name the services; do not abbreviate them. "X" is the only name of the fourth service in
+  UI copy, never "Twitter" (the id `twitter` stays in code, Settings keys and URLs only). An article before "X" or
+  "Instagram" is "an" ("This is an X link"). No logos or marks of any platform.
 - Mode-aware strings (the current mode decides; `composer.js` COPY, `queue.js` EMPTY_COPY):
 
   | Place | Instagram | YouTube |
@@ -381,10 +408,33 @@ everywhere.
   | Settings | "Instagram" group shown | "Instagram" group hidden |
   | Quality control | Low / Medium / Max, hints "≤ 480p" / "≤ 720p" / "Best" | 360p / 720p / Max, hints "≤ 360p" / "≤ 720p" / "Best, up to 4K" |
   | Empty queue text | "... as MP4 or MP3, in the quality you pick above Download." | the same |
-  | Clipboard pill | "N links on the clipboard" + "Add" | the same; links of the other platform only: "N Instagram links on the clipboard" + "Add to Instagram" |
+  | Clipboard pill | "N links on the clipboard" + "Add" | the same; links of another platform only: "N Instagram links on the clipboard" + "Add to Instagram" |
 
-- Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels and
-  YouTube videos as MP4 or MP3"; switch "Install updates automatically" (hint "Download a new version in the background and restart when the queue is
+  | Place | TikTok | X |
+  |---|---|---|
+  | Input placeholder | "Paste TikTok video links, full or short, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window." | "Paste links to X posts with a video, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window." |
+  | Preview hint | "... just `tiktok.com/@user/video/id` or `vm.tiktok.com/code`, no tails like `?is_from_webapp=`" | "... just `x.com/user/status/id`, no tails like `?s=20&t=`" |
+  | Ready button | "Download video" / "Download 3 videos" | the same |
+  | Ready button, MP3 | "Download as MP3" / "Download 3 as MP3" | the same |
+  | Progress (one job) | "Downloading video" | the same |
+  | Nothing pasted | "Paste TikTok links. Ctrl+V works anywhere in the window" | "Paste X links. Ctrl+V works anywhere in the window" |
+  | No usable link | "No TikTok video links found here" | "No X post links found here" |
+  | Chip notes | "not a video" (photo post, profile, other path), "no video ID", "not supported" | "not a post" (profile, other path, `t.co` link), "no post ID", "not supported" |
+  | Empty queue | "No TikTok videos yet" + "Paste TikTok video links on the left, full or short, or just press Ctrl+V anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download." | "No X videos yet" + "Paste links to X posts with a video on the left, or just press Ctrl+V anywhere in the window. Media Saver cleans them and saves the videos as MP4 or MP3, in the quality you pick above Download." |
+  | Error row | the core's message and "Log" only | the same |
+  | Settings | "Instagram" group hidden | the same |
+  | Quality control | Low / Medium / Max, hints "≤ 480p" / "≤ 720p" / "Best" | the same |
+  | Clipboard pill | "N links on the clipboard" + "Add"; links of another platform only: "N TikTok links on the clipboard" + "Add to TikTok" | the same with "X" |
+
+  Shared by all four modes: the chip note of a link of another platform is "<Platform> link"; its chip action is
+  "Switch to <Platform>", where <Platform> is that chip's own platform. The counter row shows one pill per other
+  platform present ("2 YouTube", "1 X"; the row wraps to a second line when ready, invalid, duplicates and two or more
+  such pills meet in the 332 px composer at the 940 px minimum). `Download` with only links of other platforms shakes
+  and toasts "This is a TikTok link" / "These are TikTok links" / "These are TikTok and X links" with the action
+  "Switch to <the platform with the most links>". Valid chips note the cut: "−1 char", "−17 chars".
+
+- Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
+  TikTok and X videos as MP4 or MP3"; switch "Install updates automatically" (hint "Download a new version in the background and restart when the queue is
   idle"; the launch check itself always runs, so there is no switch for it); toast before an automatic restart
   "Installing Media Saver X.Y.Z, the app restarts"; panel caption "Installs automatically".
 - The runtime data folder is `media-saver_data\` (never `data\`) wherever copy or mock paths name it (mock log paths:

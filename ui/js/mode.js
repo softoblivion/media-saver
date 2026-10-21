@@ -1,26 +1,35 @@
 // The global choices of the main window, all stored in Settings: the mode (platform shown:
-// "instagram" | "youtube"), the default format of new jobs ("mp4" | "mp3") and the video quality of
-// each platform (`quality_instagram`, `quality_youtube`). This module keeps the current values,
+// "instagram" | "youtube" | "tiktok" | "twitter"), the default format of new jobs ("mp4" | "mp3")
+// and the video quality of each platform (`quality_<platform>`). This module keeps the current values,
 // applies a change locally at once (so the UI re-renders without waiting for the backend), persists
 // it through set_settings and reverts it when the backend refuses.
 
 import { call, on } from './api.js';
 import { toast } from './toast.js';
 
-export const PLATFORMS = ['instagram', 'youtube'];
+/** Platform ids in the order of the mode switch (Alt+1..Alt+4). The id `twitter` is shown as "X". */
+export const PLATFORMS = ['instagram', 'youtube', 'tiktok', 'twitter'];
 export const FORMATS = ['mp4', 'mp3'];
-export const PLATFORM_NAME = { instagram: 'Instagram', youtube: 'YouTube' };
+export const PLATFORM_NAME = { instagram: 'Instagram', youtube: 'YouTube', tiktok: 'TikTok', twitter: 'X' };
 /** Allowed quality values per platform (docs/BRIDGE_API.md, Settings). */
-export const QUALITIES = { instagram: ['low', 'medium', 'max'], youtube: ['360', '720', 'max'] };
-export const QUALITY_KEY = { instagram: 'quality_instagram', youtube: 'quality_youtube' };
+export const QUALITIES = {
+  instagram: ['low', 'medium', 'max'],
+  youtube: ['360', '720', 'max'],
+  tiktok: ['low', 'medium', 'max'],
+  twitter: ['low', 'medium', 'max'],
+};
+export const QUALITY_KEY = Object.fromEntries(PLATFORMS.map((p) => [p, `quality_${p}`]));
 
 const VALID = {
   mode: (v) => PLATFORMS.includes(v),
   format: (v) => FORMATS.includes(v),
-  quality_instagram: (v) => QUALITIES.instagram.includes(v),
-  quality_youtube: (v) => QUALITIES.youtube.includes(v),
+  ...Object.fromEntries(PLATFORMS.map((p) => [QUALITY_KEY[p], (v) => QUALITIES[p].includes(v)])),
 };
-const DEFAULTS = { mode: 'instagram', format: 'mp4', quality_instagram: 'max', quality_youtube: 'max' };
+const DEFAULTS = {
+  mode: 'instagram',
+  format: 'mp4',
+  ...Object.fromEntries(PLATFORMS.map((p) => [QUALITY_KEY[p], 'max'])),
+};
 // Keys mirrored on <html> as data attributes (CSS hooks).
 const DATASET = new Set(['mode', 'format']);
 
@@ -32,9 +41,8 @@ export const getMode = () => state.mode;
 export const getFormat = () => state.format;
 /** Quality setting of a platform (default: the current mode). */
 export const getQuality = (platform = state.mode) => state[QUALITY_KEY[platform]];
-export const otherPlatform = (p) => (p === 'youtube' ? 'instagram' : 'youtube');
 
-/** Subscribe to changes of "mode", "format", "quality_instagram" or "quality_youtube". Returns an unsubscribe function. */
+/** Subscribe to changes of "mode", "format" or a "quality_<platform>" key. Returns an unsubscribe function. */
 export function onPref(key, fn) {
   subs[key].add(fn);
   return () => subs[key].delete(fn);
