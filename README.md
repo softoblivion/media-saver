@@ -2,9 +2,9 @@
 
 <img src="ui/assets/icon.svg" alt="" width="96" height="96">
 
-# Media Saver
+# Media Saver: free open-source YouTube and Instagram downloader for Windows
 
-**Instagram Reels and YouTube videos or Shorts, saved as MP4 or MP3, from one portable Windows app.**
+**Saves YouTube videos and Shorts and Instagram Reels as MP4 (up to 4K) or MP3. Batch links, previews, one portable exe, no license key, no download limits. The download engine (yt-dlp) and the app update themselves. A free alternative to 4K Video Downloader and similar paid tools.**
 
 [![Download](https://img.shields.io/badge/Download-MediaSaver.exe-5d8dff?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe)
 [![Release](https://img.shields.io/github/v/release/softoblivion/media-saver?display_name=release&label=latest&style=for-the-badge)](https://github.com/softoblivion/media-saver/releases/latest)
@@ -38,6 +38,7 @@
 - [Updates](#updates)
 - [FAQ](#faq)
 - [Building from source](#building-from-source)
+- [Roadmap](#roadmap)
 - [Project structure](#project-structure)
 - [Third-party components](#third-party-components)
 - [Disclaimer](#disclaimer)
@@ -45,6 +46,7 @@
 
 ## Why Media Saver
 
+- **Free and open source.** GPL-3.0, no trial, no per-day download cap, no paid tier. The source is here; build it yourself if you prefer.
 - **Best quality, no guesswork.** Every format the site offers is compared by resolution, frame rate and bitrate; video and audio are merged into one MP4, or the best audio track becomes an MP3.
 - **Links in, files out.** Messages, lists, glued-together URLs, Markdown, `.txt` files: everything is extracted, cleaned to canonical links and de-duplicated before it hits the queue.
 - **Keeps working when the sites change.** `yt-dlp`, `gallery-dl`, FFmpeg and the Deno runtime refresh themselves on every launch; the app itself updates from GitHub Releases after a size and SHA-256 check.
@@ -254,6 +256,10 @@ places a desktop shortcut.
 Architecture, the JS ↔ Python contract, engine details, self-update and build notes:
 [ARCHITECTURE](docs/ARCHITECTURE.md) · [BRIDGE_API](docs/BRIDGE_API.md) · [ENGINE](docs/ENGINE.md) ·
 [SELF_UPDATE](docs/SELF_UPDATE.md) · [UI_DESIGN](docs/UI_DESIGN.md) · [BUILD](docs/BUILD.md)
+
+## Roadmap
+
+Planned work is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md). Next up: TikTok and X (Twitter) video support.
 
 ## Project structure
 
