@@ -147,7 +147,7 @@ in chat for that repository, then the pre-publish checklist of the workspace is 
 
    ```powershell
    gh release create vX.Y.Z release\MediaSaver.exe release\SHA256SUMS --target dev `
-       --title "Media Saver vX.Y.Z" --notes-file docs\releases\vX.Y.Z.md
+       --title "vX.Y.Z" --notes-file docs\releases\vX.Y.Z.md
    ```
 
    Not a draft and not a prerelease (`/releases/latest` ignores both). The two asset names must stay exactly
