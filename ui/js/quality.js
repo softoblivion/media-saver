@@ -6,8 +6,8 @@
 // dimmed and disabled, so the layout does not jump.
 
 import { on } from './api.js';
-import { Segmented } from './controls.js';
-import { SPRINGS, springAnimate, reducedMotion } from './motion.js';
+import { Segmented } from '../vendor/liquid_ui/js/controls.js';
+import { SPRINGS, springAnimate, reducedMotion } from '../vendor/liquid_ui/js/motion.js';
 import { getMode, getFormat, getQuality, setQuality, onPref, PLATFORMS, PLATFORM_NAME, QUALITY_KEY } from './mode.js';
 
 const MP4_ONLY = 'MP4 only';
@@ -78,7 +78,8 @@ export function initQuality(settings) {
 }
 
 function renderTitles() {
-  segs.youtube.setOptionTitle('max', h264 ? YT_MAX_H264 : OPTIONS.youtube[2].title);
+  // The kit's Segmented sets an option's tooltip through setOptionDisabled (kept enabled here).
+  segs.youtube.setOptionDisabled('max', false, h264 ? YT_MAX_H264 : OPTIONS.youtube[2].title);
   renderHint();
 }
 

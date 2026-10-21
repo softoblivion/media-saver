@@ -63,6 +63,49 @@ class EngineTest(unittest.TestCase):
             self.engine.set_settings({"update_check_interval": "5m"})
         self.assertEqual(self.engine.update_scheduler.interval_key, "1d")
 
+    def _stub_updater(self, stage="available"):
+        """Replace the self-updater's status / download with a stub; returns (calls, state)."""
+        calls, state = [], {"stage": stage}
+        self.engine.selfupdate.status = lambda: {"stage": state["stage"], "latest": "9.10.0"}
+
+        def download_background():
+            calls.append(1)
+            state["stage"] = "downloading"
+
+        self.engine.selfupdate.download_background = download_background
+        return calls, state
+
+    def _wait(self, predicate, timeout=2.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline and not predicate():
+            time.sleep(0.02)
+        return predicate()
+
+    def test_update_status_is_the_self_updater_status(self):
+        self._stub_updater("up_to_date")
+        self.assertEqual(self.engine.update_status()["stage"], "up_to_date")
+
+    def test_found_version_downloads_once_in_the_background(self):
+        self.assertTrue(self.engine.get_settings()["auto_download_updates"])
+        calls, state = self._stub_updater()
+        self.engine._on_update_status({"stage": "available", "latest": "9.10.0"})
+        self.assertTrue(self._wait(lambda: len(calls) == 1))
+        # the same version found again (a later check, or after a failed download): no second download
+        state["stage"] = "available"
+        self.engine._on_update_status({"stage": "available", "latest": "9.10.0"})
+        time.sleep(0.3)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual([t for t, _ in self.events].count("update"), 2)
+
+    def test_no_background_download_while_off_and_one_when_turned_on(self):
+        self.engine.set_settings({"auto_download_updates": False})
+        calls, _ = self._stub_updater()
+        self.engine._on_update_status({"stage": "available", "latest": "9.10.0"})
+        time.sleep(0.3)
+        self.assertEqual(calls, [])
+        self.engine.set_settings({"auto_download_updates": True})
+        self.assertTrue(self._wait(lambda: len(calls) == 1))
+
     def test_paths_from_env(self):
         self.assertEqual(self.engine.paths.root, os.path.join(self.tmp, "home"))
 

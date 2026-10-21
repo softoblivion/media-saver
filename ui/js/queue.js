@@ -6,14 +6,21 @@
 // are shown (the others carry [hidden]), so switching modes re-renders instantly without a refetch.
 
 import { call, on } from './api.js';
-import { Lens, gel } from './glass.js';
-import { SPRINGS, springAnimate, springEasing, whenDone, reducedMotion } from './motion.js';
+import { Lens, gel } from '../vendor/liquid_ui/js/glass.js';
+import { SPRINGS, springAnimate, springEasing, whenDone, reducedMotion } from '../vendor/liquid_ui/js/motion.js';
 import { icon, kindGlyph } from './icons.js';
 import { bytes, speed, eta, duration, codec, escapeHtml, timeAgo, shortLink } from './format.js';
-import { toast } from './toast.js';
-import { setGhosts, activity } from './background.js';
-import { formatToggleHtml } from './controls.js';
+import { toast } from '../vendor/liquid_ui/js/toast.js';
+import { setGhosts, activity } from './scene.js';
 import { getMode, onPref } from './mode.js';
+
+// Format toggle of a queued card (MP4 / MP3). Plain markup with a CSS thumb: a queue may hold
+// hundreds of cards, so it has no lens and no springs; clicks on [data-act="fmt"] are delegated.
+function formatToggleHtml(value) {
+  const opt = (v, label) =>
+    `<button type="button" role="radio" data-act="fmt" data-v="${v}" aria-checked="${value === v}" tabindex="${value === v ? 0 : -1}">${label}</button>`;
+  return `<span class="fmt-toggle" role="radiogroup" aria-label="Format" data-v="${value}"><i class="fmt-thumb" aria-hidden="true"></i>${opt('mp4', 'MP4')}${opt('mp3', 'MP3')}</span>`;
+}
 
 const ACTIVE = new Set(['queued', 'probing', 'downloading', 'processing']);
 // Thumbnail box shape: YouTube videos and X posts are wide, Reels, Shorts and TikTok tall. X posts

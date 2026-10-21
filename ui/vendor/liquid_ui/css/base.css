@@ -1,0 +1,265 @@
+/* Reset, document, shared primitives: buttons, icon buttons, focus, kbd, scrollbars, spinner. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-top);
+}
+
+body {
+  font: var(--t-body);
+  letter-spacing: var(--tr-body);
+  font-optical-sizing: auto;
+  font-kerning: normal;
+  color: var(--ink-1);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  user-select: none;
+  cursor: default;
+  font-synthesis: none;
+}
+
+/* The `font` shorthand of the type roles resets font-feature-settings, so the features travel as
+   the inherited custom property --ff-feat and this one rule applies them everywhere. */
+:root {
+  --ff-feat: var(--ff-text);
+}
+
+*,
+*::before,
+*::after {
+  font-feature-settings: var(--ff-feat) !important;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+h1, h2, h3, h4, p {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+img, svg {
+  display: block;
+}
+
+code,
+.mono {
+  font-family: var(--font-mono);
+  --ff-feat: var(--ff-mono);
+  letter-spacing: 0;
+}
+
+kbd {
+  display: inline-block;
+  font: var(--t-micro);
+  letter-spacing: var(--tr-micro);
+  line-height: 1.6;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.22), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  color: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(140, 180, 255, 0.95);
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.26);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.ic {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Buttons */
+
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--fill-2);
+  color: var(--ink-1);
+  font: var(--t-control);
+  letter-spacing: var(--tr-control);
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 0.5px var(--stroke-2), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  transition: background-color var(--t-fast) ease, opacity var(--t-med) ease, filter var(--t-fast) ease, color var(--t-fast) ease;
+  text-shadow: none;
+}
+
+.btn .ic {
+  width: 16px;
+  height: 16px;
+}
+
+.btn:hover {
+  background: var(--fill-3);
+}
+
+.btn:disabled {
+  opacity: 0.36;
+  cursor: default;
+  pointer-events: none;
+}
+
+.btn-s {
+  height: 30px;
+  padding: 0 12px;
+  font: var(--t-control-s);
+  letter-spacing: var(--tr-control);
+}
+
+.btn-s .ic {
+  width: 15px;
+  height: 15px;
+}
+
+.btn-xs {
+  height: 26px;
+  padding: 0 10px;
+  gap: 5px;
+  font: var(--t-control-xs);
+  letter-spacing: var(--tr-control);
+}
+
+.btn-xs .ic {
+  width: 14px;
+  height: 14px;
+}
+
+.btn-ghost {
+  background: transparent;
+  box-shadow: none;
+}
+
+.btn-ghost:hover {
+  background: var(--fill-2);
+}
+
+.btn-tinted {
+  background: var(--accent-grad);
+  box-shadow: 0 8px 20px -8px rgba(80, 120, 255, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.2);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+}
+
+.btn-tinted:hover {
+  background: var(--accent-grad);
+  filter: brightness(1.1);
+}
+
+.btn-danger {
+  color: var(--rose-ink);
+}
+
+.btn-danger:hover {
+  background: rgba(255, 100, 130, 0.16);
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+}
+
+.icon-btn .ic {
+  width: 17px;
+  height: 17px;
+}
+
+.icon-btn:hover {
+  background: var(--fill-3);
+  color: var(--ink-1);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.26);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { rotate: 360deg; }
+}
+
+@keyframes sheen {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(220%); }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

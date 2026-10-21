@@ -1,0 +1,155 @@
+/* Liquid UI design tokens: fonts, type roles, inks, fills, identity colours, tints, radii,
+   spacing, shadows, CSS transitions, layout. The single source of these values
+   (docs/LIQUID_UI.md, section 3). An app overrides identity tokens in its own :root rule, loaded
+   after this file; it never edits a vendored copy. */
+
+/* ---- Text face ------------------------------------------------------------------------------
+   The ONE place that names the text font: this @font-face block, --font-text and its features
+   --ff-text below. Swapping the face = replace the woff2 in ../fonts (with its licence), edit the
+   src / family here and the two tokens; nothing else in the kit or an app names the file. */
+@font-face {
+  font-family: "InterVariable";
+  src: url("../fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+/* ---- Mono face ------------------------------------------------------------------------------ */
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+/* Global light angle of every specular rim (written by js/glass.js initLight()). */
+@property --la {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: -48deg;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Type ---------------------------------------------------------------------------- */
+  --font-text: "InterVariable", system-ui, sans-serif;
+  /* cv05 = lowercase l with a tail, ss03 = round quotes (Inter features; change with the face). */
+  --ff-text: "cv05" 1, "ss03" 1;
+  --font-display: var(--font-text);
+  --font-mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* Mono: no ligatures. */
+  --ff-mono: "liga" 0, "calt" 0;
+
+  --w-body: 450;
+  --w-medium: 520;
+  --w-strong: 580;
+  --w-title: 630;
+  --w-display: 650;
+
+  /* Roles: weight size / line-height family; tracking from Inter's dynamic metrics. */
+  --t-display: var(--w-display) 22px / 1.15 var(--font-display);   /* sheet title */
+  --tr-display: -0.019em;
+  --t-title: var(--w-title) 19px / 1.22 var(--font-display);       /* empty state title */
+  --tr-title: -0.017em;
+  --t-headline: var(--w-title) 15px / 1.3 var(--font-display);      /* popover titles, primary pill */
+  --tr-headline: -0.009em;
+  --t-card: 560 14px / 1.3 var(--font-text);                        /* list item names, setting labels */
+  --tr-card: -0.006em;
+  --t-body: var(--w-body) 13.5px / 1.45 var(--font-text);           /* body, toasts */
+  --tr-body: -0.005em;
+  --t-callout: var(--w-body) 13px / 1.4 var(--font-text);           /* secondary lines, errors */
+  --tr-callout: -0.003em;
+  --t-control: 560 13px / 1 var(--font-text);                       /* buttons, segmented options */
+  --t-control-s: 560 12.5px / 1 var(--font-text);
+  --t-control-xs: 560 12px / 1 var(--font-text);
+  --tr-control: -0.003em;
+  --t-meta: 470 12px / 1.35 var(--font-text);                       /* sizes, ETA, counters (tabular) */
+  --tr-meta: 0em;
+  --t-caption: 520 11.5px / 1.3 var(--font-text);                   /* control captions */
+  --tr-caption: 0.003em;
+  --t-micro: 600 10.5px / 1.4 var(--font-text);                     /* chips, tags, kbd */
+  --tr-micro: 0.02em;
+  --t-mono: 450 12.5px / 1.4 var(--font-mono);                      /* paths */
+  --t-mono-s: 450 12px / 1.35 var(--font-mono);                     /* versions, codecs */
+  --t-mono-xs: 500 11px / 1.3 var(--font-mono);                     /* the version pill */
+
+  /* ---- Scene: the base gradient, black at the top to deep navy at the bottom ------------ */
+  --bg-top: #000105;
+  --bg-mid: #040b1d;
+  --bg-bottom: #0a1e3f;
+
+  /* ---- Ink on glass --------------------------------------------------------------------- */
+  --ink-1: rgba(255, 255, 255, 0.96);
+  --ink-2: rgba(255, 255, 255, 0.74);
+  --ink-3: rgba(255, 255, 255, 0.54);
+  --ink-4: rgba(255, 255, 255, 0.36);
+  --ink-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+
+  /* Fills on top of glass (never glass on glass) */
+  --fill-1: rgba(255, 255, 255, 0.05);
+  --fill-2: rgba(255, 255, 255, 0.085);
+  --fill-3: rgba(255, 255, 255, 0.13);
+  --fill-4: rgba(255, 255, 255, 0.2);
+  --well: rgba(2, 6, 18, 0.36);
+  --stroke-1: rgba(255, 255, 255, 0.08);
+  --stroke-2: rgba(255, 255, 255, 0.14);
+
+  /* ---- Identity (default: cobalt to cyan, an ember spark, mint for done) ----------------- */
+  --accent: #4d8dff;
+  --accent-2: #6a66ff;
+  --accent-ink: #b5ccff;
+  --cyan: #46d2ff;
+  --ember: #ff9a5a;
+  --mint: #3fe2c1;
+  --amber: #ffc457;
+  --rose: #ff6482;
+  --rose-ink: #ffc2cd;
+  --accent-grad: linear-gradient(135deg, #36c3ff 0%, #4b86ff 48%, #6e5fff 100%);
+  --accent-grad-a: linear-gradient(135deg, rgba(54, 195, 255, 0.62) 0%, rgba(75, 134, 255, 0.62) 48%, rgba(110, 95, 255, 0.66) 100%);
+  --mint-grad: linear-gradient(135deg, #2fe0c0 0%, #44b8ff 100%);
+  --mint-grad-a: linear-gradient(135deg, rgba(47, 224, 192, 0.62) 0%, rgba(68, 184, 255, 0.6) 100%);
+  --glyph-glow: rgba(70, 130, 255, 0.55);   /* drop shadow of the app glyph in the title bar */
+
+  /* Glass tints */
+  --tint-clear: rgba(255, 255, 255, 0.035);
+  --tint-regular: rgba(16, 24, 50, 0.26);
+  --tint-sheet: rgba(8, 14, 32, 0.5);
+  --press-tint: rgba(255, 255, 255, 0.075);
+
+  /* Radii: concentric (inner = outer - padding) */
+  --r-6: 6px;
+  --r-10: 10px;
+  --r-14: 14px;
+  --r-18: 18px;
+  --r-22: 22px;
+  --r-28: 28px;
+  --r-34: 34px;
+  --r-pill: 999px;
+
+  /* Spacing (4 pt grid) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+
+  /* Shadows: deeper under larger surfaces */
+  --shadow-s: 0 4px 14px -4px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-m: 0 14px 34px -10px rgba(0, 0, 0, 0.55), 0 3px 10px -2px rgba(0, 0, 0, 0.3);
+  --shadow-l: 0 30px 70px -20px rgba(0, 0, 0, 0.7), 0 8px 24px -6px rgba(0, 0, 0, 0.4);
+
+  /* CSS-only transitions (springs live in js/motion.js) */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+  --t-fast: 160ms;
+  --t-med: 280ms;
+
+  /* Layout: page gutter and the title bar height (sheets and toasts sit below the title bar) */
+  --gutter: clamp(14px, 3vw, 20px);
+  --titlebar-h: 50px;
+}

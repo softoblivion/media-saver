@@ -13,7 +13,7 @@ logging.getLogger("mediasaver.bridge").setLevel(logging.CRITICAL)  # the error t
 CONTRACT_METHODS = {
     "ready", "clean_links", "enqueue", "set_job_format", "cancel", "retry", "remove", "clear_finished", "open_file",
     "reveal_file", "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings",
-    "update_engine", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
+    "update_engine", "update_status", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
     "read_clipboard", "copy_text", "open_url", "window_minimize", "window_toggle_maximize", "window_close",
 }
 
@@ -118,6 +118,10 @@ class RecordingEngine:
     def update_engine(self):
         self._rec("update_engine")
 
+    def update_status(self):
+        self._rec("update_status")
+        return {"stage": "up_to_date", "current": "1.0.0"}
+
     def check_updates(self):
         self._rec("check_updates")
         return {"stage": "checking", "current": "1.0.0"}
@@ -173,7 +177,7 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(arg_names(bridge.set_job_format), ["self", "id", "format"])
         self.assertEqual(arg_names(bridge.cancel), ["self", "id"])
         self.assertEqual(arg_names(bridge.ready), ["self"])
-        for name in ("check_updates", "download_update", "apply_update"):
+        for name in ("update_status", "check_updates", "download_update", "apply_update"):
             self.assertEqual(arg_names(getattr(bridge, name)), ["self"], name)
 
 
@@ -307,7 +311,8 @@ class AppUpdateTests(unittest.TestCase):
         bridge, engine, *_ = make_bridge()
         self.assertEqual(bridge.check_updates()["stage"], "checking")
         self.assertIsNone(bridge.download_update())
-        self.assertEqual([c[0] for c in engine.calls], ["check_updates", "download_update"])
+        self.assertEqual(bridge.update_status()["stage"], "up_to_date")
+        self.assertEqual([c[0] for c in engine.calls], ["check_updates", "download_update", "update_status"])
 
     def test_apply_update_rejects_when_the_engine_refuses(self):
         bridge, engine, window, pump, closed = make_bridge()

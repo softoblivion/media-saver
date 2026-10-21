@@ -93,8 +93,9 @@ After a finished update the next launch shows the toast "Media Saver updated to 
   straight to `ready`.
 - When: on every launch (`Engine.start`; only the headless CLI and tests pass `app_updates=False`), on the "Check
   for updates" button, and on the `update_check_interval` setting while the app runs (`30m` / `1h` / `6h` / `1d` /
-  `1w`, default `30m`; the vendored `UpdateScheduler`, `Engine.update_scheduler`). The background download is the UI's job, setting
-  `auto_download_updates` (default on); the restart is always a click: ARCHITECTURE.md 5.7, items 5-6.
+  `1w`, default `30m`; the vendored `UpdateScheduler`, `Engine.update_scheduler`). The background download is the engine's job
+  (`Engine._maybe_auto_download`), setting `auto_download_updates` (default on); the page only shows the status;
+  the restart is always a click: ARCHITECTURE.md 5.7, items 5-6.
 - Download: `SHA256SUMS` first (nothing is downloaded without a checksum), then the exe to
   `updates\MediaSaver-<v>.exe.part`; size and SHA-256 verified, then renamed.
 - Apply: `updates\applied.json` is written, `updates\MediaSaver-<v>.exe --apply-update <pid> <MediaSaver.exe>`

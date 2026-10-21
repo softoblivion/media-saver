@@ -1,5 +1,11 @@
-// Original line icons (24 x 24 grid, 1.8 px stroke, round caps), drawn for this app.
-// Usage: icon('gear') returns an inline SVG string.
+// Media Saver's line icons (24 x 24 grid, 1.8 px stroke, round caps), registered into the kit's icon
+// set (vendor/liquid_ui/js/icons.js), so app modules and kit components draw from one registry.
+// Usage: icon('gear') returns an inline SVG string. Same names as the kit's replace its drawings
+// (e.g. `app`: Media Saver's droplet in the update popover).
+
+import { icon, registerIcons } from '../vendor/liquid_ui/js/icons.js';
+
+export { icon };
 
 const P = {
   gear: '<path d="M12 8.6a3.4 3.4 0 1 0 0 6.8 3.4 3.4 0 0 0 0-6.8Z"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l1.8-1.4-1.8-3.1-2.2.8a7.5 7.5 0 0 0-2.6-1.5L14.2 3h-3.6l-.4 2.3a7.5 7.5 0 0 0-2.6 1.5l-2.2-.8-1.8 3.1 1.8 1.4a7.6 7.6 0 0 0 0 3l-1.8 1.4 1.8 3.1 2.2-.8a7.5 7.5 0 0 0 2.6 1.5l.4 2.3h3.6l.4-2.3a7.5 7.5 0 0 0 2.6-1.5l2.2.8 1.8-3.1Z"/>',
@@ -44,11 +50,7 @@ const P = {
   app: '<path d="M12 3.5S6 10 6 14a6 6 0 0 0 12 0c0-4-6-10.5-6-10.5Z"/><path d="M12 10.5v6M9.5 14.5 12 17l2.5-2.5"/>',
 };
 
-export function icon(name, cls = '') {
-  const body = P[name] || P.info;
-  const fill = name === 'play' ? ' fill="currentColor"' : ' fill="none"';
-  return `<svg class="ic ${cls}" viewBox="0 0 24 24"${fill} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-}
+registerIcons(P, { filled: ['play'] });
 
 // Kind glyph per platform: by platform first, because the kind `video` exists on YouTube (landscape)
 // and TikTok (vertical). Original line glyphs only; no platform logos or marks.

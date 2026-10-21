@@ -301,7 +301,24 @@ class QualitySettingsTests(FakeBase):
 
 
 class AppUpdateTests(FakeBase):
+    def test_found_version_downloads_by_itself_while_auto_download_is_on(self):
+        self.assertTrue(self.engine.get_settings()["auto_download_updates"])
+        self.engine.check_updates()
+        self.assertTrue(self.wait_for(lambda: self.engine.update_status()["stage"] == "ready", 10))
+        self.assertEqual([u["stage"] for u in self.update_events()].count("checking"), 1)
+        self.assertTrue(self.engine.apply_update())
+
+    def test_turning_auto_download_on_downloads_a_found_version(self):
+        self.engine.set_settings({"auto_download_updates": False})
+        self.engine.check_updates()
+        self.assertTrue(self.wait_for(lambda: self.engine.update_status()["stage"] == "available"))
+        time.sleep(0.3)
+        self.assertEqual(self.engine.update_status()["stage"], "available")
+        self.engine.set_settings({"auto_download_updates": True})
+        self.assertTrue(self.wait_for(lambda: self.engine.update_status()["stage"] == "ready", 10))
+
     def test_check_then_download_then_apply(self):
+        self.engine.set_settings({"auto_download_updates": False})
         status = self.engine.check_updates()
         self.assertEqual(status["stage"], "checking")
         self.assertTrue(self.wait_for(lambda: self.engine.get_state()["update"]["stage"] == "available"))
@@ -321,6 +338,7 @@ class AppUpdateTests(FakeBase):
         self.assertTrue(self.engine.apply_update())
 
     def test_second_check_while_running_is_ignored(self):
+        self.engine.set_settings({"auto_download_updates": False})
         self.engine.check_updates()
         self.engine.check_updates()
         self.assertTrue(self.wait_for(lambda: self.engine.get_state()["update"]["stage"] == "available"))
@@ -334,6 +352,7 @@ class AppUpdateTests(FakeBase):
         self.assertFalse(self.engine.apply_update())
 
     def test_error_mode_and_retry(self):
+        self.engine.set_settings({"auto_download_updates": False})
         with mock.patch.dict(os.environ, {"MEDIA_SAVER_FAKE_UPDATE": "error"}):
             self.engine.check_updates()
             self.assertTrue(self.wait_for(lambda: self.engine.get_state()["update"]["stage"] == "error"))

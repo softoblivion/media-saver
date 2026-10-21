@@ -22,7 +22,7 @@ A Windows desktop app, shipped as one portable `MediaSaver.exe`, that:
 | Layer | Choice | Why |
 |---|---|---|
 | Window / UI host | pywebview 6 with the `edgechromium` backend (WebView2) | Chromium is the only engine where `backdrop-filter: url(#svg-filter)` works, which real refraction on the web needs. Flutter `liquid_glass_renderer` does not support Windows; WinUI has acrylic only. |
-| UI | Plain HTML / CSS / JS (ES modules), no third-party libraries, no build step, no network at runtime; fonts embedded in `ui/assets/fonts` | Fast iteration, works offline, nothing to compile. |
+| UI | Plain HTML / CSS / JS (ES modules), no third-party libraries, no build step, no network at runtime; the shared Liquid UI design kit vendored in `ui/vendor/liquid_ui` (material, controls, overlays, toasts, scene, update control, embedded fonts) | Fast iteration, works offline, nothing to compile; one design shared with the other desktop apps. |
 | Backend | Python 3.14 | pywebview, pythonnet and PyInstaller support it; the stdlib covers HTTP, zip and subprocess control. |
 | Download engine | Standalone `yt-dlp.exe` (nightly channel by default) run as a subprocess; fallback `gallery-dl.exe` (Instagram only) | Standalone builds carry their own Python and dependencies (incl. curl_cffi) and self-update, so the app never depends on its frozen Python being new enough. |
 | Muxing / transcoding | `ffmpeg.exe` + `ffprobe.exe`: system PATH copy if present, otherwise downloaded once from yt-dlp/FFmpeg-Builds into `data\bin` | Merges DASH video + audio, runs the H.264 compatibility pass, encodes MP3. |
@@ -59,7 +59,9 @@ media-saver/
   app/core/cli.py            headless harness: python -m app.core.cli <links>
   app/vendor/selfupdate/     vendored self-update package (check, download, verify, apply mode; shared HTTP and
                              file helpers); a synced copy, never edited here; VENDORED.txt names its version
-  ui/                        index.html, css/, js/ (incl. js/mock-api.js), assets/ (icon, fonts)
+  ui/                        index.html, css/ (theme, parts, app), js/ (incl. js/mock-api.js), assets/ (icon, sound)
+  ui/vendor/liquid_ui/       vendored Liquid UI design kit (tokens, material, controls, overlays, toasts, scene,
+                             update control, fonts); a synced copy, never edited here; VENDORED.txt names its version
   tests/                     unittest suite (test_core_*, test_linkclean, test_bridge_*)
   build/                     entry.py, MediaSaver.spec, build.ps1, make_icon.py, icon.ico
   requirements.txt           runtime dependencies (pywebview, pythonnet)
@@ -79,7 +81,8 @@ Module table (owner = the session that may write there during a task; see `_work
 |---|---|---|---|
 | Core engine (links, queue, formats, preview, engine updater) | `app/core/linkclean.py`, `downloader.py`, `updater.py`, `cli.py`; `tests/test_linkclean.py`, `tests/test_core_*` except settings and engine | `ENGINE.md` | engine worker |
 | Self-update | `app/core/selfupdate.py` (adapter); `app/vendor/selfupdate/` (vendored, replaced only by the sync described in `SELF_UPDATE.md`); `tests/test_core_selfupdate.py`; `build/`; `app/fake_engine.py`; `tests/test_bridge_*` | `SELF_UPDATE.md`, `BUILD.md` | self-update worker |
-| UI | `ui/**` | `UI_DESIGN.md` | ui worker |
+| UI | `ui/**` except `ui/vendor/` | `UI_DESIGN.md` | ui worker |
+| Liquid UI kit (vendored) | `ui/vendor/liquid_ui/` (replaced only by the sync described in `UI_DESIGN.md`, section 0) | `UI_DESIGN.md` | integrator |
 | Shell and contracts | `app/main.py`, `bridge.py`, `login.py`, `winutil.py`, `app/core/engine.py`, `paths.py`, `settings.py`, `auth.py`; `tests/test_core_settings.py`, `tests/test_core_engine.py`; `README.md`, `ARCHITECTURE.md`, `BRIDGE_API.md`, release notes | `ARCHITECTURE.md`, `BRIDGE_API.md` | integrator |
 
 ## 4. Runtime data (portable)
@@ -214,9 +217,11 @@ the configuration values in `docs/SELF_UPDATE.md`):
    10 s while the previous process is still exiting).
 4. Any failure leaves the current exe untouched; the UI shows the message and offers to retry.
 5. `auto_download_updates` (default on; replaces the 2.1.2 `auto_install_updates`, which is ignored when an older
-   settings file has it): when on, the UI calls `download_update()` as soon as a check reports `available`. The
+   settings file has it): when on, the engine (`Engine._maybe_auto_download`) starts the download as soon as a check
+   reports `available`, once per `latest` (a repeated `available` of the same version or an `error` after the
+   automatic download never starts another one; turning the setting on starts it for a version already found). The
    restart is never automatic: a `ready` file raises one sticky toast "Media Saver X.Y.Z is ready" with "Restart",
-   and the version label and the panel keep "Restart to update". When off, nothing is downloaded without the
+   and the version pill and the panel keep "Restart to update". When off, nothing is downloaded without the
    user's click. While the app runs, the engine checks again on the `update_check_interval` setting (`30m`, `1h`,
    `6h`, `1d` or `1w`; default `30m`) through the vendored `UpdateScheduler` (`Engine.update_scheduler`: a daemon
    thread started with the launch check, first periodic check one interval later; a changed setting restarts the
@@ -267,6 +272,7 @@ class Engine:
     def set_settings(self, patch: dict) -> dict: ...     # validates, saves, emits "settings"; returns full settings
     def update_engine(self) -> None: ...                 # forced engine update in background, progress via "engine"
 
+    def update_status(self) -> dict: ...                 # current UpdateStatus (the update popover refreshes on open)
     def check_updates(self) -> dict: ...                 # start the app-update check; UpdateStatus now, progress via "update"
     def download_update(self) -> None: ...               # background download + verify, progress via "update"
     def apply_update(self) -> bool: ...                  # start the new exe in apply mode; True when the app must now exit

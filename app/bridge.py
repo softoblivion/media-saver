@@ -417,6 +417,10 @@ class Bridge:
 
     # -- app self-update
     @_api
+    def update_status(self):
+        return self._engine.update_status()
+
+    @_api
     def check_updates(self):
         return self._engine.check_updates()
 

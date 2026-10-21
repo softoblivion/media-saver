@@ -6,13 +6,13 @@
 // counter pill per platform present ("2 TikTok", "1 X").
 
 import { call, on } from './api.js';
-import { Lens, gel, shake } from './glass.js';
-import { Spring, SPRINGS, clamp, springAnimate, springEasing, whenDone } from './motion.js';
+import { Lens, gel, shake } from '../vendor/liquid_ui/js/glass.js';
+import { Spring, SPRINGS, clamp, springAnimate, springEasing, whenDone } from '../vendor/liquid_ui/js/motion.js';
 import { icon, kindGlyph } from './icons.js';
 import { escapeHtml, nLinks, nItems, plural, itemNoun, speed as fmtSpeed, linkError, shortLink } from './format.js';
-import { toast } from './toast.js';
-import { topOverlay } from './overlay.js';
-import { Segmented } from './controls.js';
+import { toast } from '../vendor/liquid_ui/js/toast.js';
+import { topOverlay } from '../vendor/liquid_ui/js/overlay.js';
+import { Segmented } from '../vendor/liquid_ui/js/controls.js';
 import { getMode, getFormat, setMode, setFormat, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
 
 const MAX_CHIPS = 80;

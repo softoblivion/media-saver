@@ -80,6 +80,7 @@ class Engine:
         self._lock = threading.RLock()
         self._started = False
         self._settings = settingsmod.SettingsStore(self.paths.settings_file)
+        self._auto_download_for: str | None = None   # `latest` the background download was started for
         self._gate = BinaryGate()
         runner = runner or ProcessRunner()
         self.updater = Updater(self.paths, self._settings.get, self._on_engine_status, gate=self._gate,
@@ -109,6 +110,36 @@ class Engine:
 
     def _on_update_status(self, status: dict) -> None:
         self._emit("update", status)
+        self._maybe_auto_download(status)
+
+    def _maybe_auto_download(self, status: dict) -> None:
+        """Background download of a found version while `auto_download_updates` is on (ARCHITECTURE 5.7).
+
+        Once per `latest`: a repeated `available` of the same version, or an `error` after the automatic
+        download, never starts another one ("Try again" stays the user's). Installing is always the user's
+        "Restart".
+        """
+        if status.get("stage") != "available" or not self._settings["auto_download_updates"]:
+            return
+        version = str(status.get("latest") or "")
+        if not version:
+            return
+        with self._lock:
+            if self._auto_download_for == version:
+                return
+            self._auto_download_for = version
+        # The updater is still inside its check step while it reports `available`, so a download started
+        # from this callback would be refused: start it from a thread that retries briefly.
+        threading.Thread(target=self._auto_download, name="update-auto-download", daemon=True).start()
+
+    def _auto_download(self) -> None:
+        for _ in range(50):
+            if self.selfupdate.status().get("stage") != "available":
+                return
+            self.selfupdate.download_background()
+            if self.selfupdate.status().get("stage") != "available":
+                return
+            time.sleep(0.1)
 
     def _on_auth_invalid(self) -> None:
         self._emit("auth", self.auth_status())
@@ -148,7 +179,7 @@ class Engine:
             log.exception("self-update startup cleanup failed")
         if self._app_updates is not False:
             self.selfupdate.check_background()
-            self.update_scheduler.start()  # a found version is downloaded by the UI when auto_download_updates is on
+            self.update_scheduler.start()  # a found version is downloaded here when auto_download_updates is on
 
     def shutdown(self) -> None:
         log.info("engine shutdown")
@@ -225,12 +256,19 @@ class Engine:
                 self.updater.start_background(force=True)
             if "update_check_interval" in changed:
                 self.update_scheduler.set_interval(new["update_check_interval"])
+            if "auto_download_updates" in changed and new["auto_download_updates"]:
+                with self._lock:
+                    self._auto_download_for = None
+                self._maybe_auto_download(self.selfupdate.status())
         return new
 
     def update_engine(self) -> None:
         self.updater.start_background(force=True)
 
     # --- app self-update -----------------------------------------------------------------------------
+    def update_status(self) -> dict:
+        return self.selfupdate.status()
+
     def check_updates(self) -> dict:
         self.selfupdate.check_background()
         return self.selfupdate.status()

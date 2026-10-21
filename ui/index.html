@@ -5,18 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Media Saver</title>
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
-  <!-- Embedded fonts, preloaded so the first frame already uses them (css/tokens.css). -->
-  <link rel="preload" href="assets/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="assets/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="css/tokens.css">
-  <link rel="stylesheet" href="css/base.css">
-  <link rel="stylesheet" href="css/glass.css">
-  <link rel="stylesheet" href="css/components.css">
+  <!-- Liquid UI design kit: a vendored copy (vendor/liquid_ui/VENDORED.txt); fonts are named in its tokens.css only. -->
+  <link rel="stylesheet" href="vendor/liquid_ui/css/tokens.css">
+  <link rel="stylesheet" href="vendor/liquid_ui/css/base.css">
+  <link rel="stylesheet" href="vendor/liquid_ui/css/scene.css">
+  <link rel="stylesheet" href="vendor/liquid_ui/css/glass.css">
+  <link rel="stylesheet" href="vendor/liquid_ui/css/components.css">
+  <!-- Media Saver: identity tokens, its own components, the screen. -->
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/parts.css">
   <link rel="stylesheet" href="css/app.css">
   <script type="module" src="js/main.js"></script>
 </head>
 <body>
-  <!-- Scene behind everything: colour fields, thumbnail ghosts, grain (js/background.js). -->
+  <!-- Scene behind everything: the kit's background in Media Saver's colours, thumbnail ghosts (js/scene.js). -->
   <div id="scene" aria-hidden="true"></div>
 
   <!-- Shared SVG filters of the lenses (js/glass.js appends one <filter> per surface). -->
@@ -32,7 +34,7 @@
       <!-- Mode switch (Instagram / YouTube / TikTok / X), js/main.js -->
       <div id="mode-slot" class="tb-mode"></div>
       <div class="tb-right">
-        <button type="button" id="app-ver" class="ver-label" aria-haspopup="dialog"><span class="ver-dot" aria-hidden="true"></span><span class="ver-text"></span></button>
+        <button type="button" id="ver-pill" class="ver-pill" aria-haspopup="dialog"><span class="ver-dot" aria-hidden="true"></span><span class="ver-text"></span></button>
         <button type="button" id="engine-chip" class="eng-chip" aria-haspopup="dialog"></button>
         <button type="button" id="btn-settings" class="round-lens" aria-label="Settings" aria-haspopup="dialog"></button>
         <div class="win-btns">

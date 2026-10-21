@@ -40,18 +40,27 @@ produces the payloads. A field not listed here does not exist; add it here first
 | `get_settings()` | — | `Settings` | |
 | `set_settings(patch)` | `patch: object` (subset of Settings) | `Settings` | Invalid values -> rejection with a readable message. |
 | `update_engine()` | — | `null` | Forced engine update; progress through `engine` events. |
+| `update_status()` | — | `UpdateStatus` | The current status, no side effects (the update popover refreshes with it when it opens). |
 | `check_updates()` | — | `UpdateStatus` | Starts a check of GitHub Releases for a newer app; result through `update` events. Returns the status at call time. |
-| `download_update()` | — | `null` | Downloads the newer `MediaSaver.exe` into the data folder and verifies it; progress through `update` events. No-op unless stage is `available` or `error` after a download. |
+| `download_update()` | — | `null` | Downloads the newer `MediaSaver.exe` into the data folder and verifies it; progress through `update` events. No-op unless stage is `available` or `error` after a download. With `auto_download_updates` on, the engine starts the same download by itself when a check reports `available` (once per version, ARCHITECTURE 5.7). |
 | `apply_update()` | — | `null` | Only when `UpdateStatus.can_apply`: starts the swap helper and closes the app; the helper restarts it on the new version. |
 | `login()` | — | `null` | Opens the Instagram sign-in window; result through `auth` event. |
 | `logout()` | — | `Auth` | |
 | `import_cookies_file()` | — | `Auth \| null` | File dialog for a Netscape cookies.txt; `null` when canceled. |
 | `read_clipboard()` | — | `str` | Plain text of the clipboard, `""` when empty or not text. |
 | `copy_text(text)` | `text: str` | `bool` | |
-| `open_url(url)` | `url: str` | `bool` | Default browser; only `https://` URLs. |
+| `open_url(url)` | `url: str` | `bool` | Default browser; only `https://` URLs (anything else returns `false`). Used by the links of the release notes in the update popover. |
 | `window_minimize()` | — | `null` | |
 | `window_toggle_maximize()` | — | `bool` | Returns the new maximized state. |
 | `window_close()` | — | `null` | Graceful: engine shutdown, then exit. |
+
+Update UI: the version pill, the update popover and the "Updates" rows of the settings sheet are the update control
+of the vendored Liquid UI kit (`ui/vendor/liquid_ui/js/update.js`, mounted by `ui/js/update.js`, UI_DESIGN.md 6.1).
+It calls `update_status`, `check_updates`, `download_update`, `apply_update`, `open_url`, `get_settings` and
+`set_settings` (`auto_download_updates`, `update_check_interval`) and listens to `update` and, through
+`ui/js/update.js`, to `settings`. The kit's contract matches these methods; two return values differ and the kit
+accepts both: `download_update()` returns `null` (the status follows by events) and `apply_update()` returns `null`
+and rejects when the update is not ready (the kit ignores the result and shows a rejection as a toast).
 
 ## 3. Events (`window.__msEvent(type, payload)`)
 

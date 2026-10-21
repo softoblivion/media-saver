@@ -3,6 +3,39 @@
 Owner: ui worker. Scope: everything under `ui/`. The JS <-> Python contract is `docs/BRIDGE_API.md`; this document
 describes the material, the design system and the motion of the UI that codes against it.
 
+## 0. Liquid UI kit and the app
+
+The design system (tokens, fonts, the glass material, springs, overlays, form controls, toasts, the background
+scene, the version pill and update popover) is the shared Liquid UI kit, vendored in `ui/vendor/liquid_ui/`
+(`VENDORED.txt` names the kit version). Media Saver builds its screen on top of it. The kit is design only: the
+update process is the Python self-updater (`docs/SELF_UPDATE.md`); the kit's update control renders `UpdateStatus`
+and calls the bridge (`docs/BRIDGE_API.md`, "Update UI").
+
+Rules:
+- `ui/vendor/liquid_ui/` is a synced copy: never edit it here. A change is made in the kit's master and synced into
+  this tree (the whole folder is replaced and `VENDORED.txt` rewritten); after a sync, check the mock in the browser
+  (`index.html?mock=1`, section 7) and the app run from source.
+- Media Saver overrides kit tokens only in its own `:root` rule (`css/theme.css`), never in the copy. A missing kit
+  feature is added to the kit, or kept as app code beside it, never patched into the copy.
+- Stylesheet order (`index.html`): the kit's `tokens.css`, `base.css`, `scene.css`, `glass.css`, `components.css`,
+  then `css/theme.css`, `css/parts.css`, `css/app.css`. Modules import the kit by relative path
+  (`../vendor/liquid_ui/js/<module>.js`); no app file names a font file.
+
+| Part | Kit (`ui/vendor/liquid_ui/`) | App |
+|---|---|---|
+| Tokens, fonts | `css/tokens.css`, `fonts/` (Inter, Geist Mono) | `css/theme.css`: the lagoon identity colours, glass tints, scene base, `--titlebar-h` 46 px, `--cmp-w` |
+| Reset, buttons, focus, scrollbars, spinner | `css/base.css` | the 22 px spinner of the `Download` circle (`css/app.css`) |
+| Material | `js/glass.js` (Lens, light, gel, shake), `css/glass.css` | — |
+| Springs | `js/motion.js` | — |
+| Overlays | `js/overlay.js`, `.scrim` `.sheet` `.popover` | `.pop-wide` (384 px update popover), engine popover colours (`css/parts.css`) |
+| Controls | `js/controls.js` (Segmented, Switch, Stepper, Select), their CSS | segmented variants `seg-tb` / `seg-l` / `seg-q`; the per-card format toggle (`js/queue.js`) |
+| Toasts | `js/toast.js`, `.toast` | position over the queue column; under the update popover while it is open (`css/parts.css`) |
+| Icons | `js/icons.js` (`icon`, `registerIcons`) | `js/icons.js`: Media Saver's drawings registered into the kit's set (same names replace the kit's, e.g. `app` = the droplet), `kindGlyph`, `appGlyph` |
+| Background | `js/background.js`, `css/scene.css` | `js/scene.js`: six colour fields through `initBackground(root, { fields, idleMs })`, the thumbnail ghosts layer; `#scene` base gradient in `css/theme.css` |
+| Version pill, update popover, update toasts, "Updates" settings rows | `js/update.js` (`mountUpdateControl`, `mountSettings`), `.ver-pill` `.pop-*` `.upd-*` `.set-*` | `js/update.js`: the mount (product name, restart warning, active-jobs check, `settings` events) |
+| Settings sheet frame | `.sheet-head` `.sheet-scroll` `.set-group` `.set-card` `.set-row` | content (`js/settings.js`); path, template tokens, engine versions, sign-in (`css/parts.css`) |
+| Everything else | — | title bar layout, engine chip, composer, queue, cards, clipboard pill, mock, bridge wrapper (`js/*.js`, `css/app.css`, `css/parts.css`) |
+
 ## 1. Sources and what was taken from each
 
 | Source | Taken |
@@ -16,7 +49,7 @@ describes the material, the design system and the motion of the UI that codes ag
 
 ## 2. Material
 
-### 2.1 Lens (refracting surface) — `js/glass.js`, `css/glass.css`
+### 2.1 Lens (refracting surface) — kit `js/glass.js`, `css/glass.css`
 
 `new Lens(el, preset)` builds, per element, an SVG filter in `#lg-defs`:
 
@@ -66,7 +99,7 @@ number), the engine hover card and the select menu.
 
 ### 2.3 Rules
 
-- At most ~12 refracting surfaces at once. Steady state: 4 (chip, gear, input capsule, queue header); plus toasts
+- At most ~12 refracting surfaces at once. Steady state: 5 (version pill, chip, gear, input capsule, queue header); plus toasts
   (max 3), the clipboard pill, one sheet or popover, and one droplet while a control is pressed.
 - No glass on glass: controls inside the sheet are fills; the segmented droplet and switch thumbs become lenses only while
   pressed (they refract the labels / track beneath them, because a lens is a backdrop root).
@@ -80,10 +113,11 @@ number), the engine hover card and the select menu.
 - Legibility: white ink with alpha steps, a 1 px text shadow on glass, darker wells (`--well`) under inputs and long text.
 - `prefers-reduced-transparency`: near-opaque tints. `prefers-contrast: more`: solid rim, no blend.
 
-## 3. Design tokens — `css/tokens.css`
+## 3. Design tokens — kit `css/tokens.css`, app `css/theme.css`
 
-- Fonts, embedded in `ui/assets/fonts` (no network at runtime; `@font-face` in `tokens.css`, `font-display: block`,
-  preloaded from `index.html`):
+- Fonts, embedded in the kit (`ui/vendor/liquid_ui/fonts`, no network at runtime; `@font-face` in the kit's
+  `tokens.css`, `font-display: block`; the kit names the text face in one place, so a face change arrives with a
+  kit sync and no app file changes). Current files:
 
   | File | Face | Version, source | Licence | Size |
   |---|---|---|---|---|
@@ -104,17 +138,19 @@ number), the engine hover card and the select menu.
 
   | Role | Spec | Tracking | Used for |
   |---|---|---|---|
-  | `--t-display` | 650 24/1.15 | -0.019em | sheet titles |
-  | `--t-title` | 630 20/1.2 | -0.017em | composer, queue, empty state titles |
+  | `--t-display` | 650 22/1.15 | -0.019em | sheet titles |
+  | `--t-title` | 630 19/1.22 | -0.017em | composer, queue, empty state titles |
   | `--t-headline` | 630 15/1.3 | -0.009em | popover titles, the `Download` button |
   | `--t-card` | 560 14/1.3 | -0.006em | job card titles, setting labels, component names |
   | `--t-body` | 450 13.5/1.45 | -0.005em | body, the links input, toasts, empty text |
   | `--t-callout` | 450 13/1.4 | -0.003em | secondary lines, popover sub-lines, error text, release notes |
   | `--t-control` / `--t-control-s` | 560 13 / 12.5 | -0.003em | buttons, segmented options |
   | `--t-meta` | 470 12/1.35 | 0 | sizes, speeds, ETA, times, counters (with `tabular-nums`) |
-  | `--t-caption` | 500 11.5/1.3 | +0.003em | group labels (uppercase +0.06em), footnotes |
-  | `--t-micro` | 560 10.5/1.4 | +0.01em | badges, tags, kbd |
-  | `--t-mono` / `-s` / `-xs` | 450 12.5 / 450 12 / 500 11 | 0 | paths and templates / link chips, versions / the version label |
+  | `--t-caption` | 520 11.5/1.3 | +0.003em | group labels (uppercase +0.06em), footnotes |
+  | `--t-micro` | 600 10.5/1.4 | +0.02em | badges, tags, kbd |
+  | `--t-mono` / `-s` / `-xs` | 450 12.5 / 450 12 / 500 11 | 0 | paths and templates / link chips, versions / the version pill |
+
+  The type roles are the kit's (this table mirrors its values); Media Saver does not override them.
 
   Every number that changes in place (sizes, speeds, ETA, counters, durations, percentages) sets
   `font-variant-numeric: tabular-nums` after its `font` shorthand (the shorthand resets it). Canonical links, video
@@ -122,7 +158,9 @@ number), the engine hover card and the select menu.
 - Legibility on glass is unchanged: ink alphas, `--ink-shadow` (1 px, 30 % black) on lenses.
 - Ink: `--ink-1..4` = white at 0.96 / 0.74 / 0.54 / 0.36. Fills `--fill-1..4` = white at 0.05–0.2. Well
   `rgba(4,6,16,.32)`.
-- Identity "lagoon": accent `#5d8dff`, accent-2 `#8a6cff`, gradient `#48a2ff -> #6a7bff -> #9c62ff`; mint `#3fe2c1`
+- Identity "lagoon" (`css/theme.css`, overriding the kit's cobalt defaults; with it the glass tints `--tint-regular`,
+  `--tint-sheet`, `--well`, the tinted-glass gradient `--accent-grad-a` and the scene base): accent `#5d8dff`,
+  accent-2 `#8a6cff`, gradient `#48a2ff -> #6a7bff -> #9c62ff`; mint `#3fe2c1`
   (success, done), amber `#ffc457` (duplicates, "already saved"), rose `#ff6482` (errors). Deliberately not the
   pink-orange gradient of Instagram; no logo, mark or brand colour of Instagram, YouTube, TikTok or X anywhere (kind
   glyphs are original line icons: `reel`, `post`, `video`, `shorts`).
@@ -130,7 +168,7 @@ number), the engine hover card and the select menu.
 - Spacing: 4 pt grid (`--s-1..8`).
 - Shadows: `--shadow-s/m/l`, deeper under larger surfaces.
 
-## 4. Motion — `js/motion.js`
+## 4. Motion — kit `js/motion.js`
 
 One spring solver (semi-implicit Euler, 240 Hz sub-steps), parameters SwiftUI-style: `response` (s) and `damping`
 fraction; `k = (2π/response)²`, `c = 4π·damping/response`. One shared rAF ticker runs only while a spring is moving and
@@ -154,8 +192,9 @@ Behaviours:
   (no pointer follow). Uses the individual `scale` property so it composes with layout transforms.
 - Segmented droplet: x and width springs; stretch `1 + |v|/2400` along the motion, thinner across it; lifts (scale +
   lensing) while pressed or dragged, can be dragged across options and snaps to the one under its centre.
-- Switch: thumb grows to a 40 px droplet while pressed and turns into a lens over the track, travels with `bouncy`.
-- Stepper (`Stepper` in `js/controls.js`, Settings "Simultaneous downloads"): the number rolls through a 30 px window
+- Switch (kit, 46 x 28 px track, 24 px thumb): the thumb grows to a 34 px droplet while pressed and turns into a lens
+  over the track, travels with `bouncy`.
+- Stepper (`Stepper` in the kit's `js/controls.js`, Settings "Simultaneous downloads"): the number rolls through a 28 px window
   (`.step-val`: `overflow: hidden`, `contain: paint`, a mask that softens the top and bottom 24 %). The roll is a WAAPI
   pair (outgoing up and out, faded by half the travel; incoming in from below, or the reverse for a decrease) with a
   `linear()` easing from a critically damped spring (`response 0.26`, `damping 1`, about 0.4 s): no overshoot, so the
@@ -201,34 +240,37 @@ Behaviours:
   the skeleton, sheens, hint bars, empty-state art and the version dot pulse hold still; the mode switch skips the
   card stagger.
 
-## 5. Background — `js/background.js`
+## 5. Background — kit `js/background.js`, app `js/scene.js`
 
-Dark base, six radial colour fields (cobalt, violet, teal, rose, amber, sky) drifting on 46–76 s CSS loops, faint
-topographic contour lines (crisp lines are what makes the lensing visible), up to four recent job thumbnails as soft
-ghosts (downscaled to 18×32 and upscaled by the compositor = cheap blur), vignette and a static grain tile. All motion
-is CSS on transforms. Drift pauses when the window is unfocused, the document hidden, after 60 s without input, or with
-reduced motion; `html.is-still` pauses the decorative CSS loops inside the app as well.
+The kit's scene (`initBackground`) in Media Saver's colours: a near-black base with a violet glow at the top left
+and a teal one at the bottom right (`#scene` in `css/theme.css`), six radial colour fields (cobalt, violet, teal,
+rose, amber, sky; the `fields` option, 46–76 s drift loops), the kit's faint contour and caustic lines (crisp lines
+are what makes the lensing visible), its rising specks and light sweep, then Media Saver's layer of up to four recent
+job thumbnails as soft ghosts (`setGhosts`; downscaled to 18×32 and upscaled by the compositor = cheap blur), and the
+kit's vignette and grain. Pointer parallax moves fields, lines and specks by a few px. Everything pauses when the
+window is unfocused, the document hidden, after 60 s without input (`idleMs`), or with reduced motion;
+`html.is-still` pauses the decorative CSS loops inside the app and the clipboard pill as well.
 
 ## 6. Components and files
 
 | File | Content |
 |---|---|
-| `index.html` | Static layout: title bar (brand, mode slot, version label, engine chip, gear, window buttons), composer (one `c-other` counter template that `js/composer.js` clones per platform), queue, overlay hosts (engine popover, update popover, settings sheet). |
-| `css/tokens.css`, `base.css`, `glass.css`, `components.css`, `app.css` | Fonts, type roles and tokens; reset + feature rule + scene + buttons; material; components; screen layout. |
-| `assets/fonts/` | `InterVariable.woff2`, `GeistMono-Variable.woff2`, `LICENSE-Inter.txt`, `LICENSE-GeistMono.txt` (section 3). |
+| `index.html` | Static layout: title bar (brand, mode slot, version pill `#ver-pill`, engine chip, gear, window buttons), composer (one `c-other` counter template that `js/composer.js` clones per platform), queue, overlay hosts (engine popover, update popover, settings sheet). |
+| `vendor/liquid_ui/` | The Liquid UI kit (section 0): tokens, fonts, base, scene, material, components and their modules. Never edited here. |
+| `css/theme.css`, `css/parts.css`, `css/app.css` | Identity overrides of the kit tokens; Media Saver's own components (engine chip, window buttons, segmented variants, settings content, clipboard pill, ghosts, toast position); screen layout. |
 | `js/main.js` | Boot, title bar, mode switch (four options, Alt+1..Alt+4), window buttons, entrance, auth -> auto retry of Instagram `login_required` jobs. |
 | `js/mode.js` | `PLATFORMS` (`instagram`, `youtube`, `tiktok`, `twitter`, in mode-switch order), `PLATFORM_NAME` (Instagram, YouTube, TikTok, X), `QUALITIES`, `QUALITY_KEY`; current mode, default format and per-platform quality (`settings.mode`, `format`, `quality_<platform>`): local apply at once, `set_settings` persist, revert on refusal, stale-echo guard, `onPref(key)` subscribers, `html[data-mode]`, `html[data-format]`. There is no "other platform" helper: a switch action always names the platform of the item in question. |
 | `js/quality.js` | Quality control of the composer's spec row: one `Segmented` per platform (only the mode's one visible), hint line, disabled in MP3, the H.264 note on YouTube Max only. |
 | `js/api.js` | `window.__msEvent`, `pywebviewready` wait (1.5 s), mock fallback, `call()` / `on()`. |
 | `js/mock-api.js` | Full mock of BRIDGE_API (section 7 lists the URL flags). |
-| `js/motion.js`, `js/glass.js`, `js/background.js` | Springs, material, scene. |
+| `js/scene.js` | The kit's background with Media Saver's fields, the thumbnail ghosts (`setGhosts`); re-exports `activity` / `setFocused`. |
 | `js/engine.js` | Engine status chip (dot / ring progress), hover card with versions, popover with components and `update_engine`. |
-| `js/update.js` | Version label, the update popover (`check_updates`, `download_update`, `apply_update`, event `update`), the one "available" toast, safe Markdown for release notes. |
+| `js/update.js` | Mounts the kit's update control (`mountUpdateControl`): version pill, update popover, update toasts; forwards `settings` events; `updateControl()` for the settings sheet's `mountSettings`, `appVersion()`. |
 | `js/composer.js` | Input capsule, live clean preview for the mode, chips of other platforms with "Switch to <their platform>", counters (one "N <platform>" pill per other platform present), tools, Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), Ctrl+Enter, format toggle, `Download` morph with the liquid level (one batch per platform). |
 | `js/clipboard.js` | Clipboard prompt pill on start and on `window` focus when `clipboard_watch`; offers the mode's links, or else the links of one other platform (the one with the most fresh links) with "Add to <platform>". |
 | `js/queue.js` | Queue header (counts of the mode, "Clear finished", the "Open folder" split button with its folder menu, `open_output_dir` / `choose_output_dir`, the "Videos now go to ..." toast on an `output_dir` change), job cards of every platform (others `[hidden]`), card shape (`tall`: Reels, Shorts, TikTok; `wide`: YouTube videos and X posts, an X post turns `tall` once its width / height or its thumbnail shows a vertical video), placeholder glyph from `kindGlyph`, author with `@` on Instagram, TikTok and X (handles), plain on YouTube (channel names), preview skeleton, per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
-| `js/settings.js`, `js/controls.js`, `js/overlay.js` | Settings sheet (no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), Segmented (with `setDisabled`, `setOptionTitle`) / Switch / Stepper / Select / `formatToggleHtml`, sheet & popover morph. |
-| `js/toast.js`, `js/icons.js`, `js/format.js` | Toasts, original line icons (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`) and `kindGlyph(platform, kind)` (Instagram `reel` / `post`, YouTube `video` / `shorts`, TikTok `shorts`, X `video`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes (all by platform). |
+| `js/settings.js` | Settings sheet (no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), the "Updates" group from the kit's `mountSettings`; its controls are the kit's Segmented / Switch / Stepper / Select. |
+| `js/icons.js`, `js/format.js` | Original line icons registered into the kit's set (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`) and `kindGlyph(platform, kind)` (Instagram `reel` / `post`, YouTube `video` / `shorts`, TikTok `shorts`, X `video`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes (all by platform). |
 | `assets/icon.svg`, `assets/icon-1024.png` | App icon: glass droplet with a down arrow (PNG rendered from the SVG with headless Edge). |
 
 ### 6.1 Placement decisions
@@ -240,8 +282,8 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
   (matched on `KeyboardEvent.code` `Digit1..4`, so keyboard layouts that type another character with Alt+digit
   still work); each option's tooltip names its shortcut. Width check at the 940 x 640 minimum window (four platforms,
   measured in the mock): the four full labels need 278 px (Instagram 88, YouTube 80, TikTok 67, X 37, plus the 6 px track
-  padding); the switch ends at x = 428 and the right cluster starts at x = 565 with "Engine ready", so 137 px stay
-  free, more than the longest chip text ("Updating 100%", about 10 px wider) and the version label's update dot
+  padding); the switch ends at x = 428 and the right cluster (version pill, "Engine ready") starts at x = 587, so 159 px stay
+  free, more than the longest chip text ("Updating 100%", about 10 px wider) and the version pill's update dot
   need. The labels are therefore not shortened and no compact variant exists; "X" is the service's own name, not an
   abbreviation.
 - Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the primary button) at the left of
@@ -291,15 +333,21 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
 - Per-item format: queued cards show a compact fill toggle (`.fmt-toggle`, 22 px, CSS thumb, radio semantics, arrow
   keys) in the badge row that calls `set_job_format(id, format)` optimistically and reverts with a toast when the
   backend answers `null`; once the job leaves `queued` it becomes a static badge (`MP4` neutral, `MP3` violet).
-- Version label: a quiet mono text button `v2.0.0` left of the engine chip, so the two status controls of the app
-  (engine, app) sit together and open popovers of the same family. Stages `available` / `downloading` / `ready` add a
-  dot (accent; pulsing while downloading; mint when ready) and accent ink; errors of a background check stay quiet.
-- Update panel: a sibling popover of the engine popover (`#update-pop`, `pop-wide` 384 px) that grows out of the
-  version label, with the same anatomy: title "Media Saver", one sub-line, progress bar, a well with rows
-  (Installed / Latest with size and date tags), release notes in a scrollable well, footer with "Checked <time>" and one
-  action. A separate popover keeps the engine popover (which the user likes as it is) unchanged and gives the notes
-  room. The settings "Check for updates" button folds the sheet back into the gear and opens this panel, starting a
-  check when the stage allows one.
+- Version pill (the kit's `.ver-pill`, `#ver-pill`): a small mono capsule lens `v2.0.0` left of the engine chip, so
+  the two status controls of the app (engine, app) sit together and open popovers of the same family. Stages
+  `available` / `downloading` / `ready` add a dot (accent; pulsing while downloading; mint when ready) and accent ink;
+  errors of a background check stay quiet. Its tooltip names the stage ("Media Saver X.Y.Z is available",
+  "Downloading Media Saver X.Y.Z", "Media Saver X.Y.Z is ready to install", else "Version and updates").
+- Update panel: the kit's update popover in `#update-pop` (`pop-wide`, 384 px), a sibling of the engine popover that
+  grows out of the version pill and opens left-aligned under it (kept inside the window): title "Media Saver", one
+  sub-line, progress bar, a well with rows (Installed / Latest with size and date tags), release notes in a
+  scrollable well, footer with "Checked <time>" and one action. Opening it refreshes the status
+  (`update_status()`). While it is open it covers the toasts (they drop at the same place; the "ready" toast and
+  the panel's action say the same).
+- Settings "Updates" group (between Engine and About): the kit's `mountSettings` rows: the status line with
+  "Checked <date, time>" and the next action (Check for updates / Download / a percentage while downloading / Restart
+  to update), "Check interval" (select) and "Download updates automatically" (switch). They save their own keys and
+  follow confirmed settings; the About group keeps the app name, version and "Open logs".
 
 ### 6.2 Update panel states (UpdateStatus.stage)
 
@@ -311,29 +359,30 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
 | `available` | "Version X is available" | Installed + Latest rows, release notes | Download (tinted) |
 | `downloading` | "Downloading version X…" | determinate bar, "42 %" and "5.1 MB of 12.1 MB", rows, notes | Downloading… (disabled) |
 | `ready` | "Version X is ready to install" | rows (Latest tagged "downloaded"), notes | Restart to update (tinted; disabled with the message as tooltip when `can_apply` is false; with active downloads a warning toast offers "Restart anyway") |
-| `error` | "Could not check for updates" / "The download did not finish" | the message in a rose box | Try again (repeats the interrupted step) |
+| `error` | the message (or "Could not check for updates" / "The download did not finish" when there is none) | the message in a rose box | Try again (repeats the interrupted step) |
 
 Progress ticks only move the bar and the numbers, so the notes keep their scroll position. The first `available` of a
 session (initial state or event) raises one toast "Media Saver X.Y.Z is available" with a "View" action (not raised
 when the background download is on: the "ready" toast below follows instead).
 
-Background download (`Settings.auto_download_updates`, default on; ARCHITECTURE 5.7 items 5-6). `js/update.js`
-follows the confirmed value of the setting (`setAutoDownload`, called by the settings sheet and from the initial
-state). While it is on, stage `available` calls `download_update()` once per `latest` (a repeated `available` of the
-same version, or an `error` after the automatic download, never starts another one; "Try again" stays manual). On
-or off, stage `ready` raises one sticky toast per `latest`: "Media Saver X.Y.Z is ready" with the action "Restart"
-(or "View" when `can_apply` is false, from source); it stays until clicked. "Restart" and the panel's "Restart to
-update" share one path: with jobs probing, downloading or processing, the warning toast "Downloads in progress will
-stop when the app restarts" + "Restart anyway" comes first. The app never restarts by itself. The panel shows the
-accent caption "New versions download in the background" while the setting is on.
+Background download (`Settings.auto_download_updates`, default on; ARCHITECTURE 5.7 items 5-6). The engine starts
+the download itself when a check reports `available`, once per `latest` (a repeated `available` of the same
+version, or an `error` after the automatic download, never starts another one; "Try again" stays manual); the
+page only renders the status (the mock does the same). On or off, stage `ready` raises one sticky toast per
+`latest`: "Media Saver X.Y.Z is ready" with the action "Restart" (or "View" when `can_apply` is false, from source);
+it stays until clicked. "Restart", the panel's and the settings row's "Restart to update" share one path: with jobs
+probing, downloading or processing, the warning toast "Downloads in progress will stop when the app restarts" +
+"Restart anyway" comes first. The app never restarts by itself. The panel shows the accent caption "New versions
+download in the background" while the setting is on.
 
 Finish sound (`Settings.sound_on_done`, default on; `js/sound.js`): `assets/sounds/download-done.wav` (0.75 s, 44.1
 kHz stereo) plays when a job changes to `done` with a new file; not for "Already downloaded", not for restored
 history; at most once per second, so a batch that finishes together sounds once.
 
-Release notes Markdown: everything is HTML-escaped first; then `#` headings (level 1 as a title, others as small caps
-labels), `-` / `*` / `+` bullets with continuation lines, blank-line paragraphs, `**bold**`, `` `code` `` and
-`[text](https://...)` links opened through `open_url`. Nothing else is interpreted.
+Release notes Markdown (the kit's `renderMarkdown`): everything is HTML-escaped first; then `#` headings (levels 1
+and 2 as titles, others as small caps labels), `-` / `*` / `+` bullets with continuation lines, blank-line
+paragraphs, `**bold**`, `` `code` `` and `[text](https://...)` links opened through `open_url` (a `false` answer
+shows "The link could not be opened."). Nothing else is interpreted.
 
 Keyboard: Ctrl+Enter downloads, Ctrl+V anywhere pastes into the capsule, Esc closes the top overlay, arrows move the
 segmented selection (mode, format, quality, settings) and the per-item format toggle, Alt+1..Alt+4 switch modes (Instagram, YouTube, TikTok, X), visible `:focus-visible` rings
@@ -439,11 +488,12 @@ everywhere.
   "Switch to <the platform with the most links>". Valid chips note the cut: "−1 char", "−17 chars".
 
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
-  TikTok and X videos as MP4 or MP3"; switch "Download updates automatically" (hint "New versions download in the
-  background. Installing needs a restart"; the check itself always runs, so there is no switch for it); select
-  "Update check" (hint "On launch, then repeated at this interval while the app runs"; options "Every 30 minutes",
-  "Every hour", "Every 6 hours", "Every day", "Every week") directly above that switch; sticky toast
-  "Media Saver X.Y.Z is ready" + "Restart"; panel caption "New versions download in the background". Switch "Sound
+  TikTok and X videos as MP4 or MP3"; the "Updates" rows are the kit's copy: switch "Download updates automatically"
+  (hint "Installing still needs a restart"; the check itself always runs, so there is no switch for it), select
+  "Check interval" (hint "On launch, then repeated while the app runs"; options "Every 30 minutes", "Every hour",
+  "Every 6 hours", "Every day", "Every week") directly above that switch; sticky toast "Media Saver X.Y.Z is ready"
+  + "Restart"; restart warning (Media Saver's) "Downloads in progress will stop when the app restarts" + "Restart
+  anyway"; panel caption "New versions download in the background". Switch "Sound
   when a download finishes" (hint "A short sound for each finished file").
 - The runtime data folder is `media-saver_data\` (never `data\`) wherever copy or mock paths name it (mock log paths:
   `D:\Apps\MediaSaver\media-saver_data\logs\jobs\<id>.log`). The default output dir is the core's decision (the
