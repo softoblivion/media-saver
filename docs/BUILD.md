@@ -102,6 +102,10 @@ a minute once `.venv` exists.
   fits maximize to the monitor work area (WinForms would cover the taskbar). Left, right, bottom edges and the
   bottom corners resize; the top edge does not (the page owns the top pixels). Minimum viewport 940x640, start
   viewport 1180x780 (logical pixels). Windows 11 rounded corners and shadow come from DWM.
+- **Restore keeps the size**: WinForms stores the client size of a borderless form and re-applies it as the window
+  size when the form comes back from minimized or maximized, which would shave the invisible border off the window
+  on every restore. The hook remembers the last normal window size (`WM_WINDOWPOSCHANGED`) and puts it back when a
+  size change proposes exactly that size minus the border (`WM_WINDOWPOSCHANGING`, `corrected_window_size`).
 - Aero Snap by dragging is not available (pywebview moves the window itself); `Win+Arrow` snapping works.
 
 ## 6. Troubleshooting
