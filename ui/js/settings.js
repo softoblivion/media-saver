@@ -12,7 +12,7 @@ import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
 import { toast } from './toast.js';
 import { getMode, getFormat, onPref } from './mode.js';
-import { openUpdatePanel, appVersion } from './update.js';
+import { openUpdatePanel, appVersion, setAutoInstall } from './update.js';
 
 const TOKENS = [
   { t: '{author}', d: 'author' },
@@ -28,7 +28,7 @@ const BROWSERS = [
   { value: 'brave', label: 'Brave' },
   { value: 'opera', label: 'Opera' },
 ];
-const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'auto_update', 'check_app_updates'];
+const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'auto_update', 'auto_install_updates'];
 
 let sheet, overlay, body;
 let S = null;          // current Settings
@@ -163,7 +163,7 @@ function build() {
               <button type="button" class="btn btn-s" data-act="check-updates">${icon('refresh')}<span>Check for updates</span></button>
             </div>
           </div>
-          ${row('Check for updates on launch', 'Looks for a new version on GitHub every time the app starts', '<span data-slot="check_app_updates"></span>')}
+          ${row('Install updates automatically', 'Download a new version in the background and restart when the queue is idle', '<span data-slot="auto_install_updates"></span>')}
           ${row('Logs', 'Engine and download logs, for troubleshooting', `<button type="button" class="btn btn-s" data-act="logs">${icon('logs')}<span>Open logs</span></button>`)}
         </div>
       </section>
@@ -197,7 +197,7 @@ function build() {
     onChange: (v) => save({ update_channel: v }),
   });
   slot('update_channel').replaceWith(ctl.update_channel.el);
-  mkSwitch('check_app_updates', 'Check for updates on launch');
+  mkSwitch('auto_install_updates', 'Install updates automatically');
 
   // Filename template: save on blur / Enter, tokens insert at the caret.
   const tpl = body.querySelector('[data-f="filename_template"]');
@@ -283,7 +283,8 @@ function sync() {
   const tpl = body.querySelector('[data-f="filename_template"]');
   if (document.activeElement !== tpl) tpl.value = S.filename_template || '';
   renderExample();
-  for (const f of SWITCHES) if (!busy(f)) ctl[f].set(f === 'check_app_updates' ? S[f] !== false : !!S[f]);
+  for (const f of SWITCHES) if (!busy(f)) ctl[f].set(!!S[f]);
+  if (!busy('auto_install_updates')) setAutoInstall(!!S.auto_install_updates);
   if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);

@@ -130,7 +130,7 @@ class FakeEngine:
             "concurrency": 2,
             "update_channel": "nightly",
             "auto_update": True,
-            "check_app_updates": True,
+            "auto_install_updates": False,
             "auth_mode": "auto",
             "browser_cookies": "",
             "clipboard_watch": True,
@@ -160,7 +160,7 @@ class FakeEngine:
             return
         self._started = True
         threading.Thread(target=self._boot, name="fake-engine-boot", daemon=True).start()
-        if self._settings["check_app_updates"]:
+        if True:  # the update check always runs on launch
             self.check_updates()
 
     def shutdown(self) -> None:

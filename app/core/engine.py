@@ -69,7 +69,7 @@ class Engine:
                  open_folder: Callable[[str], None] | None = None,
                  runner: ProcessRunner | None = None, net: Net | None = None,
                  use_system_ffmpeg: bool | None = None, app_updates: bool | None = None) -> None:
-        # app_updates: None = follow the check_app_updates setting; False = never check (cli, tests)
+        # app_updates: False = never check GitHub for app releases (cli, tests); otherwise the check runs on launch
         self._app_updates = app_updates
         self._emit_raw = emit
         self.app_version = app_version
@@ -143,7 +143,7 @@ class Engine:
             self.selfupdate.startup()
         except Exception:  # noqa: BLE001
             log.exception("self-update startup cleanup failed")
-        if self._app_updates is True or (self._app_updates is None and self._settings["check_app_updates"]):
+        if self._app_updates is not False:
             self.selfupdate.check_background()
 
     def shutdown(self) -> None:

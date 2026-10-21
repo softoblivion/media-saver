@@ -3,6 +3,11 @@
 // updates"; checking -> indeterminate bar; available -> latest version, size, date and release notes,
 // "Download"; downloading -> determinate bar; ready -> "Restart to update" (apply_update);
 // error -> the message and "Try again". The first "available" of a session raises one toast.
+//
+// Automatic install (Settings.auto_install_updates, fed by setAutoInstall): a found version is
+// downloaded once (never twice for the same `latest`, never retried after an error); a `ready` file is
+// applied with a toast and a short delay as soon as no job is queued or running. While jobs are active
+// the apply waits on the `job` / `job_removed` events (no polling). Off: nothing happens by itself.
 
 import { call, on } from './api.js';
 import { gel } from './glass.js';
@@ -10,6 +15,7 @@ import { Overlay } from './overlay.js';
 import { icon } from './icons.js';
 import { escapeHtml, bytes, shortDate, timeAgo } from './format.js';
 import { toast } from './toast.js';
+import { getJobs } from './queue.js';
 
 const IDLE = { stage: 'idle', current: '', latest: null, notes: null, size: null, published_at: null, progress: null, message: '', checked_at: null, can_apply: false };
 const CAN_CHECK = new Set(['idle', 'up_to_date', 'error']);
@@ -20,12 +26,22 @@ let lastBusy = null;      // 'checking' | 'downloading': what an error interrupt
 let toasted = false;
 let hasActiveJobs = () => false;
 
+const APPLY_DELAY_MS = 1500;
+const BUSY_JOB = new Set(['queued', 'probing', 'downloading', 'processing']);
+let auto = false;         // Settings.auto_install_updates (confirmed value)
+let autoAsked = null;     // `latest` for which download_update() was already called automatically
+let appliedFor = null;    // `latest` for which apply_update() was already called automatically
+let applyPhase = 'none';  // 'none' | 'wait' (queue busy) | 'count' (toast shown, timer running)
+let applyTimer = 0;
+let applyOffs = [];
+
 /**
  * @param {object} state  State from ready()
  * @param {{activeJobs?: () => boolean}} opts
  */
 export function initUpdate(state, opts = {}) {
   if (opts.activeJobs) hasActiveJobs = opts.activeJobs;
+  auto = !!(state.settings && state.settings.auto_install_updates);
   label = document.getElementById('app-ver');
   pop = document.getElementById('update-pop');
   overlay = new Overlay(pop, {
@@ -53,6 +69,19 @@ export function openUpdatePanel({ check = false } = {}) {
   if (check && CAN_CHECK.has(u.stage)) runCheck();
 }
 
+/** The confirmed value of Settings.auto_install_updates (called by the settings sheet and at start). */
+export function setAutoInstall(on) {
+  on = !!on;
+  if (on === auto) return;
+  auto = on;
+  if (on) {
+    autoAsked = null;
+    appliedFor = null;
+  }
+  autoStep();
+  if (pop && overlay) renderPop();
+}
+
 export function appVersion() {
   return u.current || '';
 }
@@ -71,7 +100,7 @@ function render(next) {
   }[u.stage] || 'Media Saver version and updates';
   label.title = tip;
   label.setAttribute('aria-label', tip);
-  if (u.stage === 'available' && !toasted) {
+  if (u.stage === 'available' && !toasted && !auto) {
     toasted = true;
     toast('info', `Media Saver ${u.latest} is available`, {
       ms: 8000,
@@ -79,6 +108,84 @@ function render(next) {
     });
   }
   if (overlay.open || prev.stage !== u.stage) renderPop();
+  autoStep();
+}
+
+// ---- automatic install ------------------------------------------------------------------------
+
+const queueBusy = () => {
+  for (const j of getJobs()) if (BUSY_JOB.has(j.status)) return true;
+  return false;
+};
+
+function autoStep() {
+  if (!auto) return cancelApply();
+  if (u.stage === 'available' && u.latest) {
+    cancelApply();
+    if (autoAsked === u.latest) return;
+    autoAsked = u.latest;
+    call('download_update').catch((err) => toast('error', err.message));
+    return;
+  }
+  if (u.stage === 'ready' && u.can_apply && u.latest && appliedFor !== u.latest) return scheduleApply();
+  if (u.stage !== 'ready') cancelApply();
+}
+
+function setPhase(p) {
+  if (p === applyPhase) return;
+  applyPhase = p;
+  if (pop && overlay) renderPop();
+}
+
+function cancelApply() {
+  clearTimeout(applyTimer);
+  applyTimer = 0;
+  applyOffs.forEach((off) => off());
+  applyOffs = [];
+  setPhase('none');
+}
+
+function scheduleApply() {
+  if (applyPhase !== 'none') return;
+  if (!queueBusy()) return countdown();
+  setPhase('wait');
+  // The queue module updates its job map in its own listener (registered later), so look one
+  // microtask after the event.
+  let queued = false;
+  const check = () => {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      if (applyPhase === 'wait' && !queueBusy()) {
+        applyOffs.forEach((off) => off());
+        applyOffs = [];
+        countdown();
+      }
+    });
+  };
+  applyOffs = [on('job', check), on('job_removed', check)];
+}
+
+function countdown() {
+  setPhase('count');
+  toast('info', `Installing Media Saver ${u.latest}, the app restarts`, { ms: APPLY_DELAY_MS + 1500 });
+  applyTimer = setTimeout(fireApply, APPLY_DELAY_MS);
+}
+
+function fireApply() {
+  applyTimer = 0;
+  if (!auto || u.stage !== 'ready' || !u.can_apply) return cancelApply();
+  if (queueBusy()) {            // a job arrived during the delay: wait again
+    setPhase('none');
+    return scheduleApply();
+  }
+  appliedFor = u.latest;
+  setPhase('none');
+  call('apply_update').catch((err) => {
+    appliedFor = null;
+    toast('error', err.message);
+  });
 }
 
 function subline() {
@@ -95,12 +202,16 @@ function subline() {
   return u.message || d || '';
 }
 
+function autoCaption() {
+  return applyPhase === 'wait' ? 'Installs automatically once downloads finish' : 'Installs automatically';
+}
+
 let popKey = '';
 
 function renderPop() {
   const busy = u.stage === 'checking' || u.stage === 'downloading';
   // Progress ticks only move the bar: a rebuild would reset the scroll of the release notes.
-  const key = [u.stage, u.current, u.latest, u.size, u.published_at, !!u.notes, u.can_apply, u.message, u.checked_at, u.progress == null].join('|');
+  const key = [auto, applyPhase, u.stage, u.current, u.latest, u.size, u.published_at, !!u.notes, u.can_apply, u.message, u.checked_at, u.progress == null].join('|');
   if (key === popKey && u.stage === 'downloading') {
     const bar = pop.querySelector('.pop-progress');
     if (bar) bar.style.setProperty('--p', String(u.progress ?? 0));
@@ -169,6 +280,7 @@ function renderPop() {
     <div class="pop-head">
       <div class="pop-title">Media Saver</div>
       <div class="pop-sub">${escapeHtml(subline())}</div>
+      ${auto ? `<div class="pop-auto">${icon('refresh')}<span>${escapeHtml(autoCaption())}</span></div>` : ''}
     </div>
     ${progress}
     ${box}
