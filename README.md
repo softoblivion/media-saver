@@ -186,7 +186,7 @@ environment variable); nothing is written to the user profile:
 | `cache\` | Thumbnails and per-job working files |
 | `logs\` | `app.log`, `shell.log` and full engine output of failed jobs |
 | `webview\` | WebView2 profile of the sign-in window |
-| `updates\` | Downloaded app updates and the swap helper |
+| `updates\` | Downloaded app updates and `apply.log` |
 
 The app never sees or stores the Instagram password: sign-in happens on Instagram's own page. **Sign out** deletes
 the cookie file and clears the WebView2 cookies. Network traffic goes only to Instagram, YouTube, GitHub and
@@ -202,9 +202,11 @@ Codeberg (engine and app updates).
 - **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
 - **The app:** checked on every launch (`check_app_updates`), or **Check for updates** from the version label next
   to the engine chip. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
-  against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: a small helper waits for
-  the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new one
-  started) and relaunches it. If anything fails the current exe stays untouched.
+  against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: the downloaded exe waits
+  for the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new
+  one started) and relaunches it. If anything fails the current exe stays untouched.
+- Versions 2.0.0 and 2.1.0 cannot update themselves (their updater hung in a console window): download the
+  current `MediaSaver.exe` once by hand; from 2.1.1 on the update applies in place.
 - Every release ships two assets: `MediaSaver.exe` and `SHA256SUMS`. Release notes live in
   [`docs/releases/`](docs/releases/).
 

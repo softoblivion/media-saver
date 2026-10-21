@@ -1,4 +1,4 @@
-"""SelfUpdater: check, download + verify, apply, startup cleanup, helper script. No network, no real exe."""
+"""SelfUpdater: check, download + verify, apply, startup cleanup, the apply mode of the new exe. No network."""
 
 import hashlib
 import io
@@ -138,7 +138,7 @@ class Base(unittest.TestCase):
             self.paths, version, self.statuses.append, net=net or FakeNet(),
             exe_path=self.exe if exe_path == "default" else exe_path,
             on_toast=lambda level, text: self.toasts.append((level, text)),
-            spawn=lambda helper, env, cwd: self.spawned.append((helper, env, cwd)),
+            spawn=lambda exe, argv, env, cwd: self.spawned.append((exe, argv, env, cwd)),
             urlopen=urlopen or fake_urlopen({}),
         )
 
@@ -466,7 +466,7 @@ class ApplyTests(Base):
         self.assertFalse(up.apply())
         self.assertEqual(up.status()["stage"], "error")
 
-    def test_apply_writes_marker_and_helper_and_spawns(self):
+    def test_apply_writes_marker_and_starts_the_new_exe_in_apply_mode(self):
         up = self.ready_updater()
         self.assertTrue(up.apply())
         updates = self.paths.updates_dir
@@ -474,21 +474,19 @@ class ApplyTests(Base):
             marker = json.load(fh)
         self.assertEqual(marker["version"], "2.1.0")
         self.assertAlmostEqual(marker["at"], time.time(), delta=60)
-        ((helper, env, cwd),) = self.spawned
-        self.assertEqual(helper, os.path.join(updates, "apply-update.cmd"))
+        ((exe, argv, env, cwd),) = self.spawned
+        self.assertEqual(exe, os.path.join(updates, "MediaSaver-2.1.0.exe"))
+        self.assertEqual(argv, ["--apply-update", str(os.getpid()), self.exe])
         self.assertEqual(cwd, updates)
-        self.assertEqual(env["MS_UPDATE_TARGET"], self.exe)
-        self.assertEqual(env["MS_UPDATE_NEW"], os.path.join(updates, "MediaSaver-2.1.0.exe"))
         self.assertEqual(env["PYINSTALLER_RESET_ENVIRONMENT"], "1")
-        with open(helper, "rb") as fh:
-            raw = fh.read()
-        raw.decode("ascii")
-        self.assertIn(b"\r\n", raw)
-        self.assertNotIn(b"\n", raw.replace(b"\r\n", b""))
-        text = raw.decode("ascii")
-        self.assertIn(f'tasklist.exe" /FI "PID eq {os.getpid()}"', text)
-        self.assertIn("start", text)
-        self.assertTrue(text.rstrip().endswith('del "%~f0"'))
+        self.assertFalse(any(k.upper().startswith("_PYI") for k in env))
+        self.assertFalse(os.path.exists(os.path.join(updates, "apply-update.cmd")))
+
+    def test_apply_without_launch_passes_the_flag(self):
+        up = self.ready_updater()
+        self.assertTrue(up.apply(launch=False))
+        ((_, argv, _, _),) = self.spawned
+        self.assertEqual(argv[-1], "--no-launch")
 
     def test_spawn_failure_reports_error_and_removes_the_marker(self):
         up = self.ready_updater()
@@ -548,61 +546,106 @@ class StartupTests(Base):
             up.startup()
 
 
-@unittest.skipUnless(sys.platform == "win32", "the helper is a Windows cmd script")
-class HelperScriptTests(Base):
-    def run_helper(self, launch=False, target=None, wait_for_pid=True):
-        target = target or os.path.join(self.tmp, "Target Dir (x86)", "MediaSaver.exe")
+class ApplyModeTests(Base):
+    """`run_apply`: the downloaded exe waits for the old process, swaps the file and restarts the app."""
+
+    def files(self, new_content=b"NEW"):
+        target = os.path.join(self.tmp, "Target Dir (x86)", "MediaSaver.exe")
         os.makedirs(os.path.dirname(target), exist_ok=True)
         with open(target, "wb") as fh:
             fh.write(b"OLD")
         new_file = os.path.join(self.paths.updates_dir, "MediaSaver-9.9.9.exe")
-        with open(new_file, "wb") as fh:
-            fh.write(b"NEW")
+        if new_content is not None:
+            with open(new_file, "wb") as fh:
+                fh.write(new_content)
+        return target, new_file, os.path.join(self.paths.updates_dir, "apply.log")
+
+    def test_waits_for_the_process_swaps_keeps_old_and_launches(self):
+        target, new_file, log_path = self.files()
         proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(2)"])
         self.addCleanup(proc.wait)
-        helper = selfupdate.write_helper(self.paths.updates_dir, proc.pid, launch=launch)
-        env = selfupdate.helper_env(target, new_file)
+        launched: list[tuple] = []
         started = time.time()
-        subprocess.run(["cmd.exe", "/c", helper], cwd=self.paths.updates_dir, env=env, stdin=subprocess.DEVNULL,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=90, check=False)
-        return target, new_file, helper, time.time() - started, proc
-
-    def test_helper_waits_swaps_keeps_old_and_deletes_itself(self):
-        target, new_file, helper, elapsed, proc = self.run_helper()
-        self.assertIsNotNone(proc.poll(), "the helper returned while the watched process was still running")
-        self.assertGreater(elapsed, 1.0)  # it did wait for the 2 s process
+        rc = selfupdate.run_apply([str(proc.pid), target], new_file=new_file, log_path=log_path,
+                                  launch=lambda t, env: launched.append((t, env)))
+        elapsed = time.time() - started
+        self.assertEqual(rc, 0)
+        self.assertIsNotNone(proc.poll(), "returned while the watched process was still running")
+        self.assertGreater(elapsed, 1.0)
         with open(target, "rb") as fh:
             self.assertEqual(fh.read(), b"NEW")
         with open(target + ".old", "rb") as fh:
             self.assertEqual(fh.read(), b"OLD")
-        self.assertFalse(os.path.exists(new_file))
-        self.assertFalse(os.path.exists(helper))
+        self.assertTrue(os.path.exists(new_file))  # the running copy stays; startup() of the new version removes it
+        ((t, env),) = launched
+        self.assertEqual(t, target)
+        self.assertEqual(env["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+        with open(log_path, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("exited", text)
+        self.assertIn("swap done", text)
+        self.assertIn("started the new exe", text)
 
-    def test_helper_restores_the_old_exe_when_the_new_file_is_missing(self):
-        target = os.path.join(self.tmp, "app2", "MediaSaver.exe")
-        os.makedirs(os.path.dirname(target))
-        with open(target, "wb") as fh:
-            fh.write(b"OLD")
+    def test_no_launch_flag_and_an_already_gone_pid(self):
+        target, new_file, log_path = self.files()
         proc = subprocess.Popen([sys.executable, "-c", "pass"])
         proc.wait()
-        helper = selfupdate.write_helper(self.paths.updates_dir, proc.pid, launch=False)
-        env = selfupdate.helper_env(target, os.path.join(self.paths.updates_dir, "does-not-exist.exe"))
-        subprocess.run(["cmd.exe", "/c", helper], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=60, check=False)
+        launched: list[tuple] = []
+        rc = selfupdate.run_apply([str(proc.pid), target, "--no-launch"], new_file=new_file, log_path=log_path,
+                                  launch=lambda t, env: launched.append((t, env)))
+        self.assertEqual(rc, 0)
+        self.assertEqual(launched, [])
+        with open(target, "rb") as fh:
+            self.assertEqual(fh.read(), b"NEW")
+
+    def test_restores_the_old_exe_when_the_new_file_is_missing(self):
+        target, new_file, log_path = self.files(new_content=None)
+        rc = selfupdate.run_apply(["1", target, "--no-launch"], new_file=new_file, log_path=log_path,
+                                  wait=lambda pid, t: True, launch=lambda t, env: None)
+        self.assertEqual(rc, 1)
         with open(target, "rb") as fh:
             self.assertEqual(fh.read(), b"OLD")
         self.assertFalse(os.path.exists(target + ".old"))
-        self.assertFalse(os.path.exists(helper))
+        with open(log_path, encoding="utf-8") as fh:
+            self.assertIn("swap failed, old exe kept", fh.read())
 
-    def test_helper_script_has_the_launch_line_only_when_asked(self):
-        self.assertIn('start "" /D', selfupdate.build_helper_script(123, launch=True))
-        self.assertNotIn("start ", selfupdate.build_helper_script(123, launch=False))
+    def test_bad_arguments(self):
+        _, new_file, log_path = self.files()
+        self.assertEqual(selfupdate.run_apply([], new_file=new_file, log_path=log_path), 1)
+        self.assertEqual(selfupdate.run_apply(["x", "y"], new_file=new_file, log_path=log_path), 1)
 
-    def test_helper_env_drops_pyinstaller_variables(self):
-        env = selfupdate.helper_env("T", "N", {"PATH": "p", "_PYI_APPLICATION_HOME_DIR": "x", "_MEIPASS2": "y"})
+    def test_launch_failure_is_reported(self):
+        target, new_file, log_path = self.files()
+
+        def boom(t, env):
+            raise OSError("no")
+        rc = selfupdate.run_apply(["1", target], new_file=new_file, log_path=log_path,
+                                  wait=lambda pid, t: True, launch=boom)
+        self.assertEqual(rc, 1)
+        with open(target, "rb") as fh:
+            self.assertEqual(fh.read(), b"NEW")  # the swap itself succeeded
+
+    def test_wait_for_pid(self):
+        proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1.5)"])
+        self.addCleanup(proc.wait)
+        self.assertFalse(selfupdate.wait_for_pid(proc.pid, 0.3))
+        self.assertTrue(selfupdate.wait_for_pid(proc.pid, 10))
+        self.assertTrue(selfupdate.wait_for_pid(proc.pid, 1))  # already gone
+
+    def test_clean_env_drops_pyinstaller_variables(self):
+        env = selfupdate.clean_env({"PATH": "p", "_PYI_APPLICATION_HOME_DIR": "x", "_MEIPASS2": "y"})
         self.assertEqual(env["PATH"], "p")
         self.assertNotIn("_PYI_APPLICATION_HOME_DIR", env)
         self.assertNotIn("_MEIPASS2", env)
+        self.assertEqual(env["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+
+
+class MainApplyModeTests(unittest.TestCase):
+    def test_main_routes_the_apply_flag_before_the_window(self):
+        from app import main as app_main
+        with mock.patch("app.core.selfupdate.run_apply", return_value=7) as run:
+            self.assertEqual(app_main.main(["--apply-update", "123", "C:\\x\\MediaSaver.exe"]), 7)
+        run.assert_called_once_with(["123", "C:\\x\\MediaSaver.exe"])
 
 
 if __name__ == "__main__":
