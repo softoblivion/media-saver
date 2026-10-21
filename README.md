@@ -283,6 +283,7 @@ Planned work is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 media-saver/
 ├── app/
 │   ├── core/            download engine (stdlib only): updater, self-update, queue, link cleaner (4 platforms), auth, settings, CLI
+│   ├── vendor/          bundled self-update package (stdlib only)
 │   ├── main.py          entry point: windows, single instance, engine lifecycle
 │   ├── bridge.py        JS ↔ Python API and event pump
 │   ├── login.py         Instagram sign-in window and cookie capture
