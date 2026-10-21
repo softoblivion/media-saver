@@ -47,14 +47,15 @@
 
 - **Best quality, no guesswork.** Every format the site offers is compared by resolution, frame rate and bitrate; video and audio are merged into one MP4, or the best audio track becomes an MP3.
 - **Links in, files out.** Messages, lists, glued-together URLs, Markdown, `.txt` files: everything is extracted, cleaned to canonical links and de-duplicated before it hits the queue.
-- **Keeps working when the sites change.** `yt-dlp`, `gallery-dl` and FFmpeg refresh themselves on every launch; the app itself updates from GitHub Releases after a size and SHA-256 check.
-- **Portable.** One `MediaSaver.exe`, one folder next to it. Move the folder, move the app. Nothing is written to the user profile.
+- **Keeps working when the sites change.** `yt-dlp`, `gallery-dl`, FFmpeg and the Deno runtime refresh themselves on every launch; the app itself updates from GitHub Releases after a size and SHA-256 check.
+- **Portable.** One `MediaSaver.exe`, one data folder next to it. Move the folder, move the app. Your videos go to `Videos\Media-Saver` or any folder you pick.
 
 ## Quick start
 
 1. Download [`MediaSaver.exe`](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe) and put it into a folder of its own, for example `D:\Apps\MediaSaver\`.
-2. Run it. The first start fetches the download engines (about 40 MB; FFmpeg only when none is on `PATH`).
-3. Paste links, press **Download**. Files land in `Downloads\` next to the exe.
+2. Run it. The first start fetches the download engines (about 80 MB; FFmpeg only when none is on `PATH`).
+3. Paste links, press **Download**. Files land in `Videos\Media-Saver`; change the folder from the queue header or
+   in Settings.
 
 **Requirements:** Windows 10 (1809+) or Windows 11 with the Microsoft Edge WebView2 Runtime (preinstalled on Windows 11
 and on up-to-date Windows 10). No installer, no admin rights.
@@ -100,6 +101,7 @@ On every launch a background updater runs before any job starts; links can be qu
 | `yt-dlp.exe` | GitHub releases of yt-dlp (nightly or stable) | Local SHA-256 compared with the release checksum file; `--update-to <channel>` or a verified fresh download |
 | `gallery-dl.exe` | Codeberg releases of gallery-dl | Same checksum comparison; built-in `-U` |
 | `ffmpeg.exe`, `ffprobe.exe` | System `PATH`, otherwise yt-dlp/FFmpeg-Builds (win64 GPL) | Own copy refreshed at most every 30 days |
+| `deno.exe` | System `PATH`, otherwise the official Deno release (win64) | JavaScript runtime for yt-dlp's YouTube extraction; SHA-256 verified; own copy refreshed at most every 30 days |
 | `MediaSaver.exe` | GitHub Releases of this repository | Checked on launch; size and SHA-256 verified against `SHA256SUMS`; swapped on restart |
 
 Without network access the app keeps working with the binaries it already has.
@@ -131,7 +133,7 @@ use the cookies of a browser chosen in Settings.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `output_dir` | `Downloads\` next to the exe | Destination folder |
+| `output_dir` | `%USERPROFILE%\Videos\Media-Saver` | Destination folder (the Windows Videos library, redirected or not) |
 | `filename_template` | `{author}_{shortcode}` | Tokens `{author}` `{shortcode}` `{date}` `{title}`; `{shortcode}` (the video id) is required |
 | `mode` | `instagram` | `instagram` or `youtube`: the platform shown in the window |
 | `format` | `mp4` | Default output format for new jobs, `mp4` or `mp3` |
@@ -287,6 +289,7 @@ Downloaded at runtime from their official release channels, not redistributed wi
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense |
 | [gallery-dl](https://codeberg.org/mikf/gallery-dl) | GPL-2.0 |
 | [FFmpeg](https://ffmpeg.org/) ([yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds)) | GPL |
+| [Deno](https://github.com/denoland/deno) | MIT |
 
 ## Disclaimer
 

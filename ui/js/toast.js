@@ -16,7 +16,7 @@ export function initToasts(el = document.getElementById('toasts')) {
 /**
  * Show a toast.
  * @param {'info'|'success'|'warning'|'error'} level
- * @param {string} text Russian text
+ * @param {string} text one short English sentence
  * @param {{action?:{label:string, run:Function}, ms?:number}} opts
  */
 export function toast(level, text, opts = {}) {

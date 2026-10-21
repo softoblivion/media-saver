@@ -802,12 +802,18 @@
 .step-btn:hover { background: var(--fill-4); }
 .step-btn:disabled { opacity: 0.3; cursor: default; }
 
+/* The number window clips the roll (overflow + paint containment) and softens its top and bottom
+   edges, so a digit in transit never draws outside the 30 px window. js/controls.js keeps at most
+   one outgoing and one incoming .step-num; at rest one span without inline styles remains. */
 .step-val {
   position: relative;
   width: 30px;
   height: 30px;
   overflow: hidden;
+  contain: paint;
   display: grid;
+  -webkit-mask-image: linear-gradient(transparent, #000 24%, #000 76%, transparent);
+  mask-image: linear-gradient(transparent, #000 24%, #000 76%, transparent);
 }
 
 .step-num {
@@ -816,6 +822,7 @@
   place-items: center;
   font: var(--w-title) 16px / 1 var(--font-display);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* ---------------------------------------------------------------------------------------------

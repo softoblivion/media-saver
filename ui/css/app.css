@@ -755,11 +755,96 @@ body:not(.is-ready) #app {
   flex: none;
 }
 
+/* "Open folder" split button: the main half opens the folder, the chevron half opens a two-item
+   menu (Open folder / Change folder...). One pill, one gel press for both halves, a hairline
+   between them. */
+.split {
+  display: inline-flex;
+  border-radius: var(--r-pill);
+}
+
+.split > .btn { position: relative; }
+.split-main { border-radius: var(--r-pill) 0 0 var(--r-pill); padding-right: 10px; }
+.split-more { border-radius: 0 var(--r-pill) var(--r-pill) 0; width: 28px; padding: 0 2px 0 0; }
+.split-more .ic { width: 14px; height: 14px; color: var(--ink-2); transition: rotate var(--t-fast) ease; }
+.split-more[aria-expanded="true"] .ic { rotate: 180deg; }
+.split-more[aria-expanded="true"] { background: var(--fill-3); }
+
+.split-more::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--stroke-2);
+}
+
+.split-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 8px);
+  right: 11px;
+  width: 272px;
+  padding: 6px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  --lite-tint: rgba(30, 32, 58, 0.97);
+  box-shadow: var(--shadow-m);
+  transform-origin: 90% 0;
+}
+
+.fm-where {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 8px;
+  margin-bottom: 4px;
+  border-bottom: 0.5px solid var(--stroke-2);
+  font: var(--t-meta);
+  color: var(--ink-3);
+}
+
+.fm-path {
+  font-family: var(--font-mono);
+  font-weight: 400;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Long paths lose their start, not the folder name: rtl puts the ellipsis on the left; the text
+     is wrapped in LRM marks by js/queue.js so the backslashes keep their places. */
+  direction: rtl;
+  text-align: left;
+}
+
+.fm-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font: var(--t-callout);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fm-item .ic { width: 16px; height: 16px; color: var(--ink-2); }
+.fm-item:hover,
+.fm-item:focus-visible { background: var(--fill-3); outline: none; }
+
 @container (max-width: 640px) {
   .q-title-wrap { flex-direction: column; gap: 2px; }
   .q-title { font-size: 17px; letter-spacing: -0.013em; }
   .q-actions .btn > span { display: none; }
   .q-actions .btn { width: 34px; padding: 0; }
+  .q-actions .split-main { width: 32px; padding: 0 0 0 2px; }
+  .q-actions .split-more { width: 24px; padding: 0 2px 0 0; }
 }
 
 /* Job card: cheap glass, rendered only near the viewport (content-visibility).

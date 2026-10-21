@@ -11,7 +11,9 @@ A Windows desktop app, shipped as one portable `MediaSaver.exe`, that:
 3. Shows a preview (thumbnail, title, author, duration) of every queued link before it downloads.
 4. Updates its download engines on every launch, so extractor breakage on the sites' side is fixed by upstream
    updates without a rebuild of the app, and updates itself from GitHub Releases.
-5. Keeps every file it writes next to its own exe (`media-saver_data\`, `Downloads\`): nothing lands in the user profile.
+5. Keeps every file it writes next to its own exe (`media-saver_data\`): nothing of the app's state lands in the
+   user profile. Saved videos go to the user's `Videos\Media-Saver` by default (the user picks another folder
+   in Settings).
 6. Has a Liquid Glass UI (refraction, specular highlights, spring motion) with English UI text and embedded fonts.
 
 ## 2. Stack and why
@@ -92,11 +94,14 @@ Module table (owner = the session that may write there during a task; see `_work
 - `logs/app.log` (rotating, 2 MB x 3), `logs/shell.log`, `logs/jobs/<job_id>.log` (full engine stderr of a failed job).
 - `webview/` — WebView2 profile (`storage_path`) of the sign-in window.
 - `updates/` — downloaded `MediaSaver-<version>.exe`, the swap helper, the "applied" marker.
-- default output dir: `<app dir>\Downloads` (`%MEDIA_SAVER_HOME%\Downloads` under the override).
+- default output dir: `<Videos>\Media-Saver` (the Windows known folder Videos, so a redirected or localized
+  library is followed; `%MEDIA_SAVER_HOME%\Downloads` under the override). This is the project's deliberate
+  deviation from the workspace rule "Portable projects" (the user's decision, 2026-10-20): the app's state is
+  portable, the user's videos belong with the user's videos.
 
 No path in the app depends on `%LOCALAPPDATA%`, `%USERPROFILE%` or a drive letter (workspace rule "Portable
 projects" in `_workspace/CONVENTIONS.md`). Moving the exe together with its `media-saver_data\` folder moves the
-whole app.
+whole app's state; the saved videos stay where the user chose.
 
 ## 5. Behaviour
 

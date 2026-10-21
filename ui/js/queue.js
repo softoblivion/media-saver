@@ -51,9 +51,10 @@ export function initQueue(state) {
   auth = state.auth || auth;
   progressEase = springEasing(SPRINGS.smooth);
   new Lens(head, 'capsule');
-  head.querySelectorAll('.btn').forEach((b) => gel(b));
+  // The split button squishes as one pill; its halves get no gel of their own.
+  head.querySelectorAll('.q-actions > .btn, .q-actions > .split').forEach((b) => gel(b));
   document.getElementById('btn-clear').addEventListener('click', clearFinished);
-  document.getElementById('btn-folder').addEventListener('click', () => call('open_output_dir').catch((e) => toast('error', e.message)));
+  initFolder(state.settings || {});
   renderEmpty();
 
   const frag = document.createDocumentFragment();
@@ -84,6 +85,118 @@ export function initQueue(state) {
     }
   }, 60000);
   renderHead();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Downloads folder: split button "Open folder" + chevron menu (Open folder / Change folder...)
+
+let outDir = '';
+let folderBtn, moreBtn, folderMenu;
+
+/** Last segment of a Windows path; a drive root stays as is ("E:\"). */
+function folderName(p) {
+  const s = String(p || '').replace(/[\\/]+$/, '');
+  const name = s.split(/[\\/]/).pop();
+  return name && !/^[A-Za-z]:$/.test(s) ? name : (s ? `${s}\\` : '');
+}
+
+function renderFolder() {
+  folderBtn.title = outDir || 'Open the downloads folder';
+  // LRM marks keep the backslashes in place inside the rtl box that ellipsizes the start.
+  folderMenu.querySelector('.fm-path').textContent = outDir ? `\u200E${outDir}\u200E` : '—';
+  folderMenu.querySelector('.fm-where').title = outDir;
+}
+
+function openFolder() {
+  call('open_output_dir').catch((e) => toast('error', e.message));
+}
+
+async function changeFolder() {
+  // The backend saves the choice and emits `settings`; the toast comes from that event.
+  try {
+    await call('choose_output_dir');
+  } catch (e) {
+    toast('error', e.message);
+  }
+}
+
+function folderItems() {
+  return Array.from(folderMenu.querySelectorAll('.fm-item'));
+}
+
+function onFolderOutside(e) {
+  if (!folderMenu.contains(e.target) && !moreBtn.contains(e.target)) closeFolderMenu(false);
+}
+
+function openFolderMenu(focusIndex = 0) {
+  if (!folderMenu.hidden) return;
+  folderMenu.hidden = false;
+  moreBtn.setAttribute('aria-expanded', 'true');
+  if (!reducedMotion.matches) {
+    springAnimate(folderMenu, [
+      { opacity: 0, transform: 'translateY(-6px) scale(.96)' },
+      { opacity: 1, transform: 'none' },
+    ], SPRINGS.snappy, { fill: 'none' });
+  }
+  const items = folderItems();
+  items[(focusIndex + items.length) % items.length].focus();
+  addEventListener('pointerdown', onFolderOutside, true);
+}
+
+function closeFolderMenu(refocus = true) {
+  if (folderMenu.hidden) return;
+  folderMenu.hidden = true;
+  moreBtn.setAttribute('aria-expanded', 'false');
+  removeEventListener('pointerdown', onFolderOutside, true);
+  if (refocus) moreBtn.focus();
+}
+
+function initFolder(settings) {
+  folderBtn = document.getElementById('btn-folder');
+  moreBtn = document.getElementById('btn-folder-more');
+  folderMenu = document.getElementById('folder-menu');
+  outDir = settings.output_dir || '';
+  renderFolder();
+
+  folderBtn.addEventListener('click', openFolder);
+  moreBtn.addEventListener('click', () => (folderMenu.hidden ? openFolderMenu(0) : closeFolderMenu()));
+  moreBtn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      openFolderMenu(e.key === 'ArrowDown' ? 0 : -1);
+    } else if (e.key === 'Escape' && !folderMenu.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeFolderMenu();
+    }
+  });
+  folderMenu.addEventListener('click', (e) => {
+    const b = e.target.closest('.fm-item');
+    if (!b) return;
+    closeFolderMenu();
+    if (b.dataset.act === 'open') openFolder();
+    if (b.dataset.act === 'change') changeFolder();
+  });
+  folderMenu.addEventListener('keydown', (e) => {
+    const items = folderItems();
+    const i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    else if (e.key === 'Home') { e.preventDefault(); items[0].focus(); }
+    else if (e.key === 'End') { e.preventDefault(); items[items.length - 1].focus(); }
+    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeFolderMenu(); }
+    else if (e.key === 'Tab') closeFolderMenu(false);
+  });
+
+  // A new folder (from this menu or from Settings) is confirmed once; the initial state is not.
+  on('settings', (s) => {
+    const next = (s && s.output_dir) || '';
+    if (!next || next === outDir) return;
+    const first = !outDir;
+    outDir = next;
+    renderFolder();
+    if (!first) toast('success', `Videos now go to ${folderName(next)}`);
+  });
 }
 
 // ---------------------------------------------------------------------------------------------

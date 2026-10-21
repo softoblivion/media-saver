@@ -154,6 +154,18 @@ Behaviours:
 - Segmented droplet: x and width springs; stretch `1 + |v|/2400` along the motion, thinner across it; lifts (scale +
   lensing) while pressed or dragged, can be dragged across options and snaps to the one under its centre.
 - Switch: thumb grows to a 40 px droplet while pressed and turns into a lens over the track, travels with `bouncy`.
+- Stepper (`Stepper` in `js/controls.js`, Settings "Simultaneous downloads"): the number rolls through a 30 px window
+  (`.step-val`: `overflow: hidden`, `contain: paint`, a mask that softens the top and bottom 24 %). The roll is a WAAPI
+  pair (outgoing up and out, faded by half the travel; incoming in from below, or the reverse for a decrease) with a
+  `linear()` easing from a critically damped spring (`response 0.26`, `damping 1`, about 0.4 s): no overshoot, so the
+  old digit never swings back into view. At most one outgoing and one incoming `.step-num` exist: a new step first
+  removes the previous outgoing span, cancels the running animations and lets the previous incoming span leave from
+  its current position and opacity; `whenDone` removes the outgoing span. At rest one span remains, with no inline
+  transform or opacity, in `tabular-nums`. Reduced motion swaps the text without travel. Keys on either button:
+  arrows and +/- step, Home / End jump to the limits; a button that turns disabled under focus hands focus to the
+  other one. (Earlier builds: the roll used a `bouncy` spring and picked the first span in the window as the outgoing
+  one, so a second click before rest left the previous incoming digit on screen for good: the doubled, smeared
+  number.) Settings saves of the stepper ignore older echoes while a save of the same key is in flight (section 7).
 - Sheets / popovers (`Overlay`): clip-path inset springs from the origin control's rect and radius to the full rect,
   overshoot becomes a slight stretch, content fades in after 35 %, lensing ramps up, scrim follows. Esc / outside click
   closes back into the origin; focus returns there.
@@ -210,9 +222,9 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
 | `js/update.js` | Version label, the update popover (`check_updates`, `download_update`, `apply_update`, event `update`), the one "available" toast, safe Markdown for release notes. |
 | `js/composer.js` | Input capsule, live clean preview for the mode, other-platform chips with "Switch to ...", counters, tools, Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), Ctrl+Enter, format toggle, `Download` morph with the liquid level (one batch per platform). |
 | `js/clipboard.js` | Clipboard prompt pill on start and on `window` focus when `clipboard_watch`; offers the mode's links, or the other platform's links with "Add to <platform>". |
-| `js/queue.js` | Queue header (counts of the mode), job cards of every platform (others `[hidden]`), preview skeleton, per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
+| `js/queue.js` | Queue header (counts of the mode, "Clear finished", the "Open folder" split button with its folder menu, `open_output_dir` / `choose_output_dir`, the "Videos now go to ..." toast on an `output_dir` change), job cards of every platform (others `[hidden]`), preview skeleton, per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
 | `js/settings.js`, `js/controls.js`, `js/overlay.js` | Settings sheet (no quality row: quality lives in the main window), Segmented (with `setDisabled`, `setOptionTitle`) / Switch / Stepper / Select / `formatToggleHtml`, sheet & popover morph. |
-| `js/toast.js`, `js/icons.js`, `js/format.js` | Toasts, original line icons (incl. `video`, `shorts`, `audio`, `swap`, `app`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes. |
+| `js/toast.js`, `js/icons.js`, `js/format.js` | Toasts, original line icons (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes. |
 | `assets/icon.svg`, `assets/icon-1024.png` | App icon: glass droplet with a down arrow (PNG rendered from the SVG with headless Edge). |
 
 ### 6.1 Placement decisions
@@ -241,6 +253,20 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
   |---|---|---|---|
   | Instagram | `low`: Low, `medium`: Medium, `max`: Max | "≤ 480p", "≤ 720p", "Best" | "Low: up to 480p, the smallest files", "Medium: up to 720p", "Max: the best the Reel has" |
   | YouTube | `360`: 360p, `720`: 720p, `max`: Max | "≤ 360p", "≤ 720p", "Best, up to 4K" | "360p: up to 360p, the smallest files", "720p: up to 720p", "Max: the best the video has, up to 4K", plus, while H.264 for editing is on, ". With H.264 for editing on, 1440p and 4K are converted to H.264, which takes minutes" |
+- Queue header row (`#q-head`, a capsule lens): title "Queue" and the counts of the mode on the left; on the right
+  the ghost button "Clear finished" and the downloads folder split button (`#folder-split`): the main half "Open
+  folder" (`open_output_dir()`, `title` = the current `output_dir`) and a 28 px chevron half ("Downloads folder
+  options", `aria-haspopup="menu"`, a hairline between the halves; the pill squishes as one gel). The chevron opens
+  `#folder-menu` (`.split-menu glass-lite`, 272 px, right-aligned 8 px under the header, transform-only drop-in): a
+  caption "Saving to" with the full path in mono (a longer path loses its start, not the folder name), then two items
+  "Open folder" and "Change folder…" (`choose_output_dir()`, the native dialog; the backend saves and emits
+  `settings`). Arrow keys move between items, ArrowDown / ArrowUp on the chevron open the menu, Esc closes it and
+  returns focus to the chevron, Tab or an outside click closes it. A split button rather than a second icon button:
+  one control keeps the "where do my videos go" job in one place, the main action stays one click, and below 640 px
+  of queue width (always the case at the 940 px minimum window) the buttons drop their labels, so the header gains
+  only 24 px (34 + 32 + 24 px of actions next to the counts). The Settings row "Downloads folder" (path + "Change…")
+  stays. Whatever route changes `output_dir`, the `settings` event updates the title, the menu caption and the
+  Settings row, and `js/queue.js` shows one toast "Videos now go to <folder name>"; the initial state never toasts.
 - Per-item format: queued cards show a compact fill toggle (`.fmt-toggle`, 22 px, CSS thumb, radio semantics, arrow
   keys) in the badge row that calls `set_job_format(id, format)` optimistically and reverts with a toast when the
   backend answers `null`; once the job leaves `queued` it becomes a static badge (`MP4` neutral, `MP3` violet).
@@ -293,7 +319,10 @@ everywhere.
   pywebview also drags from descendants of a drag element. Double-click on the drag area toggles maximize.
 - Every lens owns one `<filter>` element; destroy lenses (`lens.destroy()`) when removing their element (toasts do).
 - `mode`, `format`, `quality_instagram` and `quality_youtube` are written by `js/mode.js` only; while its own
-  `set_settings` is in flight it ignores the `settings` echo for that key, so fast toggling never flips back. The mock
+  `set_settings` is in flight it ignores the `settings` echo for that key, so fast toggling never flips back.
+  `js/settings.js` applies the same guard to its own controls (switches, segmented controls, the stepper, the
+  browser select): while a save of a key is in flight, neither its answer nor a `settings` event moves that control;
+  the answer of the last save sets it. The mock
   validates the quality values and picks the simulated resolution from the job's platform setting at start (Instagram
   480 / 720 / 1080; YouTube 360 / 720 / Max = 2160p for videos, which then always takes the H.264 pass while it is on,
   1080p for Shorts).
@@ -303,7 +332,7 @@ everywhere.
 ## 9. Copy and locale rules
 
 - The UI is English only (US). Buttons, labels and titles use sentence case: "Download", "Paste", "Clean links",
-  "Copy clean links", "Sign in to Instagram", "Clear finished", "Open folder", "Update now", "Check for updates",
+  "Copy clean links", "Sign in to Instagram", "Clear finished", "Open folder", "Change folder…", "Update now", "Check for updates",
   "Restart to update", "Try again". Platform and format names keep their own case: Instagram, YouTube, Reels, Shorts,
   MP4, MP3, H.264, FFmpeg.
 - Plurals go through `plural(n, [singular, plural])` in `js/format.js` ("1 link" / "2 links"); never hard-code a
@@ -339,5 +368,10 @@ everywhere.
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels and
   YouTube videos as MP4 or MP3"; switch "Check for updates on launch".
 - The runtime data folder is `media-saver_data\` (never `data\`) wherever copy or mock paths name it (mock log paths:
-  `D:\Apps\MediaSaver\media-saver_data\logs\jobs\<id>.log`); the mock's default output dir stays
-  `D:\Apps\MediaSaver\Downloads`.
+  `D:\Apps\MediaSaver\media-saver_data\logs\jobs\<id>.log`). The default output dir is the core's decision (the
+  user's Videos folder + `Media-Saver`, BRIDGE_API Settings); the UI only shows `Settings.output_dir`. The mock's
+  default is `C:\Users\user\Videos\Media-Saver`; its `choose_output_dir` alternates between `D:\Media\Saved videos`
+  and that default, so the toast, the "Open folder" title and the Settings row visibly change on every try.
+- Folder copy: menu caption "Saving to" + the path; items "Open folder", "Change folder…"; toast after a change
+  "Videos now go to <last path segment>" (a drive root shows as `E:\`); the chevron's label "Downloads folder
+  options" and title "Choose where videos are saved".

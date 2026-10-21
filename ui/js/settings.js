@@ -66,18 +66,30 @@ export function openSettings() {
   overlay.show(document.getElementById('btn-settings'));
 }
 
+// Saves in flight per setting key. While a local change is unconfirmed, the echo of an older value
+// (the answer or `settings` event of an earlier save) must not move the control back: rapid stepper
+// clicks would otherwise roll the number back and forth.
+const inflight = new Map();
+const busy = (k) => (inflight.get(k) || 0) > 0;
+
 async function save(patch, revert) {
+  const keys = Object.keys(patch);
+  keys.forEach((k) => inflight.set(k, (inflight.get(k) || 0) + 1));
+  let s = null;
+  let failed = null;
   try {
-    const s = await call('set_settings', patch);
-    if (s) {
-      S = s;
-      sync();
-    }
+    s = await call('set_settings', patch);
   } catch (err) {
-    toast('error', err.message || 'Could not save the setting');
-    revert && revert();
-    sync();
+    failed = err;
+  } finally {
+    keys.forEach((k) => inflight.set(k, inflight.get(k) - 1));
   }
+  if (failed) {
+    toast('error', failed.message || 'Could not save the setting');
+    revert && revert();
+  }
+  if (s) S = s;
+  sync();
 }
 
 function row(label, hint, controlHtml = '', cls = '') {
@@ -271,11 +283,11 @@ function sync() {
   const tpl = body.querySelector('[data-f="filename_template"]');
   if (document.activeElement !== tpl) tpl.value = S.filename_template || '';
   renderExample();
-  for (const f of SWITCHES) ctl[f].set(f === 'check_app_updates' ? S[f] !== false : !!S[f]);
-  ctl.update_channel.set(S.update_channel);
-  ctl.auth_mode.set(S.auth_mode || 'auto');
-  ctl.concurrency.set(S.concurrency);
-  ctl.browser_cookies.set(S.browser_cookies || '');
+  for (const f of SWITCHES) if (!busy(f)) ctl[f].set(f === 'check_app_updates' ? S[f] !== false : !!S[f]);
+  if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
+  if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
+  if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);
+  if (!busy('browser_cookies')) ctl.browser_cookies.set(S.browser_cookies || '');
 }
 
 function renderAuth() {

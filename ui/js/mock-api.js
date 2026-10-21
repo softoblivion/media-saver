@@ -221,7 +221,7 @@ const YT_TITLES = [
 ];
 
 const DEFAULT_SETTINGS = {
-  output_dir: 'D:\\Apps\\MediaSaver\\Downloads',
+  output_dir: 'C:\\Users\\user\\Videos\\Media-Saver',
   filename_template: '{author}_{shortcode}',
   mode: 'instagram',
   format: 'mp4',
@@ -779,11 +779,14 @@ export function createMock({ params, emit }) {
     },
     async open_file(id) { const j = job(id); toast('info', `(demo) Would open ${j.filepath?.split('\\').pop()}`); return true; },
     async reveal_file(id) { job(id); toast('info', '(demo) Would show the file in Explorer'); return true; },
-    async open_output_dir() { toast('info', '(demo) Would open the downloads folder'); return true; },
+    async open_output_dir() { toast('info', `(demo) Would open ${settings.output_dir}`); return true; },
     async open_logs() { toast('info', '(demo) Would open the logs folder'); return true; },
     async choose_output_dir() {
+      // The native dialog: alternates between a second plausible folder and the default one, so
+      // every try shows a change (toast, "Open folder" title, the settings row).
       await sleep(400);
-      settings.output_dir = 'E:\\Media\\Saved';
+      const other = 'D:\\Media\\Saved videos';
+      settings.output_dir = settings.output_dir === other ? DEFAULT_SETTINGS.output_dir : other;
       emit('settings', clone(settings));
       return settings.output_dir;
     },

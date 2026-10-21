@@ -206,7 +206,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
 ### Settings
 ```json
 {
-  "output_dir": "D:\\Apps\\MediaSaver\\Downloads",   // default: the Downloads folder next to MediaSaver.exe
+  "output_dir": "C:\\Users\\<user>\\Videos\\Media-Saver",   // default: the user's Videos folder + Media-Saver
   "filename_template": "{author}_{shortcode}",   // tokens: {author} {shortcode} {date} {title}; must contain {shortcode}
   "mode": "instagram",                           // Platform shown in the UI (persisted; each mode keeps its own queue view)
   "format": "mp4",                               // Format default for new jobs

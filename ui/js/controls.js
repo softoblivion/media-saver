@@ -2,10 +2,10 @@
 //  - Segmented: a droplet indicator that stretches with its velocity and lifts into refracting
 //    glass while pressed or dragged.
 //  - Switch: the thumb turns into a glass droplet while pressed, then springs across.
-//  - Stepper: +/- with a rolling number.
+//  - Stepper: +/- with a rolling number (critically damped, clipped, one outgoing + one incoming).
 //  - Select: a compact menu (used for the browser cookies choice).
 
-import { Spring, SPRINGS, clamp } from './motion.js';
+import { Spring, SPRINGS, clamp, springEasing, whenDone, reducedMotion } from './motion.js';
 import { Lens, gel } from './glass.js';
 import { icon } from './icons.js';
 import { escapeHtml } from './format.js';
@@ -246,6 +246,10 @@ export class Switch {
 // ---------------------------------------------------------------------------------------------
 // Stepper
 
+// The number roll is critically damped (no overshoot: a bouncing digit swings the old value back
+// into view) and short, so rapid clicks read as a quick count rather than a smear.
+const ROLL = { response: 0.26, damping: 1 };
+
 export class Stepper {
   constructor({ label, value, min, max, onChange }) {
     this.min = min;
@@ -261,17 +265,33 @@ export class Stepper {
       <span class="step-val" aria-live="polite"><span class="step-num">${value}</span></span>
       <button type="button" class="step-btn" data-d="1" aria-label="Increase">${icon('plus')}</button>`;
     this.val = el.querySelector('.step-val');
-    el.querySelectorAll('.step-btn').forEach((b) => {
+    this.btns = Array.from(el.querySelectorAll('.step-btn'));
+    this.btns.forEach((b) => {
       gel(b);
       b.addEventListener('click', () => this.set(this.value + Number(b.dataset.d), true));
+    });
+    // Keyboard on either button: arrows and +/- step, Home / End jump to the limits.
+    el.addEventListener('keydown', (e) => {
+      const k = e.key;
+      let v = null;
+      if (k === 'ArrowUp' || k === 'ArrowRight' || k === '+' || k === '=') v = this.value + 1;
+      else if (k === 'ArrowDown' || k === 'ArrowLeft' || k === '-' || k === '_') v = this.value - 1;
+      else if (k === 'Home') v = this.min;
+      else if (k === 'End') v = this.max;
+      if (v === null) return;
+      e.preventDefault();
+      this.set(v, true);
     });
     this._sync();
   }
 
   _sync() {
-    const [minus, plus] = this.el.querySelectorAll('.step-btn');
+    const [minus, plus] = this.btns;
+    const focused = this.btns.find((b) => b === document.activeElement);
     minus.disabled = this.value <= this.min;
     plus.disabled = this.value >= this.max;
+    // A button that turns disabled under focus would drop focus to <body>; hand it to the other one.
+    if (focused && focused.disabled) (focused === minus ? plus : minus).focus();
   }
 
   set(v, user = false) {
@@ -280,21 +300,50 @@ export class Stepper {
     const dir = v > this.value ? 1 : -1;
     this.value = v;
     this._sync();
-    // Rolling digits: the old number leaves upward (or downward), the new one rolls in.
-    const old = this.val.querySelector('.step-num');
+    this._roll(v, dir);
+    if (user) this.onChange && this.onChange(v);
+  }
+
+  /**
+   * Rolling number: the shown number leaves upward (or downward), the new one rolls in. Exactly one
+   * outgoing and one incoming span exist at any time. An interrupted roll is finished first: the
+   * previous outgoing span is removed and the previous incoming span leaves from where it is now,
+   * so rapid clicks never leave a stale digit behind. At rest there is one span with no inline
+   * transform or opacity (crisp text).
+   */
+  _roll(v, dir) {
+    const spans = Array.from(this.val.querySelectorAll('.step-num'));
+    const old = spans.pop();
+    spans.forEach((s) => s.remove());
+    let fromY = '0px';
+    let fromO = 1;
+    const running = old.getAnimations();
+    if (running.length) {
+      const cs = getComputedStyle(old);
+      fromY = `${(cs.transform && cs.transform !== 'none' ? new DOMMatrixReadOnly(cs.transform).m42 : 0).toFixed(2)}px`;
+      fromO = Number(cs.opacity);
+      running.forEach((a) => a.cancel());
+    }
+    if (reducedMotion.matches) {
+      old.textContent = String(v);
+      return;
+    }
+    old.setAttribute('aria-hidden', 'true');
     const neu = document.createElement('span');
     neu.className = 'step-num';
     neu.textContent = String(v);
     this.val.appendChild(neu);
-    const sp = new Spring(0, SPRINGS.bouncy, (p) => {
-      old.style.transform = `translateY(${(-dir * p * 100).toFixed(1)}%)`;
-      old.style.opacity = String(clamp(1 - p * 1.4, 0, 1));
-      neu.style.transform = `translateY(${(dir * (1 - p) * 100).toFixed(1)}%)`;
-      neu.style.opacity = String(clamp(p * 1.4, 0, 1));
-    });
-    sp.onRest = () => old.remove();
-    sp.to(1);
-    if (user) this.onChange && this.onChange(v);
+    const { easing, duration } = springEasing(ROLL);
+    old.animate([
+      { transform: `translateY(${fromY})`, opacity: fromO },
+      { opacity: 0, offset: 0.5 },
+      { transform: `translateY(${-dir * 100}%)`, opacity: 0 },
+    ], { duration, easing, fill: 'forwards' });
+    const anim = neu.animate([
+      { transform: `translateY(${dir * 100}%)`, opacity: 0 },
+      { transform: 'translateY(0)', opacity: 1 },
+    ], { duration, easing });
+    whenDone(anim, () => old.remove(), 100);
   }
 }
 

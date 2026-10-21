@@ -29,7 +29,7 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(d["format"], "mp4")
         self.assertTrue(d["check_app_updates"])
         self.assertEqual(d["concurrency"], 2)
-        self.assertTrue(d["output_dir"].endswith("Downloads"))
+        self.assertIn(os.path.basename(d["output_dir"]), ("Downloads", "Media-Saver"))  # override / Videos default
 
     def test_output_dir_is_portable(self):
         from app.core import paths as P
@@ -42,7 +42,10 @@ class SettingsTest(unittest.TestCase):
             root = P.default_root()
             self.assertEqual(os.path.basename(root), "media-saver_data")
             self.assertEqual(os.path.dirname(root), P.app_dir())
-            self.assertEqual(P.default_output_dir(), os.path.join(P.app_dir(), "Downloads"))
+            out = P.default_output_dir()
+            self.assertEqual(os.path.basename(out), "Media-Saver")
+            self.assertEqual(os.path.dirname(out), P.videos_dir())
+            self.assertTrue(os.path.isabs(out))
             for forbidden in (os.environ.get("LOCALAPPDATA", "<unset>"), os.environ.get("APPDATA", "<unset>")):
                 self.assertFalse(root.lower().startswith(forbidden.lower()))
         finally:
