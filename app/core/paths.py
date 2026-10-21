@@ -16,6 +16,8 @@ from __future__ import annotations
 import os
 import sys
 
+from ..vendor.selfupdate.fileio import atomic_write_bytes, atomic_write_json, atomic_write_text  # noqa: F401  (shared)
+
 DATA_DIR_NAME = "media-saver_data"  # <project>_data (workspace rule "Portable projects")
 DOWNLOADS_DIR_NAME = "Downloads"      # output folder under %MEDIA_SAVER_HOME% (tests, scratch runs)
 OUTPUT_DIR_NAME = "Media-Saver"       # subfolder of the user's Videos folder (default output)
@@ -43,39 +45,6 @@ def app_dir() -> str:
 def _ensure(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path
-
-
-def atomic_write_bytes(path: str, data: bytes) -> None:
-    """Write via <path>.tmp + os.replace so readers never see a half-written file."""
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    tmp = f"{path}.tmp"
-    with open(tmp, "wb") as fh:
-        fh.write(data)
-        fh.flush()
-        os.fsync(fh.fileno())
-    last_err: OSError | None = None
-    for _ in range(5):  # another process (antivirus, indexer) may hold the target briefly
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError as exc:
-            last_err = exc
-            import time
-            time.sleep(0.1)
-    try:
-        os.remove(tmp)
-    except OSError:
-        pass
-    raise last_err  # type: ignore[misc]
-
-
-def atomic_write_text(path: str, text: str) -> None:
-    atomic_write_bytes(path, text.encode("utf-8"))
-
-
-def atomic_write_json(path: str, obj) -> None:
-    import json
-    atomic_write_text(path, json.dumps(obj, ensure_ascii=False, indent=1))
 
 
 def default_root() -> str:
@@ -159,7 +128,7 @@ class AppPaths:
 
     @property
     def updates_dir(self) -> str:
-        """Downloaded application updates and the swap helper (app/core/selfupdate.py)."""
+        """Downloaded application updates, the apply marker and the apply log (app/core/selfupdate.py)."""
         return _ensure(os.path.join(self.root, "updates"))
 
     # --- files ---------------------------------------------------------------------------------------
