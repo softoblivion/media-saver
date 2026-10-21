@@ -1,4 +1,8 @@
-// en-US formatting helpers: plurals, sizes, speeds, durations, relative times.
+// en-US formatting helpers: plurals, sizes, speeds, durations, relative times, item nouns, short
+// links and link error notes per platform.
+
+// Used inside functions only, so the import cycle format -> mode -> toast -> format is harmless.
+import { PLATFORM_NAME } from './mode.js';
 
 /** plural(5, ['link', 'links']) -> 'links' */
 export function plural(n, forms) {
@@ -75,43 +79,52 @@ export function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
+// Chip notes per platform (docs/UI_DESIGN.md section 9). A link without a platform counts as Instagram.
+const NOTE_PATH = { instagram: 'not a Reel or post', youtube: 'not a video', tiktok: 'not a video', twitter: 'not a post' };
+const NOTE_ID = { instagram: 'no video code', youtube: 'no video ID', tiktok: 'no video ID', twitter: 'no post ID' };
+
 /** Short note next to an invalid link chip (CleanResult item error), by the item's platform. */
 export function linkError(item) {
-  const yt = item.platform === 'youtube';
+  const p = item.platform || 'instagram';
   switch (item.error) {
     case 'not_supported':
     case 'not_instagram':
       return 'not supported';
     case 'unsupported_path':
-      return yt ? 'not a video' : 'not a Reel or post';
+      return NOTE_PATH[p] || NOTE_PATH.instagram;
     case 'no_shortcode':
-      return yt ? 'no video ID' : 'no video code';
+      return NOTE_ID[p] || NOTE_ID.instagram;
     case 'other_platform':
-      return yt ? 'YouTube link' : 'Instagram link';
+      return PLATFORM_NAME[p] ? `${PLATFORM_NAME[p]} link` : 'other platform';
     default:
       return 'invalid';
   }
 }
 
-/** What one item is called on a platform: "Reel" / "Reels", "video" / "videos". */
+/** What one item is called on a platform: Instagram "Reel" / "Reels", the others "video" / "videos". */
 export function itemNoun(n, platform) {
-  return platform === 'youtube' ? plural(n, ['video', 'videos']) : plural(n, ['Reel', 'Reels']);
+  return (platform || 'instagram') === 'instagram' ? plural(n, ['Reel', 'Reels']) : plural(n, ['video', 'videos']);
 }
 
 /** "3 Reels", "1 video", "2 videos as MP3" (the format is named only when it is MP3). */
 export const nItems = (n, platform, format) => `${n} ${itemNoun(n, platform)}${format === 'mp3' ? ' as MP3' : ''}`;
 
-/** Canonical link without the scheme and host: "reel/<code>", "watch?v=<id>", "shorts/<id>". */
+// Short link forms by platform, then kind (the kind `video` exists on YouTube and TikTok).
+const SHORT = {
+  instagram: { reel: (c) => `reel/${c}`, p: (c) => `p/${c}` },
+  youtube: { video: (c) => `watch?v=${c}`, shorts: (c) => `shorts/${c}` },
+  tiktok: { video: (c) => `video/${c}`, share: (c) => `t/${c}` },
+  twitter: { post: (c) => `status/${c}` },
+};
+
+/**
+ * Canonical link without the scheme and host: "reel/<code>", "p/<code>", "watch?v=<id>",
+ * "shorts/<id>", "video/<id>" and "t/<code>" (TikTok), "status/<id>" (X).
+ */
 export function shortLink(item) {
   const code = item.shortcode || '';
-  switch (item.kind) {
-    case 'p': return `p/${code}`;
-    case 'reel': return `reel/${code}`;
-    case 'video': return `watch?v=${code}`;
-    case 'shorts': return `shorts/${code}`;
-    default: {
-      const u = String(item.clean || item.url || '');
-      return u.replace(/^https?:\/\/(www\.)?/i, '');
-    }
-  }
+  const form = (SHORT[item.platform || 'instagram'] || {})[item.kind];
+  if (code && form) return form(code);
+  const u = String(item.clean || item.url || '');
+  return u.replace(/^https?:\/\/(www\.)?/i, '');
 }

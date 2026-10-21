@@ -18,7 +18,7 @@ class SettingsTest(unittest.TestCase):
     def test_defaults_match_bridge_schema(self):
         d = S.defaults()
         self.assertEqual(set(d), {"output_dir", "filename_template", "mode", "format", "quality_instagram",
-                                  "quality_youtube", "h264_compat",
+                                  "quality_youtube", "quality_tiktok", "quality_twitter", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
                                   "auto_install_updates", "auth_mode", "browser_cookies", "clipboard_watch",
                                   "open_folder_when_done"})
@@ -62,6 +62,8 @@ class SettingsTest(unittest.TestCase):
         self.assertEqual(new["quality_instagram"], "medium")
         self.assertEqual(new["quality_youtube"], "720")
         self.assertEqual(new["concurrency"], 4)
+        four = S.apply_patch(S.defaults(), {"mode": "twitter", "quality_tiktok": "low", "quality_twitter": "medium"})
+        self.assertEqual((four["mode"], four["quality_tiktok"], four["quality_twitter"]), ("twitter", "low", "medium"))
         self.assertFalse(new["h264_compat"])
         self.assertEqual(new["output_dir"], os.path.normpath(self.tmp))
 
@@ -79,7 +81,8 @@ class SettingsTest(unittest.TestCase):
             {"concurrency": 0}, {"concurrency": 5}, {"concurrency": 2.5}, {"concurrency": True},
             {"quality_instagram": "4k"}, {"quality_instagram": "720"}, {"quality_youtube": "1080"},
             {"h264_compat": "yes"}, {"update_channel": "beta"}, {"auth_mode": "x"},
-            {"mode": "tiktok"}, {"format": "wav"}, {"auto_install_updates": 1},
+            {"mode": "vimeo"}, {"format": "wav"}, {"auto_install_updates": 1},
+            {"quality_tiktok": "720"}, {"quality_twitter": "1080"},
             {"browser_cookies": "safari"}, {"output_dir": ""}, {"output_dir": "relative\\dir"},
             {"filename_template": ""}, {"filename_template": "{author}"}, {"filename_template": "{foo}_{shortcode}"},
             {"filename_template": "a/b_{shortcode}"}, {"filename_template": "{shortcode}" + "x" * 120},

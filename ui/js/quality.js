@@ -1,7 +1,7 @@
 // Video quality in the main window: one Segmented per platform in the composer's spec row (above
 // the format toggle and Download), only the current mode's one visible, so each platform keeps its
 // own value and a mode switch swaps options and value at once. Values are Settings
-// `quality_instagram` / `quality_youtube`, written through js/mode.js (optimistic, reverted with a
+// `quality_<platform>` (instagram, youtube, tiktok, twitter), written through js/mode.js (optimistic, reverted with a
 // toast when refused, stale echoes ignored). MP3 ignores quality: the control stays in place,
 // dimmed and disabled, so the layout does not jump.
 
@@ -23,6 +23,16 @@ const OPTIONS = {
     { value: '360', label: '360p', hint: '≤ 360p', title: '360p: up to 360p, the smallest files' },
     { value: '720', label: '720p', hint: '≤ 720p', title: '720p: up to 720p' },
     { value: 'max', label: 'Max', hint: 'Best, up to 4K', title: 'Max: the best the video has, up to 4K' },
+  ],
+  tiktok: [
+    { value: 'low', label: 'Low', hint: '≤ 480p', title: 'Low: up to 480p, the smallest files' },
+    { value: 'medium', label: 'Medium', hint: '≤ 720p', title: 'Medium: up to 720p' },
+    { value: 'max', label: 'Max', hint: 'Best', title: 'Max: the best the video has, up to 1080p' },
+  ],
+  twitter: [
+    { value: 'low', label: 'Low', hint: '≤ 480p', title: 'Low: up to 480p, the smallest files' },
+    { value: 'medium', label: 'Medium', hint: '≤ 720p', title: 'Medium: up to 720p' },
+    { value: 'max', label: 'Max', hint: 'Best', title: 'Max: the best the post has, up to 1080p' },
   ],
 };
 const YT_MAX_H264 = 'Max: the best the video has, up to 4K. With H.264 for editing on, 1440p and 4K are converted to H.264, which takes minutes';

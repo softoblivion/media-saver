@@ -8,7 +8,7 @@
 import { call, on } from './api.js';
 import { Lens, gel } from './glass.js';
 import { SPRINGS, springAnimate, springEasing, whenDone, reducedMotion } from './motion.js';
-import { icon } from './icons.js';
+import { icon, kindGlyph } from './icons.js';
 import { bytes, speed, eta, duration, codec, escapeHtml, timeAgo, shortLink } from './format.js';
 import { toast } from './toast.js';
 import { setGhosts, activity } from './background.js';
@@ -16,7 +16,18 @@ import { formatToggleHtml } from './controls.js';
 import { getMode, onPref } from './mode.js';
 
 const ACTIVE = new Set(['queued', 'probing', 'downloading', 'processing']);
-const KIND_ICON = { reel: 'reel', p: 'post', video: 'video', shorts: 'shorts' };
+// Thumbnail box shape: YouTube videos and X posts are wide, Reels, Shorts and TikTok tall. X posts
+// mix landscape, square and vertical videos, so there the guess yields to the real ratio once it is
+// known (job width / height, else the thumbnail's own size).
+function shapeOf(platform, j, thumbRatio) {
+  if (platform === 'twitter') {
+    const r = j.width && j.height ? j.width / j.height : thumbRatio;
+    return r && r < 0.9 ? 'tall' : 'wide';
+  }
+  return platform === 'youtube' && j.kind === 'video' ? 'wide' : 'tall';
+}
+// The core gives handles on these platforms (shown with "@"); YouTube authors are channel names.
+const AT_AUTHOR = new Set(['instagram', 'tiktok', 'twitter']);
 
 const EMPTY_COPY = {
   instagram: {
@@ -27,9 +38,17 @@ const EMPTY_COPY = {
     title: 'No YouTube videos yet',
     text: 'Paste links to YouTube videos or Shorts on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download.',
   },
+  tiktok: {
+    title: 'No TikTok videos yet',
+    text: 'Paste TikTok video links on the left, full or short, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download.',
+  },
+  twitter: {
+    title: 'No X videos yet',
+    text: 'Paste links to X posts with a video on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves the videos as MP4 or MP3, in the quality you pick above Download.',
+  },
 };
 
-const jobs = new Map();   // id -> job (both platforms)
+const jobs = new Map();   // id -> job (every platform)
 const cards = new Map();  // id -> element
 let list, scroller, empty, head, counts;
 let auth = { logged_in: false };
@@ -293,12 +312,12 @@ function patch(el, j) {
   el.dataset.status = j.status;
   el.dataset.platform = platform;
   el.dataset.format = j.format || 'mp4';
-  el.dataset.shape = platform === 'youtube' && j.kind === 'video' ? 'wide' : 'tall';
+  el.dataset.shape = shapeOf(platform, j, st.thumbRatio);
   el.classList.toggle('is-active', ACTIVE.has(j.status));
   el.classList.toggle('is-pending', pending);
 
   // Thumbnail (or the kind / audio glyph while there is none)
-  const phIcon = mp3 ? 'audio' : KIND_ICON[j.kind] || (platform === 'youtube' ? 'video' : 'reel');
+  const phIcon = mp3 ? 'audio' : kindGlyph(platform, j.kind);
   if (st.ph !== phIcon) {
     st.ph = phIcon;
     el.querySelector('.jc-thumb-ph').innerHTML = icon(phIcon);
@@ -306,6 +325,11 @@ function patch(el, j) {
   const img = el.querySelector('.jc-thumb img');
   if (j.thumbnail && st.thumb !== j.thumbnail) {
     st.thumb = j.thumbnail;
+    img.onload = () => {
+      st.thumbRatio = img.naturalHeight ? img.naturalWidth / img.naturalHeight : null;
+      const j2 = jobs.get(el.dataset.id);
+      if (j2) el.dataset.shape = shapeOf(platformOf(j2), j2, st.thumbRatio);
+    };
     img.src = j.thumbnail;
     el.classList.add('has-thumb');
     if (prevStatus && !el.hidden) img.animate([{ opacity: 0, transform: 'scale(1.08)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
@@ -327,7 +351,7 @@ function patch(el, j) {
   }
   titleEl.title = j.title || j.url || '';
   const authorEl = el.querySelector('.jc-author');
-  const authorText = j.author ? (platform === 'instagram' ? `@${j.author}` : j.author) : titleMode === 'text' ? '' : titleMode === 'skeleton' ? link : '';
+  const authorText = j.author ? (AT_AUTHOR.has(platform) ? `@${j.author}` : j.author) : titleMode === 'text' ? '' : titleMode === 'skeleton' ? link : '';
   if (authorEl.textContent !== authorText) authorEl.textContent = authorText;
   authorEl.classList.toggle('is-link', !j.author && !!authorText);
   set(el, '.jc-time', timeAgo(j.finished_at || j.created_at));
@@ -388,7 +412,7 @@ function patch(el, j) {
   el.classList.toggle('has-error', !!showErr);
   if (showErr) {
     set(el, '.jc-err-text', j.error.message || 'Download failed');
-    // Sign-in exists for Instagram only; YouTube errors show the core's message as is.
+    // Sign-in exists for Instagram only; errors of the other platforms show the core's message as is.
     const igLogin = platform === 'instagram' && j.error.can_login;
     const canLogin = igLogin && !auth.logged_in;
     const key = `${canLogin}|${igLogin && auth.logged_in}|${!!j.error.log_path}`;

@@ -50,6 +50,21 @@ export function icon(name, cls = '') {
   return `<svg class="ic ${cls}" viewBox="0 0 24 24"${fill} stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
 
+// Kind glyph per platform: by platform first, because the kind `video` exists on YouTube (landscape)
+// and TikTok (vertical). Original line glyphs only; no platform logos or marks.
+const KIND_GLYPH = {
+  instagram: { reel: 'reel', p: 'post', _: 'reel' },
+  youtube: { video: 'video', shorts: 'shorts', _: 'video' },
+  tiktok: { video: 'shorts', share: 'shorts', _: 'shorts' },
+  twitter: { post: 'video', _: 'video' },
+};
+
+/** Glyph name for a link or job: kindGlyph('tiktok', 'video') -> 'shorts'; unknown kind -> the platform's default. */
+export function kindGlyph(platform, kind) {
+  const g = KIND_GLYPH[platform || 'instagram'] || KIND_GLYPH.instagram;
+  return g[kind] || g._;
+}
+
 /** The app glyph: a glass droplet with a down arrow (same drawing as assets/icon.svg, simplified). */
 export function appGlyph(size = 20) {
   return `<svg class="app-glyph" width="${size}" height="${size}" viewBox="0 0 64 64" aria-hidden="true">

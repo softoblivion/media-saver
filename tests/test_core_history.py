@@ -109,7 +109,7 @@ class HistoryTest(unittest.TestCase):
     def test_bad_values_in_v2_entries_fall_back(self):
         items = [{"id": "c0000001", "url": "https://www.youtube.com/shorts/aqz-KE-bpKQ", "shortcode": "aqz-KE-bpKQ",
                   "platform": "youtube", "kind": "weird", "format": "flac", "status": "done", "created_at": 1.0},
-                 {"id": "c0000002", "url": "https://x", "shortcode": "X", "platform": "tiktok", "status": "done",
+                 {"id": "c0000002", "url": "https://x", "shortcode": "X", "platform": "vimeo", "status": "done",
                   "created_at": 2.0}]
         with open(self.paths.history_file, "w", encoding="utf-8") as fh:
             json.dump({"version": 2, "jobs": items}, fh)

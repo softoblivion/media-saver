@@ -3,7 +3,7 @@
 Pipeline per job (ARCHITECTURE.md 5.2): probe with `yt-dlp -J` (or reuse the preview's info json) -> info json in
 cache/jobs/<id>/ -> thumbnail -> download with `--load-info-json` -> mp4: merge + optional H.264 pass, mp3: extract
 audio -> ffprobe the final file. Auth ladder per platform: Instagram walks anonymous -> session cookies -> browser
-cookies -> gallery-dl with the session; YouTube walks anonymous -> browser cookies.
+cookies -> gallery-dl with the session; YouTube, TikTok and X walk anonymous -> browser cookies.
 
 Preview (ARCHITECTURE.md 5.4): one daemon thread fetches the anonymous info json of queued jobs, one at a time,
 fills title / author / duration / thumbnail and sets `previewed`.
@@ -379,9 +379,10 @@ def mp3_stage_weights() -> dict[str, float]:
 ERROR_CODES = ("login_required", "private", "not_found", "rate_limited", "network", "engine_missing",
                "ffmpeg_missing", "extractor", "disk", "canceled", "unknown")
 
-PLATFORM_NAMES = {"instagram": "Instagram", "youtube": "YouTube"}
+PLATFORM_NAMES = {"instagram": "Instagram", "youtube": "YouTube", "tiktok": "TikTok", "twitter": "X"}
 
-# Instagram texts and the platform-neutral ones. YouTube jobs take YOUTUBE_MESSAGES first (see message_for).
+# Instagram texts and the platform-neutral ones. Jobs of another platform take that platform's table first
+# (PLATFORM_MESSAGES, see message_for), so no message of a job names a different site.
 MESSAGES = {
     "login_required": "Instagram won't show this video without signing in. Sign in to Instagram in the app.",
     "private": "This account is private: only followers can see the video.",
@@ -416,10 +417,41 @@ YOUTUBE_MESSAGES = {
 }
 
 
+TIKTOK_MESSAGES = {
+    "login_required": ("TikTok wants a signed-in browser for this video. "
+                       "Choose a browser in Settings > Browser cookies."),
+    "private": "This video is private or limited to the creator's friends.",
+    "not_found": "Video not found: it was deleted, is unavailable or the link is wrong.",
+    "no_video": "This TikTok is a photo post or has no video.",
+    "blocked": "TikTok does not serve this video to your network (region or IP block). Try another connection.",
+    "live": "TikTok LIVE streams are not supported.",
+    "rate_limited": ("TikTok has temporarily limited requests. Wait a while or choose a browser in "
+                     "Settings > Browser cookies."),
+    "network": "Can't reach TikTok. Check your internet connection.",
+    "extractor": "TikTok changed its site and the engine can't read it yet. Try again later.",
+}
+
+TWITTER_MESSAGES = {
+    "login_required": ("X shows this post only to signed-in users (age-restricted or sensitive content). "
+                       "Choose a browser in Settings > Browser cookies."),
+    "private": "This account is protected or suspended: the post is not public.",
+    "not_found": "Post not found: it was deleted, is unavailable or the link is wrong.",
+    "no_video": "This post has no video.",
+    "live": "X live broadcasts and Spaces are not supported.",
+    "rate_limited": ("X has temporarily limited requests. Wait a while or choose a browser in "
+                     "Settings > Browser cookies."),
+    "network": "Can't reach X. Check your internet connection.",
+    "extractor": "X changed its site and the engine can't read it yet. Try again later.",
+}
+
+PLATFORM_MESSAGES = {"youtube": YOUTUBE_MESSAGES, "tiktok": TIKTOK_MESSAGES, "twitter": TWITTER_MESSAGES}
+
+
 def message_for(key: str, platform: str | None = "instagram") -> str:
-    """User-facing text of a message key for a job of `platform`; never names the other platform."""
-    if platform == "youtube" and key in YOUTUBE_MESSAGES:
-        return YOUTUBE_MESSAGES[key]
+    """User-facing text of a message key for a job of `platform`; never names another platform."""
+    table = PLATFORM_MESSAGES.get(platform or "")
+    if table and key in table:
+        return table[key]
     return MESSAGES[key]
 
 
@@ -436,6 +468,34 @@ YOUTUBE_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p,
     ("not_found", "not_found", r"Video unavailable|This video is not available|This video is unavailable"
                                r"|has been removed|no longer available|has been terminated"
                                r"|not made this video available|is not available in your country"),
+]]
+
+# TikTok-only patterns, same position as the YouTube ones. Texts from yt-dlp's TikTok extractor (2026-10).
+TIKTOK_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p, re.I)) for c, m, p in [
+    ("not_found", "blocked", r"IP address is blocked|not available in your (country|region)|geo.?restricted"
+                             r"|region.?lock"),
+    ("private", "private", r"Video is private|This post is private|private video|friends.only|only visible to"),
+    ("login_required", "login_required", r"requires? (a )?log.?in|log in to view|Sign in to|age.restricted"
+                                         r"|login.required|Use --cookies"),
+    ("not_found", "live", r"is a live|live stream|LIVE room"),
+    ("not_found", "no_video", r"photo (post|slideshow)|image (post|slideshow)|no video in this post"
+                              r"|Unsupported post type"),
+    ("not_found", "not_found", r"Video not available|video has been removed|has been deleted|Unable to find video"
+                               r"|This video is unavailable|item does not exist|status_code: 100"),
+]]
+
+# X-only patterns, same position. Texts from yt-dlp's Twitter extractor (2026-10).
+TWITTER_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p, re.I)) for c, m, p in [
+    ("login_required", "login_required", r"NSFW tweet requires authentication|requires authentication"
+                                         r"|age.restricted|Sign in to|login required|requires? (a )?log.?in"
+                                         r"|Use --cookies"),
+    ("private", "private", r"protected tweet|protected account|suspended account|account (is|has been) suspended"
+                           r"|This account is private"),
+    ("not_found", "live", r"broadcast|live stream|is live|Spaces? (is|are) not|audio space"),
+    ("not_found", "no_video", r"No video could be found in this tweet|has no video|contains no video"
+                              r"|tweet does not contain|only images"),
+    ("not_found", "not_found", r"tweet is unavailable|Tweet not found|No status found|has been deleted|does not exist"
+                               r"|Sorry, that page does not exist|Could not find tweet|no longer available"),
 ]]
 
 # (code, message key, pattern). First match wins; matched against ERROR lines first, then the whole text.
@@ -472,9 +532,14 @@ ERROR_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [(c, m, re.compile(p, r
 _ERROR_LINE_RE = re.compile(r"^(ERROR:|.*\[error\])", re.I)
 
 
+PLATFORM_PATTERNS = {"youtube": YOUTUBE_PATTERNS, "tiktok": TIKTOK_PATTERNS, "twitter": TWITTER_PATTERNS}
+
+
 def _patterns_for(platform: str | None) -> list[tuple[str, str, re.Pattern[str]]]:
-    if platform == "youtube":
-        return ERROR_PATTERNS[:2] + YOUTUBE_PATTERNS + ERROR_PATTERNS[2:]
+    """Disk and ffmpeg rows first, then the platform's own rows, then the shared table."""
+    own = PLATFORM_PATTERNS.get(platform or "")
+    if own:
+        return ERROR_PATTERNS[:2] + own + ERROR_PATTERNS[2:]
     return ERROR_PATTERNS
 
 
@@ -527,24 +592,41 @@ def _first_line(text: str | None) -> str:
     return ""
 
 
+_TCO_RE = re.compile(r"\s*https?://t\.co/\S+")
+
+
 def _info_platform(info: dict[str, Any]) -> str:
     key = str(info.get("extractor_key") or info.get("extractor") or "").lower()
-    return "youtube" if key.startswith("youtube") else "instagram"
+    for prefix, platform in (("youtube", "youtube"), ("tiktok", "tiktok"), ("twitter", "twitter")):
+        if key.startswith(prefix):
+            return platform
+    return "instagram"
 
 
 def meta_from_info(info: dict[str, Any], platform: str | None = None) -> dict[str, Any]:
     """Author, title, date, duration from a yt-dlp info dict.
 
     Instagram: author = username (`channel`), title = first caption line. YouTube: author = channel name, title =
-    the video title (the description is free text there).
+    the video title (the description is free text there). TikTok: author = the @handle (`uploader`; `channel` is
+    the display name, `uploader_id` a number), title = first caption line. X: author = the @handle
+    (`uploader_id`; `uploader` is the display name), title = the post text without its trailing t.co link
+    (yt-dlp's `title` is "<display name> - <text>").
     """
     platform = platform or _info_platform(info)
-    author = (info.get("channel") or info.get("uploader_id") or info.get("uploader")
-              or ("youtube" if platform == "youtube" else "instagram"))
+    if platform == "tiktok":
+        author = info.get("uploader") or info.get("channel") or info.get("uploader_id") or "tiktok"
+    elif platform == "twitter":
+        author = info.get("uploader_id") or info.get("uploader") or info.get("channel") or "x"
+    else:
+        author = (info.get("channel") or info.get("uploader_id") or info.get("uploader")
+                  or ("youtube" if platform == "youtube" else "instagram"))
     if isinstance(author, str) and author.isdigit() and info.get("uploader"):
         author = info.get("uploader")
     if platform == "youtube":
         title = _first_line(info.get("title")) or _first_line(info.get("fulltitle")) or ""
+    elif platform == "twitter":
+        text = _TCO_RE.sub("", str(info.get("description") or "")).strip()
+        title = _first_line(text) or _first_line(info.get("title")) or ""
     else:
         title = _first_line(info.get("description")) or info.get("title") or ""
     if len(title) > 200:
@@ -593,12 +675,15 @@ def unique_path(path: str) -> str:
 # Format selection
 # =====================================================================================================
 
-# Short-side caps per platform setting (`quality_instagram` / `quality_youtube`); None = best available.
+# Short-side caps per platform setting (`quality_<platform>`); None = best available.
 QUALITY_CAPS = {
     "instagram": {"low": 480, "medium": 720, "max": None},
     "youtube": {"360": 360, "720": 720, "max": None},
+    "tiktok": {"low": 480, "medium": 720, "max": None},
+    "twitter": {"low": 480, "medium": 720, "max": None},
 }
-QUALITY_SETTING = {"instagram": "quality_instagram", "youtube": "quality_youtube"}
+QUALITY_SETTING = {"instagram": "quality_instagram", "youtube": "quality_youtube", "tiktok": "quality_tiktok",
+                   "twitter": "quality_twitter"}
 CAP_TOLERANCE = 1.02  # a cap keeps near-cap streams (Instagram serves 716x1274 next to 720x1280, 1088x1936 next to 1080x1920)
 
 
@@ -612,14 +697,19 @@ def _is_avc(vcodec: str | None) -> bool:
 
 
 def _usable_format(f: dict) -> bool:
-    """Skips DRM formats and YouTube storyboards (mhtml image sheets)."""
+    """Skips DRM formats, YouTube storyboards (mhtml image sheets) and TikTok's watermarked copy."""
+    note = str(f.get("format_note") or "").lower()
     return (bool(f.get("format_id")) and not f.get("has_drm") and f.get("ext") != "mhtml"
-            and "storyboard" not in str(f.get("format_note") or "").lower())
+            and "storyboard" not in note and "watermark" not in note)
 
 
 def _is_video(f: dict) -> bool:
-    return (f.get("vcodec") not in (None, "none") and bool(f.get("height") or f.get("width"))
-            and _usable_format(f))
+    """A format with a video codec, or one with a picture size whose codecs are unknown (X's progressive `http-*`
+    mp4 files report neither `vcodec` nor `acodec`; they are muxed H.264 + AAC)."""
+    if not (bool(f.get("height") or f.get("width")) and _usable_format(f)):
+        return False
+    vcodec = f.get("vcodec")
+    return vcodec not in (None, "none") or (vcodec is None and f.get("acodec") is None)
 
 
 def _is_audio_only(f: dict) -> bool:
@@ -627,7 +717,9 @@ def _is_audio_only(f: dict) -> bool:
 
 
 def _has_audio(f: dict) -> bool:
-    return f.get("acodec") not in (None, "none")
+    """Unknown codecs on both sides (X's `http-*` files) count as a muxed file with audio."""
+    acodec = f.get("acodec")
+    return acodec not in (None, "none") or (acodec is None and f.get("vcodec") is None)
 
 
 def _direct(f: dict) -> int:
@@ -704,7 +796,9 @@ def select_formats(info: dict[str, Any], platform: str, quality: str, h264_compa
         pool = within or [min(videos, key=_vkey)]
     best = max(pool, key=_vkey)
     chosen = best
-    if h264_compat and not _is_avc(best.get("vcodec")):
+    # An unknown codec (X's progressive files, H.264 in practice) is not swapped for an HLS AVC rendition and
+    # announces no H.264 pass: `_finalize` probes the downloaded file and converts only when it is not AVC.
+    if h264_compat and best.get("vcodec") is not None and not _is_avc(best.get("vcodec")):
         same = [f for f in pool if _is_avc(f.get("vcodec"))
                 and _area(f) >= _area(best) * 0.98 and (f.get("fps") or 0) >= (best.get("fps") or 0) - 1]
         if same:
@@ -715,7 +809,7 @@ def select_formats(info: dict[str, Any], platform: str, quality: str, h264_compa
     vid = chosen["format_id"]
     spec = f"{vid}+{audio['format_id']}/{vid}" if audio else vid
     spec += "/bv*+ba/b"
-    needs = bool(h264_compat and not _is_avc(chosen.get("vcodec")))
+    needs = bool(h264_compat and chosen.get("vcodec") is not None and not _is_avc(chosen.get("vcodec")))
     return FormatChoice(spec, [], chosen, audio, needs)
 
 
@@ -730,9 +824,9 @@ class Rung:
 
 
 def plan_ladder(auth_mode: str, has_session: bool, browser: str, platform: str = "instagram") -> list[Rung]:
-    """Rungs to try in order. YouTube: anonymous, then browser cookies when a browser is chosen (`auth_mode` and
-    the Instagram session do not apply). Instagram: see docs/ENGINE.md section 5."""
-    if platform == "youtube":
+    """Rungs to try in order. YouTube, TikTok and X: anonymous, then browser cookies when a browser is chosen
+    (`auth_mode` and the Instagram session do not apply). Instagram: see docs/ENGINE.md section 5."""
+    if platform != "instagram":
         return [Rung("yt-dlp", "anonymous")] + ([Rung("yt-dlp", "browser")] if browser else [])
     if auth_mode == "never":
         return [Rung("yt-dlp", "anonymous")]
@@ -860,9 +954,10 @@ RUNNING = ("probing", "downloading", "processing")
 FINISHED = ("done", "error", "canceled")
 HISTORY_LIMIT = 300
 HISTORY_VERSION = 2
-JOB_PLATFORMS = ("instagram", "youtube")
+JOB_PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 JOB_FORMATS = ("mp4", "mp3")
-JOB_KINDS = {"instagram": ("reel", "p"), "youtube": ("video", "shorts")}
+JOB_KINDS = {"instagram": ("reel", "p"), "youtube": ("video", "shorts"), "tiktok": ("video", "share"),
+             "twitter": ("post",)}
 
 PUBLIC_FIELDS = ("id", "url", "shortcode", "platform", "kind", "format", "status", "stage_text", "progress",
                  "speed_bps", "eta_s", "previewed", "title", "author", "duration_s", "thumbnail", "width", "height",
@@ -873,6 +968,10 @@ PUBLIC_FIELDS = ("id", "url", "shortcode", "platform", "kind", "format", "status
 def _kind_from_url(url: str, platform: str) -> str:
     if platform == "youtube":
         return "shorts" if "/shorts/" in url else "video"
+    if platform == "tiktok":
+        return "video" if "/video/" in url else "share"
+    if platform == "twitter":
+        return "post"
     return "p" if "/p/" in url else "reel"
 
 
@@ -1923,7 +2022,8 @@ class Downloader:
         return dst
 
     def _make_thumbnail(self, job: Job, info: dict, job_dir: str, src_name: str = "thumb_src") -> None:
-        """Fetch the poster (Instagram jpg, YouTube webp / jpg), scale to <= 480 px wide as JPEG, keep it in
+        """Fetch the poster (Instagram jpg, YouTube webp / jpg, TikTok and X jpg), scale to <= 480 px wide as JPEG,
+        keep it in
         cache/thumbs and send it as a data URL. Without ffmpeg a raw poster under 400 KB is kept as is."""
         url = info.get("thumbnail")
         if not url:

@@ -43,9 +43,12 @@ body:not(.is-ready) #app {
   text-shadow: var(--ink-shadow);
 }
 
-/* Mode switch (Instagram / YouTube): a sibling of the drag region, never inside it. */
+/* Mode switch (Instagram / YouTube / TikTok / X): a sibling of the drag region, never inside it.
+   Four full labels are about 280 px wide; at the 940 px minimum window about 135 px stay free before
+   the right cluster (docs/UI_DESIGN.md 6.1). */
 .tb-mode {
   position: relative;
+  flex: none;
   margin-left: 14px;
   display: flex;
   align-items: center;
@@ -232,13 +235,15 @@ body:not(.is-ready) #app {
   min-width: 0;
 }
 
+/* The chip shrinks only as far as its note or switch action needs (both are flex: none), so long
+   ids such as TikTok and X ids stay readable; the text ellipsizes when the row is really full. */
 .pv-chip {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 7px;
   height: 30px;
   min-width: 0;
-  max-width: calc(100% - 96px);
   padding: 0 12px 0 8px;
   border-radius: var(--r-pill);
   background: var(--fill-2);
@@ -302,9 +307,8 @@ body:not(.is-ready) #app {
 .pv-item.is-invalid .pv-ic { color: var(--rose); }
 .pv-item.is-dup { opacity: 0.55; }
 
-/* A valid link of the other platform: neutral chip, short clean form, inline switch action. */
+/* A valid link of another platform: neutral chip, short clean form, inline switch action. */
 .pv-item.is-other .pv-chip {
-  max-width: calc(100% - 150px);
   background: rgba(255, 196, 87, 0.09);
   box-shadow: inset 0 0 0 0.5px rgba(255, 210, 130, 0.3);
 }
@@ -360,7 +364,7 @@ body:not(.is-ready) #app {
 }
 
 .cmp-preview.is-empty .pv-hint { display: flex; }
-.pv-hint code { font-size: 11.5px; color: var(--ink-3); }
+.pv-hint code { font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
 
 .pv-hint-art {
   display: flex;
@@ -875,7 +879,8 @@ body:not(.is-ready) #app {
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 4px 10px -4px rgba(0, 0, 0, 0.5);
 }
 
-/* YouTube videos (not Shorts) are landscape. */
+/* YouTube videos (not Shorts) and X posts are landscape (an X post with a vertical video turns tall
+   once its size is known, js/queue.js). */
 .jcard[data-shape="wide"] .jc-thumb {
   flex-basis: 132px;
   height: 74px;

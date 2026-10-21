@@ -27,7 +27,7 @@ from typing import Any, Callable, Optional
 
 EmitFn = Callable[[str, dict], None]
 
-PLATFORMS = ("instagram", "youtube")
+PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 FORMATS = ("mp4", "mp3")
 FAKE_UPDATE_ENV = "MEDIA_SAVER_FAKE_UPDATE"
 FAKE_UPDATE_NOTES = (
@@ -41,6 +41,16 @@ _IG_RE = re.compile(
 _YT_WATCH_RE = re.compile(r"https?://(?:www\.|m\.|music\.)?youtube\.com/watch\?(?:[^\s]*&)?v=([A-Za-z0-9_-]{11})", re.IGNORECASE)
 _YT_SHORTS_RE = re.compile(r"https?://(?:www\.|m\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11})", re.IGNORECASE)
 _YT_SHORT_RE = re.compile(r"https?://youtu\.be/([A-Za-z0-9_-]{11})", re.IGNORECASE)
+_TT_VIDEO_RE = re.compile(r"https?://(?:www\.|m\.)?tiktok\.com/@([\w.-]*)/video/(\d{15,25})(?!\d)", re.IGNORECASE)
+_TT_SHORT_HOST_RE = re.compile(r"https?://(vm|vt)\.tiktok\.com/([A-Za-z0-9]{6,20})(?![A-Za-z0-9])", re.IGNORECASE)
+_TT_SHARE_RE = re.compile(r"https?://(?:www\.|m\.)?tiktok\.com/t/([A-Za-z0-9]{6,20})(?![A-Za-z0-9])", re.IGNORECASE)
+_X_POST_RE = re.compile(
+    r"https?://(?:www\.|m\.|mobile\.)?(?:x|twitter)\.com/(?:i/web|([A-Za-z0-9_]{1,15}))/status(?:es)?/(\d{10,25})(?!\d)",
+    re.IGNORECASE,
+)
+_KNOWN_HOST_RE = re.compile(
+    r"^(?:https?://)?(?:[a-z0-9-]+\.)*(?:tiktok\.com|x\.com|twitter\.com|t\.co)(?:[/?#:]|$)", re.IGNORECASE
+)
 
 
 class FakePaths:
@@ -95,7 +105,43 @@ def _match_link(token: str) -> Optional[tuple[str, str, str, str]]:
     m = _YT_WATCH_RE.search(token) or _YT_SHORT_RE.search(token)
     if m:
         return "youtube", "video", m.group(1), f"https://www.youtube.com/watch?v={m.group(1)}"
+    m = _TT_VIDEO_RE.search(token)
+    if m:
+        return "tiktok", "video", m.group(2), f"https://www.tiktok.com/@{m.group(1)}/video/{m.group(2)}"
+    m = _TT_SHORT_HOST_RE.search(token)
+    if m:
+        host = m.group(1).lower()
+        return "tiktok", "share", m.group(2), f"https://{host}.tiktok.com/{m.group(2)}"
+    m = _TT_SHARE_RE.search(token)
+    if m:
+        return "tiktok", "share", m.group(1), f"https://www.tiktok.com/t/{m.group(1)}"
+    m = _X_POST_RE.search(token)
+    if m:
+        return "twitter", "post", m.group(2), f"https://x.com/{m.group(1) or 'i'}/status/{m.group(2)}"
     return None
+
+
+_EXTRACTOR_MESSAGES = {
+    "youtube": "YouTube changed something and the video could not be read. Try again later.",
+    "tiktok": "TikTok changed something and the video could not be read. Try again later.",
+    "twitter": "X changed something and the video could not be read. Try again later.",
+}
+
+
+def _demo_author(platform: str, code: str) -> str:
+    if platform == "tiktok":
+        return "demo_tt_" + code[:4].lower()
+    if platform == "twitter":
+        return "demo_x_" + code[:4].lower()
+    return ("demo_" + code[:4].lower()) if platform == "instagram" else "Demo Channel"
+
+
+def _demo_title(platform: str, code: str) -> str:
+    if platform == "tiktok":
+        return f"Demo TikTok {code}"
+    if platform == "twitter":
+        return f"Demo post {code}"
+    return f"Demo {'reel' if platform == 'instagram' else 'video'} {code}"
 
 
 def _bump_minor(version: str) -> str:
@@ -125,6 +171,8 @@ class FakeEngine:
             "format": "mp4",
             "quality_instagram": "max",
             "quality_youtube": "max",
+            "quality_tiktok": "max",
+            "quality_twitter": "max",
             "h264_compat": True,
             "skip_existing": True,
             "concurrency": 2,
@@ -219,7 +267,8 @@ class FakeEngine:
             found = _match_link(token)
             if found is None:
                 lowered = token.lower()
-                known_host = "instagram.com" in lowered or "youtube.com" in lowered or "youtu.be" in lowered
+                known_host = ("instagram.com" in lowered or "youtube.com" in lowered or "youtu.be" in lowered
+                              or bool(_KNOWN_HOST_RE.match(lowered)))
                 is_url = lowered.startswith(("http://", "https://")) or known_host
                 if not is_url:
                     continue
@@ -329,9 +378,9 @@ class FakeEngine:
             job = self._jobs.get(job_id)
             if job is None or job["status"] != "queued":
                 return
-        author = ("demo_" + code[:4].lower()) if platform == "instagram" else "Demo Channel"
+        author = _demo_author(platform, code)
         self._update_job(
-            job_id, previewed=True, title=f"Demo {'reel' if platform == 'instagram' else 'video'} {code}",
+            job_id, previewed=True, title=_demo_title(platform, code),
             author=author, duration_s=round(self._rnd.uniform(12, 95), 1),
             thumbnail=_thumbnail_data_uri(sum(map(ord, code))),
         )
@@ -364,7 +413,9 @@ class FakeEngine:
         time.sleep(0.8)
         if canceled():
             return self._finish_canceled(job_id)
-        author = self._jobs[job_id]["author"] if job_id in self._jobs and self._jobs[job_id]["author"] else "demo_" + code[:4].lower()
+        author = self._jobs[job_id]["author"] if job_id in self._jobs and self._jobs[job_id]["author"] else None
+        if not author:
+            author = _demo_author(platform, code) if platform in ("tiktok", "twitter") else "demo_" + code[:4].lower()
         if "fail" in code.lower():
             instagram = platform == "instagram"
             self._update_job(
@@ -375,7 +426,7 @@ class FakeEngine:
                 error={
                     "code": "login_required" if instagram else "extractor",
                     "message": ("Instagram won't show this video without signing in. Sign in to Instagram in the app."
-                                if instagram else "YouTube changed something and the video could not be read. Try again later."),
+                                if instagram else _EXTRACTOR_MESSAGES.get(platform, _EXTRACTOR_MESSAGES["youtube"])),
                     "can_login": instagram and not self.auth_status()["logged_in"],
                     "log_path": str(self.paths.logs_dir / f"{job_id}.log"),
                 },
@@ -385,7 +436,7 @@ class FakeEngine:
         meta: dict[str, Any] = {"acodec": "mp3" if mp3 else "aac"}
         if not mp3:
             meta.update(width=1080, height=1920, fps=30)
-        self._update_job(job_id, title=f"Demo {'reel' if platform == 'instagram' else 'video'} {code}", author=author, **meta)
+        self._update_job(job_id, title=_demo_title(platform, code), author=author, **meta)
         total = 3_456_789 if mp3 else 12_345_678
         steps = 24
         for i in range(steps):
@@ -485,6 +536,10 @@ class FakeEngine:
                 raise ValueError("Invalid Instagram quality.")
             if "quality_youtube" in patch and patch["quality_youtube"] not in ("360", "720", "max"):
                 raise ValueError("Invalid YouTube quality.")
+            if "quality_tiktok" in patch and patch["quality_tiktok"] not in ("low", "medium", "max"):
+                raise ValueError("Invalid TikTok quality.")
+            if "quality_twitter" in patch and patch["quality_twitter"] not in ("low", "medium", "max"):
+                raise ValueError("Invalid X quality.")
             if "mode" in patch and patch["mode"] not in PLATFORMS:
                 raise ValueError("Invalid mode.")
             if "format" in patch and patch["format"] not in FORMATS:

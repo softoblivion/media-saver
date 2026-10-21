@@ -2,17 +2,18 @@
 // Ctrl+V anywhere, drag and drop of text / URLs / .txt files, the format toggle (MP4 / MP3) and the
 // primary "Download" button that morphs into a circle while sending and into a progress pill while
 // the batch downloads. Everything follows the current mode (js/mode.js): links are cleaned for that
-// platform, links of the other platform get an inline "Switch to ..." action.
+// platform, links of another platform get an inline "Switch to <their platform>" action and one
+// counter pill per platform present ("2 TikTok", "1 X").
 
 import { call, on } from './api.js';
 import { Lens, gel, shake } from './glass.js';
 import { Spring, SPRINGS, clamp, springAnimate, springEasing, whenDone } from './motion.js';
-import { icon } from './icons.js';
-import { escapeHtml, nLinks, nItems, plural, speed as fmtSpeed, linkError, shortLink } from './format.js';
+import { icon, kindGlyph } from './icons.js';
+import { escapeHtml, nLinks, nItems, plural, itemNoun, speed as fmtSpeed, linkError, shortLink } from './format.js';
 import { toast } from './toast.js';
 import { topOverlay } from './overlay.js';
 import { Segmented } from './controls.js';
-import { getMode, getFormat, setMode, setFormat, onPref, otherPlatform, PLATFORM_NAME } from './mode.js';
+import { getMode, getFormat, setMode, setFormat, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
 
 const MAX_CHIPS = 80;
 const EMPTY = { items: [], clean_text: '', valid: 0, invalid: 0, duplicates: 0 };
@@ -33,9 +34,21 @@ const COPY = {
     empty: 'Paste YouTube links. Ctrl+V works anywhere in the window',
     none: 'No YouTube video or Shorts links found here',
   },
+  tiktok: {
+    label: 'TikTok links',
+    placeholder: 'Paste TikTok video links, full or short, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window.',
+    hint: 'Your links will appear here, already cleaned: just <code>tiktok.com/@user/video/id</code> or <code>vm.tiktok.com/code</code>, no tails like <code>?is_from_webapp=</code>',
+    empty: 'Paste TikTok links. Ctrl+V works anywhere in the window',
+    none: 'No TikTok video links found here',
+  },
+  twitter: {
+    label: 'X links',
+    placeholder: 'Paste links to X posts with a video, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window.',
+    hint: 'Your links will appear here, already cleaned: just <code>x.com/user/status/id</code>, no tails like <code>?s=20&amp;t=</code>',
+    empty: 'Paste X links. Ctrl+V works anywhere in the window',
+    none: 'No X post links found here',
+  },
 };
-
-const KIND_ICON = { reel: 'reel', p: 'post', video: 'video', shorts: 'shorts' };
 
 let root, input, preview, counters, btn, lens, formatSeg;
 let result = EMPTY;
@@ -43,7 +56,7 @@ let seq = 0;
 let debounce = 0;
 const chips = new Map();          // key -> element
 // Jobs added from this composer since the batch began, one batch per platform.
-const batches = { instagram: new Map(), youtube: new Map() };
+const batches = Object.fromEntries(PLATFORMS.map((p) => [p, new Map()]));
 let btnState = 'empty';
 let doneMode = null;
 let doneTimer = 0;
@@ -56,6 +69,16 @@ export function initComposer() {
   input = document.getElementById('links-input');
   preview = document.getElementById('preview');
   counters = document.getElementById('counters');
+  // One "other platform" pill per platform ("2 TikTok", "1 X"), cloned from the markup's template;
+  // the current mode's own pill never shows.
+  const otherTpl = counters.querySelector('[data-c="other"]');
+  for (const p of PLATFORMS) {
+    const el = otherTpl.cloneNode(true);
+    el.dataset.c = `other-${p}`;
+    el.querySelector('span').textContent = PLATFORM_NAME[p];
+    otherTpl.before(el);
+  }
+  otherTpl.remove();
   btn = document.getElementById('btn-download');
   lens = new Lens(root, 'panel');
 
@@ -197,12 +220,21 @@ function renderAll() {
   renderButton();
 }
 
-/** Links of the other platform in the current result (valid links, counted as invalid). */
-function otherCount() {
-  const seen = new Set();
-  for (const it of result.items) if (it.error === 'other_platform' && it.clean) seen.add(it.clean);
-  return seen.size;
+/**
+ * Links of other platforms in the current result (valid links, counted as invalid): distinct clean
+ * links per platform, platforms with the most links first. [[platform, n], ...]
+ */
+function otherCounts() {
+  const seen = new Map();
+  for (const it of result.items) {
+    if (it.error !== 'other_platform' || !it.clean || !it.platform) continue;
+    if (!seen.has(it.platform)) seen.set(it.platform, new Set());
+    seen.get(it.platform).add(it.clean);
+  }
+  return Array.from(seen, ([p, s]) => [p, s.size]).sort((a, b) => b[1] - a[1] || PLATFORMS.indexOf(a[0]) - PLATFORMS.indexOf(b[0]));
 }
+
+const otherTotal = (counts) => counts.reduce((s, [, n]) => s + n, 0);
 
 // ---------------------------------------------------------------------------------------------
 // Counters
@@ -210,7 +242,8 @@ function otherCount() {
 function renderCounters() {
   const r = result;
   const has = !!input.value.trim();
-  const other = otherCount();
+  const others = otherCounts();
+  const other = otherTotal(others);
   const set = (name, n, text) => {
     const el = counters.querySelector(`[data-c="${name}"]`);
     const show = name === 'valid' ? has : n > 0;
@@ -226,7 +259,8 @@ function renderCounters() {
   set('valid', r.valid, 'ready');
   set('invalid', Math.max(0, r.invalid - other), 'invalid');
   set('dup', r.duplicates, plural(r.duplicates, ['duplicate', 'duplicates']));
-  set('other', other, PLATFORM_NAME[otherPlatform(getMode())]);
+  const byPlatform = new Map(others);
+  for (const p of PLATFORMS) set(`other-${p}`, p === getMode() ? 0 : byPlatform.get(p) || 0, PLATFORM_NAME[p]);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -292,9 +326,10 @@ function makeChip({ it, dup }) {
   el.className = `pv-item ${ok ? 'is-valid' : other ? 'is-other' : 'is-invalid'} ${dup ? 'is-dup' : ''}`;
   el.title = it.clean ? `${it.original}\n→ ${it.clean}` : it.original;
   const orig = it.original.replace(/^https?:\/\/(www\.)?/i, '');
-  const ic = it.clean ? KIND_ICON[it.kind] || 'link' : 'link';
+  const ic = it.clean ? kindGlyph(it.platform, it.kind) : 'link';
   if (other) {
-    const name = PLATFORM_NAME[it.platform] || 'the other mode';
+    // The action names the chip's own platform (items with `other_platform` carry it).
+    const name = PLATFORM_NAME[it.platform] || 'its mode';
     el.innerHTML = `
       <div class="pv-chip">
         <span class="pv-ic">${icon(ic)}</span>
@@ -325,7 +360,7 @@ function updateNote(el, { it, dup }) {
   else if (dup) text = 'duplicate';
   else {
     const cut = it.original.length - it.clean.length;
-    text = cut > 0 ? `−${cut} chars` : 'clean';
+    text = cut > 0 ? `−${cut} ${plural(cut, ['char', 'chars'])}` : 'clean';
   }
   if (note.textContent !== text) note.textContent = text;
 }
@@ -439,10 +474,16 @@ export async function download() {
     await refresh();
     if (!result.valid) {
       shake(root);
-      const n = otherCount();
+      const others = otherCounts();
+      const n = otherTotal(others);
       if (n) {
-        const o = otherPlatform(mode);
-        return toast('warning', `${n === 1 ? 'This is a' : 'These are'} ${PLATFORM_NAME[o]} ${plural(n, ['link', 'links'])}`,
+        // One platform: "These are TikTok links"; several: "These are TikTok and X links". The
+        // action switches to the platform with the most links.
+        const o = others[0][0];
+        const names = others.map(([p]) => PLATFORM_NAME[p]);
+        const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+        const lead = n === 1 ? (/^[AEIOUX]/.test(list) ? 'This is an' : 'This is a') : 'These are';
+        return toast('warning', `${lead} ${list} ${plural(n, ['link', 'links'])}`,
           { action: { label: `Switch to ${PLATFORM_NAME[o]}`, run: () => setMode(o) }, ms: 6000 });
       }
       return toast('warning', COPY[mode].none);
@@ -569,8 +610,7 @@ function setButton(state) {
 /** "Download 3 Reels", "Download video", "Download 2 as MP3". */
 function readyLabel(n, mode, format) {
   if (format === 'mp3') return n === 1 ? 'Download as MP3' : `Download ${n} as MP3`;
-  if (mode === 'youtube') return n === 1 ? 'Download video' : `Download ${n} videos`;
-  return n === 1 ? 'Download Reel' : `Download ${n} Reels`;
+  return n === 1 ? `Download ${itemNoun(1, mode)}` : `Download ${n} ${itemNoun(n, mode)}`;
 }
 
 function renderButton() {
@@ -589,7 +629,7 @@ function renderButton() {
     const doneN = jobs.filter((j) => !ACTIVE.has(j.status)).length;
     const p = jobs.reduce((s, j) => s + (ACTIVE.has(j.status) ? j.progress || 0 : 1), 0) / jobs.length;
     const bps = jobs.reduce((s, j) => s + (j.status === 'downloading' && j.speed_bps ? j.speed_bps : 0), 0);
-    const one = jobs[0] && jobs[0].format === 'mp3' ? 'Downloading audio' : mode === 'youtube' ? 'Downloading video' : 'Downloading Reel';
+    const one = jobs[0] && jobs[0].format === 'mp3' ? 'Downloading audio' : `Downloading ${itemNoun(1, mode)}`;
     btn.querySelector('.pm-ptext').textContent = jobs.length === 1 ? one : `Downloading ${Math.min(doneN + 1, jobs.length)} of ${jobs.length}`;
     btn.querySelector('.pm-pmeta').textContent = bps ? fmtSpeed(bps) : `${Math.round(p * 100)}%`;
     btn.style.setProperty('--p', p.toFixed(4));

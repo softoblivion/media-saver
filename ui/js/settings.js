@@ -1,8 +1,8 @@
 // Settings sheet: every Settings field of BRIDGE_API with English labels, the Instagram block
 // (shown in Instagram mode only), engine versions and the About block with the app version and
 // updates. Grows out of the gear button; changes are saved immediately through set_settings and
-// reverted with a toast when the backend rejects them. `mode`, `format`, `quality_instagram` and
-// `quality_youtube` are set from the main window (js/mode.js, js/quality.js), not here.
+// reverted with a toast when the backend rejects them. `mode`, `format` and the `quality_<platform>`
+// keys are set from the main window (js/mode.js, js/quality.js), not here.
 
 import { call, on } from './api.js';
 import { gel } from './glass.js';
@@ -158,7 +158,7 @@ function build() {
         <h3>About</h3>
         <div class="set-card">
           <div class="set-row">
-            <div class="set-label"><span>Media Saver <b class="app-ver"></b></span><small>Downloads Instagram Reels and YouTube videos as MP4 or MP3</small></div>
+            <div class="set-label"><span>Media Saver <b class="app-ver"></b></span><small>Downloads Instagram Reels, YouTube, TikTok and X videos as MP4 or MP3</small></div>
             <div class="set-ctl">
               <button type="button" class="btn btn-s" data-act="check-updates">${icon('refresh')}<span>Check for updates</span></button>
             </div>
@@ -264,13 +264,21 @@ function renderMode() {
   renderExample();
 }
 
+// File name example per mode: a platform-typical author and media id.
+const EXAMPLE = {
+  instagram: ['studio.lumen', 'DAbC123xYz_'],
+  youtube: ['Lumen Studio', 'dQ4w9WgXcQ0'],
+  tiktok: ['studio.lumen', '7106594312292453675'],
+  twitter: ['studio_lumen', '1577855540407197696'],
+};
+
 function renderExample() {
   const input = body.querySelector('[data-f="filename_template"]');
   const tpl = input.value || '{author}_{shortcode}';
-  const yt = getMode() === 'youtube';
+  const [author, code] = EXAMPLE[getMode()] || EXAMPLE.instagram;
   const ex = tpl
-    .replaceAll('{author}', yt ? 'Lumen Studio' : 'studio.lumen')
-    .replaceAll('{shortcode}', yt ? 'dQ4w9WgXcQ0' : 'DAbC123xYz_')
+    .replaceAll('{author}', author)
+    .replaceAll('{shortcode}', code)
     .replaceAll('{date}', new Date().toISOString().slice(0, 10))
     .replaceAll('{title}', 'Morning light');
   body.querySelector('.tpl-example').textContent = `${ex}.${getFormat() === 'mp3' ? 'mp3' : 'mp4'}`;

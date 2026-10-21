@@ -106,7 +106,7 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((only_ig["valid"], only_ig["invalid"]), (1, 1))
         self.assertEqual(only_ig["items"][0]["error"], "other_platform")
         with self.assertRaises(ValueError):
-            self.engine.clean_links(text, "tiktok")
+            self.engine.clean_links(text, "vimeo")
         self.engine.set_settings({"format": "mp3"})
         res2 = self.engine.enqueue("https://www.instagram.com/reel/DQCkNLtgqEe")
         self.assertEqual(res2["added"][0]["format"], "mp3")

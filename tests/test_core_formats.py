@@ -296,7 +296,7 @@ class JobTableTest(CoreTestBase, unittest.TestCase):
 
     def test_add_validates(self):
         with self.assertRaises(ValueError):
-            self.dl.add(YT_URL, "aqz-KE-bpKQ", "tiktok", "video", "mp4")
+            self.dl.add(YT_URL, "aqz-KE-bpKQ", "vimeo", "video", "mp4")
         with self.assertRaises(ValueError):
             self.dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "reel", "mp4")
         with self.assertRaises(ValueError):

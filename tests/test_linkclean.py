@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import time
 import unittest
@@ -342,7 +343,376 @@ class MixedPlatformTests(unittest.TestCase):
 
     def test_unknown_platform(self):
         with self.assertRaises(ValueError):
-            clean_text(R, "tiktok")
+            clean_text(R, "vimeo")
+
+
+TTID = "7106594312292453675"
+TTID2 = "7201234567890123456"
+TTV = f"https://www.tiktok.com/@tiktok/video/{TTID}"
+TTN = f"https://www.tiktok.com/@/video/{TTID}"
+TTS = "https://vm.tiktok.com/ZMabcdEF1"
+
+# (raw, clean, kind, error); every row is a TikTok link (platform "tiktok")
+TIKTOK_CASES = [
+    # full URLs
+    (f"https://www.tiktok.com/@tiktok/video/{TTID}?is_from_webapp=1&sender_device=pc&web_id=7123456789012345678",
+     TTV, "video", None),
+    (f"https://www.tiktok.com/@tiktok/video/{TTID}/", TTV, "video", None),
+    (f"https://www.tiktok.com/@tiktok/video/{TTID}", TTV, "video", None),
+    (f"tiktok.com/@tiktok/video/{TTID}", TTV, "video", None),
+    (f"www.tiktok.com/@tiktok/video/{TTID}?_r=1&_t=8abcDEF", TTV, "video", None),
+    (f"http://m.tiktok.com/@tiktok/video/{TTID}", TTV, "video", None),
+    (f"https://TIKTOK.COM/@tiktok/video/{TTID}?lang=en", TTV, "video", None),
+    (f"https://www.tiktok.com/@tiktok/video/{TTID}#frag", TTV, "video", None),
+    (f"https://www.tiktok.com/@tiktok/video/{TTID}/?a=1#frag", TTV, "video", None),
+    (f"https://www.tiktok.com//@tiktok//video//{TTID}//", TTV, "video", None),
+    (f"https://www.tiktok.com/%40tiktok/video/{TTID}", TTV, "video", None),
+    (f"https://www.tiktok.com/@User.Name-1_x/video/{TTID}", f"https://www.tiktok.com/@User.Name-1_x/video/{TTID}",
+     "video", None),
+    (f"https://www.tiktok.com/@tiktok/Video/{TTID}", TTV, "video", None),
+    (f"https://www.tiktok.com/@tiktok/VIDEO/{TTID}", TTV, "video", None),
+    ("https://www.tiktok.com/@tiktok/video/" + "1" * 15, "https://www.tiktok.com/@tiktok/video/" + "1" * 15,
+     "video", None),
+    ("https://www.tiktok.com/@tiktok/video/" + "9" * 25, "https://www.tiktok.com/@tiktok/video/" + "9" * 25,
+     "video", None),
+    # forms without a user
+    (f"https://www.tiktok.com/@/video/{TTID}", TTN, "video", None),
+    (f"https://www.tiktok.com/video/{TTID}", TTN, "video", None),
+    (f"https://www.tiktok.com/embed/{TTID}", TTN, "video", None),
+    (f"https://www.tiktok.com/embed/v2/{TTID}", TTN, "video", None),
+    (f"https://www.tiktok.com/EMBED/V2/{TTID}?lang=en", TTN, "video", None),
+    (f"https://m.tiktok.com/v/{TTID}.html", TTN, "video", None),
+    (f"https://m.tiktok.com/v/{TTID}.html?u_code=abc&share_app_id=1233", TTN, "video", None),
+    (f"m.tiktok.com/v/{TTID}", TTN, "video", None),
+    # share links
+    ("https://vm.tiktok.com/ZMabcdEF1/", TTS, "share", None),
+    ("https://vm.tiktok.com/ZMabcdEF1", TTS, "share", None),
+    ("vm.tiktok.com/ZMabcdEF1/?foo=bar", TTS, "share", None),
+    ("https://VM.TIKTOK.COM/ZMabcdEF1", TTS, "share", None),
+    ("https://vt.tiktok.com/ZSabc12345/", "https://vt.tiktok.com/ZSabc12345", "share", None),
+    ("http://vt.tiktok.com/ZSabc12345#x", "https://vt.tiktok.com/ZSabc12345", "share", None),
+    ("https://www.tiktok.com/t/ZT8abcdef/", "https://www.tiktok.com/t/ZT8abcdef", "share", None),
+    ("tiktok.com/t/ZT8abcdef?lang=en", "https://www.tiktok.com/t/ZT8abcdef", "share", None),
+    ("https://m.tiktok.com/t/ZT8abcdef", "https://www.tiktok.com/t/ZT8abcdef", "share", None),
+    ("https://tiktok.com/T/ZT8abcdef", "https://www.tiktok.com/t/ZT8abcdef", "share", None),
+    ("https://vm.tiktok.com/abcdef", "https://vm.tiktok.com/abcdef", "share", None),
+    ("https://vm.tiktok.com/" + "A" * 20, "https://vm.tiktok.com/" + "A" * 20, "share", None),
+    # unsupported paths and hosts
+    ("https://www.tiktok.com", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/", None, None, "unsupported_path"),
+    ("https://vm.tiktok.com", None, None, "unsupported_path"),
+    ("https://vt.tiktok.com/", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/@tiktok", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/@tiktok/?lang=en", None, None, "unsupported_path"),
+    (f"https://www.tiktok.com/@tiktok/photo/{TTID}", None, None, "unsupported_path"),
+    (f"https://www.tiktok.com/photo/{TTID}", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/music/Original-Sound-6812345678901234567", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/tag/cats", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/discover", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/discover/funny-cats", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/live", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/@tiktok/live", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/search?q=cats", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/foryou", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/following", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/explore", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/upload", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/login", None, None, "unsupported_path"),
+    ("https://www.tiktok.com/legal/terms", None, None, "unsupported_path"),
+    (f"https://www.tiktok.com/@us$er/video/{TTID}", None, None, "unsupported_path"),
+    (f"https://ads.tiktok.com/video/{TTID}", None, None, "unsupported_path"),
+    ("https://business.tiktok.com/", None, None, "unsupported_path"),
+    # missing or malformed id / code
+    ("https://www.tiktok.com/@tiktok/video/", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video/?lang=en", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video/abc", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video/12345", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video/" + "1" * 14, None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video/" + "1" * 26, None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@tiktok/video/71065943122924x3675", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/@/video/", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/video/", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/embed/", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/embed/v2/", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/embed/abc", None, None, "no_shortcode"),
+    ("https://m.tiktok.com/v/", None, None, "no_shortcode"),
+    ("https://m.tiktok.com/v/abc.html", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/t/", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/t/abc", None, None, "no_shortcode"),
+    ("https://www.tiktok.com/t/" + "a" * 21, None, None, "no_shortcode"),
+    ("https://vm.tiktok.com/abc", None, None, "no_shortcode"),
+    ("https://vm.tiktok.com/ab$cdefg", None, None, "no_shortcode"),
+    ("https://vt.tiktok.com/" + "a" * 21, None, None, "no_shortcode"),
+]
+
+
+class TikTokLinkTests(unittest.TestCase):
+    def test_table(self):
+        self.assertGreaterEqual(len(TIKTOK_CASES), 60)
+        for raw, clean, kind, error in TIKTOK_CASES:
+            with self.subTest(raw=raw):
+                res = clean_link(raw)
+                self.assertEqual(res.original, raw)
+                self.assertEqual(res.clean, clean)
+                self.assertEqual(res.kind, kind)
+                self.assertEqual(res.error, error)
+                self.assertEqual(res.platform, "tiktok")
+                if clean:
+                    self.assertEqual(res.shortcode, clean.rsplit("/", 1)[1])
+                else:
+                    self.assertIsNone(res.shortcode)
+
+    def test_case_handling(self):
+        self.assertEqual(clean_link("https://VM.TikTok.com/ZmAbCdEf1").clean, "https://vm.tiktok.com/ZmAbCdEf1")
+        self.assertEqual(clean_link(f"https://www.tiktok.com/@MixedCase/video/{TTID}").clean,
+                         f"https://www.tiktok.com/@MixedCase/video/{TTID}")
+
+    def test_extract_scheme_less_and_glued(self):
+        text = (f"a tiktok.com/@tiktok/video/{TTID}?lang=en, b vm.tiktok.com/ZMabcdEF1! c www.tiktok.com/t/ZT8abcdef."
+                f" d m.tiktok.com/v/{TTID}.html [md](https://vt.tiktok.com/ZSabc12345/)"
+                f"https://www.tiktok.com/@tiktok/video/{TTID2}https://vm.tiktok.com/ZMabcdEF1")
+        self.assertEqual(extract_candidates(text), [
+            f"tiktok.com/@tiktok/video/{TTID}?lang=en",
+            "vm.tiktok.com/ZMabcdEF1",
+            "www.tiktok.com/t/ZT8abcdef",
+            f"m.tiktok.com/v/{TTID}.html",
+            "https://vt.tiktok.com/ZSabc12345/",
+            f"https://www.tiktok.com/@tiktok/video/{TTID2}",
+            "https://vm.tiktok.com/ZMabcdEF1",
+        ])
+
+    def test_lookalike_hosts(self):
+        self.assertEqual(clean_link(f"https://nottiktok.com/@a/video/{TTID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://tiktok.com.evil.com/@a/video/{TTID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://tiktok.co/@a/video/{TTID}").error, "not_supported")
+        self.assertEqual(extract_candidates(f"faketiktok.com/@a/video/{TTID}"), [])
+
+
+XID = "1577855540407197696"
+XP = f"https://x.com/oshtru/status/{XID}"
+XI = f"https://x.com/i/status/{XID}"
+
+# (raw, clean, kind, error); every row is an X link (platform "twitter")
+TWITTER_CASES = [
+    # posts with a user
+    (f"https://x.com/oshtru/status/{XID}?s=20&t=abc", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/", XP, "post", None),
+    (f"https://twitter.com/oshtru/status/{XID}", XP, "post", None),
+    (f"http://www.twitter.com/oshtru/status/{XID}?ref_src=twsrc%5Etfw%7Ctwcamp%5Etweetembed", XP, "post", None),
+    (f"https://www.x.com/oshtru/status/{XID}", XP, "post", None),
+    (f"https://mobile.twitter.com/oshtru/status/{XID}", XP, "post", None),
+    (f"https://m.twitter.com/oshtru/status/{XID}/", XP, "post", None),
+    (f"https://mobile.x.com/oshtru/status/{XID}", XP, "post", None),
+    (f"x.com/oshtru/status/{XID}", XP, "post", None),
+    (f"twitter.com/oshtru/status/{XID}?s=46", XP, "post", None),
+    (f"www.twitter.com/oshtru/status/{XID}#frag", XP, "post", None),
+    (f"https://X.COM/oshtru/STATUS/{XID}", XP, "post", None),
+    (f"https://x.com/OshTru/status/{XID}", f"https://x.com/OshTru/status/{XID}", "post", None),
+    (f"https://x.com/oshtru/statuses/{XID}", XP, "post", None),
+    (f"https://twitter.com/oshtru/Statuses/{XID}", XP, "post", None),
+    (f"https://x.com//oshtru//status//{XID}//", XP, "post", None),
+    (f"https://x.com/%6Fshtru/status/{XID}", XP, "post", None),
+    (f"https://x.com/a_b1/status/{XID}", f"https://x.com/a_b1/status/{XID}", "post", None),
+    (f"https://x.com/{'u' * 15}/status/{XID}", f"https://x.com/{'u' * 15}/status/{XID}", "post", None),
+    ("https://x.com/oshtru/status/1234567890", "https://x.com/oshtru/status/1234567890", "post", None),
+    ("https://x.com/oshtru/status/" + "7" * 25, "https://x.com/oshtru/status/" + "7" * 25, "post", None),
+    # tails
+    (f"https://x.com/oshtru/status/{XID}/video/1", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/photo/2", XP, "post", None),
+    (f"https://twitter.com/oshtru/status/{XID}/photo/1?s=20", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/analytics", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/retweets", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/retweets/with_comments", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/likes", XP, "post", None),
+    (f"https://x.com/oshtru/status/{XID}/history", XP, "post", None),
+    # forms without a user
+    (f"https://x.com/i/status/{XID}", XI, "post", None),
+    (f"https://twitter.com/i/web/status/{XID}", XI, "post", None),
+    (f"twitter.com/i/web/status/{XID}?s=20", XI, "post", None),
+    (f"https://x.com/I/Web/Status/{XID}", XI, "post", None),
+    (f"https://twitter.com/statuses/{XID}", XI, "post", None),
+    (f"https://mobile.twitter.com/i/status/{XID}/", XI, "post", None),
+    # unsupported paths and hosts
+    ("https://x.com", None, None, "unsupported_path"),
+    ("https://x.com/", None, None, "unsupported_path"),
+    ("https://twitter.com", None, None, "unsupported_path"),
+    ("https://x.com/oshtru", None, None, "unsupported_path"),
+    ("https://x.com/oshtru/", None, None, "unsupported_path"),
+    ("https://x.com/home", None, None, "unsupported_path"),
+    ("https://x.com/explore", None, None, "unsupported_path"),
+    ("https://x.com/search?q=cats", None, None, "unsupported_path"),
+    ("https://x.com/i/spaces/1OdKrBXXXXXXX", None, None, "unsupported_path"),
+    ("https://x.com/i/broadcasts/1yNGaNVZXXXXX", None, None, "unsupported_path"),
+    ("https://x.com/i/lists/1234567890", None, None, "unsupported_path"),
+    ("https://x.com/i/communities/1234567890", None, None, "unsupported_path"),
+    ("https://x.com/i/flow/login", None, None, "unsupported_path"),
+    ("https://x.com/i/web", None, None, "unsupported_path"),
+    ("https://x.com/hashtag/cats", None, None, "unsupported_path"),
+    ("https://x.com/oshtru/media", None, None, "unsupported_path"),
+    ("https://x.com/oshtru/with_replies", None, None, "unsupported_path"),
+    ("https://x.com/oshtru/likes", None, None, "unsupported_path"),
+    ("https://x.com/messages", None, None, "unsupported_path"),
+    ("https://x.com/notifications", None, None, "unsupported_path"),
+    ("https://x.com/settings", None, None, "unsupported_path"),
+    ("https://x.com/login", None, None, "unsupported_path"),
+    (f"https://x.com/{'u' * 16}/status/{XID}", None, None, "unsupported_path"),
+    (f"https://x.com/bad-user/status/{XID}", None, None, "unsupported_path"),
+    ("https://help.twitter.com/en/using-x", None, None, "unsupported_path"),
+    ("https://developer.x.com/en/docs", None, None, "unsupported_path"),
+    ("https://business.twitter.com/", None, None, "unsupported_path"),
+    (f"https://pic.twitter.com/oshtru/status/{XID}", None, None, "unsupported_path"),
+    ("https://t.co/AbCdEfGhIj", None, None, "unsupported_path"),
+    ("http://t.co/AbCdEfGhIj?amp=1", None, None, "unsupported_path"),
+    ("https://t.co/", None, None, "unsupported_path"),
+    # missing or malformed id
+    ("https://x.com/oshtru/status/", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status/?s=20", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status/abc", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status/123", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status/123456789", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status/" + "1" * 26, None, None, "no_shortcode"),
+    ("https://x.com/oshtru/status/157785554x407197696", None, None, "no_shortcode"),
+    ("https://x.com/oshtru/statuses/", None, None, "no_shortcode"),
+    ("https://x.com/i/status/", None, None, "no_shortcode"),
+    ("https://x.com/i/status/abc", None, None, "no_shortcode"),
+    ("https://twitter.com/i/web/status/", None, None, "no_shortcode"),
+    ("https://twitter.com/statuses/", None, None, "no_shortcode"),
+    ("https://twitter.com/statuses/abc", None, None, "no_shortcode"),
+]
+
+
+class TwitterLinkTests(unittest.TestCase):
+    def test_table(self):
+        self.assertGreaterEqual(len(TWITTER_CASES), 60)
+        for raw, clean, kind, error in TWITTER_CASES:
+            with self.subTest(raw=raw):
+                res = clean_link(raw)
+                self.assertEqual(res.original, raw)
+                self.assertEqual(res.clean, clean)
+                self.assertEqual(res.kind, kind)
+                self.assertEqual(res.error, error)
+                self.assertEqual(res.platform, "twitter")
+                if clean:
+                    self.assertEqual(res.shortcode, clean.rsplit("/", 1)[1])
+                else:
+                    self.assertIsNone(res.shortcode)
+
+    def test_extract_scheme_less_and_glued(self):
+        text = (f"a x.com/oshtru/status/{XID}?s=20, b twitter.com/i/web/status/{XID}! c mobile.twitter.com/u/status/{XID}."
+                f" d www.x.com/home [md](https://m.twitter.com/oshtru/status/{XID}/)"
+                f"https://x.com/oshtru/status/{XID}https://t.co/AbCdEfGhIj")
+        self.assertEqual(extract_candidates(text), [
+            f"x.com/oshtru/status/{XID}?s=20",
+            f"twitter.com/i/web/status/{XID}",
+            f"mobile.twitter.com/u/status/{XID}",
+            "www.x.com/home",
+            f"https://m.twitter.com/oshtru/status/{XID}/",
+            f"https://x.com/oshtru/status/{XID}",
+            "https://t.co/AbCdEfGhIj",
+        ])
+
+    def test_bare_x_com_needs_a_path_query_or_fragment(self):
+        self.assertEqual(extract_candidates("visit x.com today"), [])
+        self.assertEqual(extract_candidates("go to x.com."), [])
+        self.assertEqual(extract_candidates("x.com"), [])
+        self.assertEqual(extract_candidates("see x.com?s=20 now"), ["x.com?s=20"])
+        self.assertEqual(extract_candidates("see x.com#top now"), ["x.com#top"])
+        self.assertEqual(extract_candidates("see x.com/ now"), ["x.com/"])
+
+    def test_x_com_inside_words_and_addresses_is_not_a_link(self):
+        for text in ("box.com/oshtru/status/1577855540407197696", "max.com/home", "https://box.com/a",
+                     "me@x.com/oshtru", "foo-x.com/home", "https://evil.com/?u=x.com/home"):
+            with self.subTest(text=text):
+                found = extract_candidates(text)
+                self.assertFalse([c for c in found if clean_link(c).platform == "twitter"], found)
+
+    def test_lookalike_hosts(self):
+        self.assertEqual(clean_link(f"https://notx.com/oshtru/status/{XID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://x.com.evil.com/oshtru/status/{XID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://nottwitter.com/oshtru/status/{XID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://twitter.com.evil.com/oshtru/status/{XID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://x.co/oshtru/status/{XID}").error, "not_supported")
+        self.assertEqual(clean_link(f"https://at.co/{XID}").error, "not_supported")
+
+
+class FourPlatformTests(unittest.TestCase):
+    TEXT = (
+        f"1) {R}/?igsh=aaa\n"
+        f"2) https://youtu.be/{YID}?t=10\n"
+        f"3) {TTV}?is_from_webapp=1&sender_device=pc\n"
+        f"4) {TTS}/\n"
+        f"5) {XP}?s=20\n"
+        f"6) twitter.com/oshtru/status/{XID}\n"      # same URL as 5): twitter.com is rewritten to x.com
+        "7) https://x.com/home\n"
+        "8) https://vimeo.com/1"
+    )
+    ITEMS = [("instagram", "reel"), ("youtube", "video"), ("tiktok", "video"), ("tiktok", "share"),
+             ("twitter", "post")]
+    CLEAN = [R, YV, TTV, TTS, XP]
+
+    def test_all_platforms(self):
+        res = clean_text(self.TEXT)
+        self.assertEqual([(i["platform"], i["kind"], i["error"]) for i in res["items"]],
+                         [(p, k, None) for p, k in self.ITEMS] + [("twitter", None, "unsupported_path"),
+                                                                  (None, None, "not_supported")])
+        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (5, 2, 1))
+        self.assertEqual(res["clean_text"].split("\n"), self.CLEAN)
+
+    def test_platform_filters(self):
+        for platform in ("instagram", "youtube", "tiktok", "twitter"):
+            with self.subTest(platform=platform):
+                res = clean_text(self.TEXT, platform)
+                errors = [i["error"] for i in res["items"]]
+                expected = [None if p == platform else "other_platform" for p, _ in self.ITEMS]
+                self.assertEqual(errors, expected + ["unsupported_path", "not_supported"])
+                for item, (p, k), clean in zip(res["items"], self.ITEMS, self.CLEAN):
+                    self.assertEqual((item["platform"], item["kind"], item["clean"]), (p, k, clean))
+                    self.assertTrue(item["shortcode"])
+                own = [c for (p, _), c in zip(self.ITEMS, self.CLEAN) if p == platform]
+                self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (len(own), 7 - len(own), 1))
+                self.assertEqual(res["clean_text"], "\n".join(own))
+
+    def test_unknown_platform_still_rejected(self):
+        with self.assertRaises(ValueError):
+            clean_text(R, "vimeo")
+
+    def test_x_com_and_twitter_com_are_one_post(self):
+        text = (f"x.com/u/status/{XID}\ntwitter.com/u/status/{XID}\nhttps://x.com/u/status/{XID}?s=20\n"
+                f"https://mobile.twitter.com/u/status/{XID}/photo/1")
+        res = clean_text(text)
+        self.assertEqual(res["clean_text"], f"https://x.com/u/status/{XID}")
+        self.assertEqual((res["valid"], res["duplicates"]), (1, 3))
+
+    def test_i_web_status_is_a_different_url_than_the_user_form(self):
+        text = (f"{TTV}?is_from_webapp=1 https://x.com/oshtru/status/{XID}?s=20 "
+                f"https://x.com/oshtru/status/{XID}/ twitter.com/i/web/status/{XID}")
+        res = clean_text(text)
+        self.assertEqual(res["clean_text"].split("\n"), [TTV, XP, XI])
+        self.assertEqual((res["valid"], res["duplicates"]), (3, 1))
+
+    def test_tiktok_full_url_and_short_link_are_different_links(self):
+        res = clean_text(f"{TTV} {TTS} {TTN} vt.tiktok.com/ZMabcdEF1 https://www.tiktok.com/t/ZMabcdEF1")
+        self.assertEqual(res["clean_text"].split("\n"), [
+            TTV, TTS, TTN, "https://vt.tiktok.com/ZMabcdEF1", "https://www.tiktok.com/t/ZMabcdEF1"])
+        self.assertEqual((res["valid"], res["duplicates"]), (5, 0))
+
+    def test_cli_example_prints_three_lines(self):
+        text = ("see https://www.tiktok.com/@tiktok/video/7106594312292453675?is_from_webapp=1 and "
+                "https://x.com/oshtru/status/1577855540407197696?s=20 and "
+                "twitter.com/i/web/status/1577855540407197696\n")
+        res = clean_text(text)
+        self.assertEqual(res["clean_text"].split("\n"), [
+            "https://www.tiktok.com/@tiktok/video/7106594312292453675",
+            "https://x.com/oshtru/status/1577855540407197696",
+            "https://x.com/i/status/1577855540407197696"])
+        root = Path(__file__).resolve().parent.parent
+        out = subprocess.run([sys.executable, "-m", "app.core.linkclean"], input=text.encode("utf-8"),
+                             cwd=root, capture_output=True, timeout=60)
+        self.assertEqual(out.returncode, 0)
+        self.assertEqual(out.stdout.decode("utf-8").splitlines(), res["clean_text"].split("\n"))
 
 
 if __name__ == "__main__":

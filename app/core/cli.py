@@ -1,5 +1,5 @@
 """Headless test harness:
-`python -m app.core.cli [--home DIR] [--out DIR] [--platform instagram|youtube] [--format mp4|mp3] [--update-only]
+`python -m app.core.cli [--home DIR] [--out DIR] [--platform instagram|youtube|tiktok|twitter] [--format mp4|mp3] [--update-only]
 <text or links...>`.
 
 Prints every engine event as one line and exits when the update pass is over and the queue is drained.
@@ -49,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--home", help="runtime data root (sets MEDIA_SAVER_HOME)")
     ap.add_argument("--out", help="output directory for this run (saved to settings)")
     ap.add_argument("--update-only", action="store_true", help="run the engine update pass and exit")
-    ap.add_argument("--platform", choices=("instagram", "youtube"),
+    ap.add_argument("--platform", choices=("instagram", "youtube", "tiktok", "twitter"),
                     help="accept links of this platform only (default: both)")
     ap.add_argument("--format", choices=("mp4", "mp3"), dest="fmt",
                     help="output format of the queued links (default: the format setting)")

@@ -1,15 +1,18 @@
 // Mock backend for UI work in a normal browser. Mirrors docs/BRIDGE_API.md: every method and event,
 // with a realistic simulation (engine update on start, previews arriving after enqueue, jobs moving
-// through probing -> downloading -> processing -> done with speed and ETA, MP4 and MP3 jobs, both
-// platforms, a login_required job, an "already existed" job, canvas thumbnails, link cleaning close
-// to app/core/linkclean.py, and the app self-update: check, download, apply).
+// through probing -> downloading -> processing -> done with speed and ETA, MP4 and MP3 jobs, all four
+// platforms (Instagram, YouTube, TikTok, X), a login_required job, an "already existed" job, canvas
+// thumbnails, link cleaning close to app/core/linkclean.py, and the app self-update: check, download,
+// apply).
 //
 // URL parameters (all optional):
 //   ?mock=1             force the mock even inside pywebview
-//   &demo=1             preload a queue with every state on both platforms (done, transcoded, MP3,
+//   &demo=1             preload a queue with every state on every platform (done, transcoded, MP3,
 //                       already existed, errors, queued with and without a preview)
-//   &jobs=N             preload N finished jobs (list performance check; every third is YouTube)
-//   &mode=youtube       start in YouTube mode (default: the persisted setting, "instagram")
+//   &jobs=N             preload N finished jobs (list performance check; spread over the four
+//                       platforms in turn: Instagram, YouTube, TikTok, X)
+//   &mode=youtube       start in that mode (also: tiktok, twitter; default: the persisted setting,
+//                       "instagram")
 //   &format=mp3         start with MP3 as the default format
 //   &update=available   the launch check finds 2.1.0 (also: uptodate, error; default uptodate)
 //                       "error" fails the first check and finds 2.1.0 on "Try again"
@@ -34,12 +37,19 @@ const IG_HOSTS = new Set(['instagram.com', 'www.instagram.com', 'm.instagram.com
 const YT_HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com']);
 const YT_SHORT_HOSTS = new Set(['youtu.be', 'www.youtu.be']);
 const REEL_SEGS = new Set(['reel', 'reels', 'tv']);
+const TT_HOSTS = new Set(['tiktok.com', 'www.tiktok.com', 'm.tiktok.com']);
+const TT_SHORT_HOSTS = new Set(['vm.tiktok.com', 'vt.tiktok.com']);
+const TT_ID_RE = /^\d{15,25}$/;
+const TT_CODE_RE = /^[A-Za-z0-9]{6,20}$/;
+const X_HOSTS = new Set(['x.com', 'www.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'mobile.twitter.com']);
+const X_SHORT_HOSTS = new Set(['t.co']);
+const X_ID_RE = /^\d{10,25}$/;
 
 function tokens(text) {
   return String(text || '')
     .split(/[\s,;]+/)
     .map((t) => t.replace(/^[<("'\[«]+|[>)"'\]».,!?]+$/g, ''))
-    .filter((t) => t && (/^https?:\/\//i.test(t) || /(^|\.)(instagr(am\.com|\.am)|youtube(-nocookie)?\.com|youtu\.be)\b/i.test(t) || /^www\./i.test(t)));
+    .filter((t) => t && (/^https?:\/\//i.test(t) || /(^|\.)(instagr(am\.com|\.am)|youtube(-nocookie)?\.com|youtu\.be|tiktok\.com|x\.com|twitter\.com|t\.co)\b/i.test(t) || /^www\./i.test(t)));
 }
 
 function cleanInstagram(u, item) {
@@ -97,6 +107,74 @@ function cleanYouTube(u, host, item) {
   return item;
 }
 
+// TikTok: /@user/video/<id> (kind video) and short links vm. / vt.tiktok.com/<code>, tiktok.com/t/<code>
+// (kind share, host kept). Profiles, photo posts and other paths are unsupported_path.
+function cleanTikTok(u, host, item) {
+  const seg = u.pathname.split('/').filter(Boolean).map((s) => decodeURIComponent(s));
+  if (TT_SHORT_HOSTS.has(host) || (seg[0] || '').toLowerCase() === 't') {
+    const code = TT_SHORT_HOSTS.has(host) ? seg[0] : seg[1];
+    item.kind = 'share';
+    if (!code) {
+      item.error = 'unsupported_path';
+      return item;
+    }
+    if (!TT_CODE_RE.test(code)) {
+      item.error = 'no_shortcode';
+      return item;
+    }
+    item.shortcode = code;
+    item.clean = TT_SHORT_HOSTS.has(host) ? `https://${host}/${code}` : `https://www.tiktok.com/t/${code}`;
+    return item;
+  }
+  // /@user/video/<id> or /video/<id> (no user segment)
+  const vi = seg.findIndex((s) => s.toLowerCase() === 'video');
+  const user = vi === 1 && seg[0].startsWith('@') ? seg[0] : vi === 0 ? '@' : null;
+  if (vi < 0 || !user) {
+    item.error = 'unsupported_path';
+    return item;
+  }
+  item.kind = 'video';
+  const id = seg[vi + 1];
+  if (!id || !TT_ID_RE.test(id)) {
+    item.error = 'no_shortcode';
+    return item;
+  }
+  item.shortcode = id;
+  item.clean = `https://www.tiktok.com/${user}/video/${id}`;
+  return item;
+}
+
+// X: /<user>/status/<id> (also /statuses/), /i/status/<id>, /i/web/status/<id>; tails like /video/1
+// or /photo/1 drop. t.co links are unsupported_path (their target is unknown).
+function cleanX(u, host, item) {
+  item.platform = 'twitter';
+  if (X_SHORT_HOSTS.has(host)) {
+    item.error = 'unsupported_path';
+    return item;
+  }
+  const seg = u.pathname.split('/').filter(Boolean).map((s) => decodeURIComponent(s));
+  const si = seg.findIndex((s) => /^status(es)?$/i.test(s));
+  if (si < 1) {
+    item.error = 'unsupported_path';   // profiles, search, home, lists
+    return item;
+  }
+  const head = seg.slice(0, si).map((s) => s.toLowerCase());
+  const anon = head[0] === 'i' && (head.length === 1 || (head.length === 2 && head[1] === 'web'));
+  if (!anon && si !== 1) {
+    item.error = 'unsupported_path';
+    return item;
+  }
+  item.kind = 'post';
+  const id = seg[si + 1];
+  if (!id || !X_ID_RE.test(id)) {
+    item.error = 'no_shortcode';
+    return item;
+  }
+  item.shortcode = id;
+  item.clean = anon ? `https://x.com/i/status/${id}` : `https://x.com/${seg[0]}/status/${id}`;
+  return item;
+}
+
 function cleanOne(original) {
   const item = { original, clean: null, shortcode: null, platform: null, kind: null, error: null };
   let u;
@@ -114,6 +192,13 @@ function cleanOne(original) {
   if (YT_HOSTS.has(host) || YT_SHORT_HOSTS.has(host)) {
     item.platform = 'youtube';
     return cleanYouTube(u, host, item);
+  }
+  if (TT_HOSTS.has(host) || TT_SHORT_HOSTS.has(host)) {
+    item.platform = 'tiktok';
+    return cleanTikTok(u, host, item);
+  }
+  if (X_HOSTS.has(host) || X_SHORT_HOSTS.has(host)) {
+    return cleanX(u, host, item);
   }
   item.error = 'not_supported';
   return item;
@@ -222,6 +307,28 @@ const YT_TITLES = [
   'Restoring a 1970s radio: the whole process',
 ];
 
+const TT_AUTHORS = ['studio.lumen', 'mira.cooks', 'skate.loops', 'tiny.botanist', 'dance.lab', 'retro.fixes',
+  'citybites', 'clay.and.fire'];
+const TT_TITLES = [
+  'POV: the first coffee of the day #morning',
+  'This 15 second pasta trick changed everything',
+  'Kickflip, 100 tries later',
+  'Watering hack for lazy plant parents',
+  'Learn this combo in 30 seconds',
+  'Fixing a 1980s Walkman, part 2',
+  'Street food tour, stop 4 of 9',
+  'Throwing a bowl with my eyes closed',
+];
+const X_AUTHORS = ['studio_lumen', 'orbit_daily', 'field_notes', 'night_drive', 'harbor_cam', 'quiet_trails'];
+const X_TITLES = [
+  'The launch from the beach this morning. Sound on.',
+  'Timelapse: 6 hours of fog rolling over the bridge',
+  'Our new prototype doing its first lap',
+  'This is what 120 km/h wind sounds like',
+  'Behind the scenes of yesterday\'s shoot',
+  'A minute of the harbor at dawn',
+];
+
 const DEFAULT_SETTINGS = {
   output_dir: 'C:\\Users\\user\\Videos\\Media-Saver',
   filename_template: '{author}_{shortcode}',
@@ -229,6 +336,8 @@ const DEFAULT_SETTINGS = {
   format: 'mp4',
   quality_instagram: 'max',
   quality_youtube: 'max',
+  quality_tiktok: 'max',
+  quality_twitter: 'max',
   h264_compat: true,
   skip_existing: true,
   concurrency: 2,
@@ -268,7 +377,7 @@ export function createMock({ params, emit }) {
   const hold = params.get('hold') === '1';
   const wait = (ms) => sleep(ms / speed);
   const settings = clone(DEFAULT_SETTINGS);
-  if (params.get('mode') === 'youtube') settings.mode = 'youtube';
+  if (['youtube', 'tiktok', 'twitter'].includes(params.get('mode'))) settings.mode = params.get('mode');
   if (params.get('format') === 'mp3') settings.format = 'mp3';
   if (params.get('autoinstall') === '1') settings.auto_install_updates = true;
   let auth = { logged_in: false, user_id: null, source: null, saved_at: null };
@@ -413,14 +522,24 @@ export function createMock({ params, emit }) {
     return j;
   }
 
+  const SAMPLES = {
+    instagram: [IG_AUTHORS, IG_TITLES],
+    youtube: [YT_AUTHORS, YT_TITLES],
+    tiktok: [TT_AUTHORS, TT_TITLES],
+    twitter: [X_AUTHORS, X_TITLES],
+  };
+  // Landscape media: YouTube videos and X posts (the mock's X videos are 16:9).
+  const isWide = (j) => (j.platform === 'youtube' && j.kind === 'video') || j.platform === 'twitter';
+
   function sampleMeta(j) {
     const n = j._n;
-    const yt = j.platform === 'youtube';
-    const wide = yt && j.kind === 'video';
+    const [authors, titles] = SAMPLES[j.platform] || SAMPLES.instagram;
+    const wide = isWide(j);
+    const long = j.platform === 'youtube' && j.kind === 'video';
     return {
-      author: yt ? YT_AUTHORS[n % YT_AUTHORS.length] : IG_AUTHORS[n % IG_AUTHORS.length],
-      title: yt ? YT_TITLES[n % YT_TITLES.length] : IG_TITLES[n % IG_TITLES.length],
-      duration_s: wide ? Math.round(rand(140, 1400)) : Math.round(rand(8, 58) * 10) / 10,
+      author: authors[n % authors.length],
+      title: titles[n % titles.length],
+      duration_s: long ? Math.round(rand(140, 1400)) : Math.round(rand(8, 58) * 10) / 10,
       thumbnail: makeThumb(thumbSeed++, wide),
     };
   }
@@ -490,29 +609,34 @@ export function createMock({ params, emit }) {
     };
     const n = j._n;
     const yt = j.platform === 'youtube';
+    const ig = !j.platform || j.platform === 'instagram';
+    const tt = j.platform === 'tiktok';
     const mp3 = j.format === 'mp3';
     const code = j.shortcode || '';
-    const wantsLogin = !yt && (/LOGIN/i.test(code) || n % 7 === 3);
+    const wantsLogin = ig && (/LOGIN/i.test(code) || n % 7 === 3);
     const ageGate = yt && (/AGE/i.test(code) || n % 9 === 5);
     const isPrivate = /PRIV/i.test(code);
     const existed = n % 7 === 1 && settings.skip_existing;
-    const tall = !yt || j.kind === 'shorts';
+    const tall = !isWide(j);
     // Short side from the platform's quality setting, read when the job starts (ARCHITECTURE 5.2):
-    // Instagram low 480 / medium 720 / max 1080; YouTube 360 / 720 / max 2160 for videos, 1080 for Shorts.
-    const q = yt ? settings.quality_youtube : settings.quality_instagram;
+    // Instagram, TikTok and X low 480 / medium 720 / max 1080; YouTube 360 / 720 / max 2160 for
+    // videos, 1080 for Shorts.
+    const q = settings[`quality_${j.platform || 'instagram'}`];
     const short = { low: 480, medium: 720, 360: 360, 720: 720 }[q] || (yt && !tall ? 2160 : 1080);
     // YouTube serves AVC up to 1080p only: 1440p / 4K arrive as VP9 / AV1 and need the H.264 pass.
-    const vp9 = n % 5 === 4 || short > 1080;
+    // TikTok often serves HEVC, which takes the pass too; X serves AVC (no pass).
+    const srcCodec = tt ? 'hevc' : j.platform === 'twitter' ? 'avc1' : yt && (n % 5 === 4 || short > 1080) ? 'vp9' : ig && n % 5 === 4 ? 'vp9' : 'avc1';
+    const vp9 = srcCodec !== 'avc1';
     const W = tall ? short : Math.round(short * 16 / 9);
     const H = tall ? Math.round(short * 16 / 9) : short;
 
-    if (!setJob({ status: 'probing', stage_text: 'Fetching info', progress: 0.02, error: null, attempt: { engine: 'yt-dlp', auth: !yt && auth.logged_in && settings.auth_mode === 'always' ? 'session' : 'anonymous' } })) return;
+    if (!setJob({ status: 'probing', stage_text: 'Fetching info', progress: 0.02, error: null, attempt: { engine: 'yt-dlp', auth: ig && auth.logged_in && settings.auth_mode === 'always' ? 'session' : 'anonymous' } })) return;
     await wait(rand(700, 1500));
     if (!alive()) return;
 
     if (isPrivate) {
       setJob({ status: 'error', stage_text: 'Failed', progress: 0, finished_at: now(),
-        error: yt
+        error: !ig
           ? { code: 'private', message: 'This video is private. Only people the owner invited can watch it.', can_login: false, log_path: logPath(j) }
           : { code: 'private', message: 'This video is from a private account. You can only download it if you follow the author.', can_login: !auth.logged_in, log_path: logPath(j) } });
       return pump();
@@ -536,7 +660,7 @@ export function createMock({ params, emit }) {
       previewed: true,
       width: mp3 ? null : W, height: mp3 ? null : H, fps: mp3 ? null : (n % 3 === 2 ? 60 : 30),
       attempt: { engine: 'yt-dlp', auth: wantsLogin ? 'session' : 'anonymous' },
-      stage_text: 'Picking the best format', progress: 0.08,
+      stage_text: ig || yt ? 'Picking the best format' : 'Fetching info', progress: 0.08,
     })) return;
     await wait(400);
 
@@ -596,7 +720,7 @@ export function createMock({ params, emit }) {
     }
     j.filepath = `${settings.output_dir}\\${fileName(j)}`;
     setJob({ status: 'done', stage_text: 'Done', progress: 1, speed_bps: null, eta_s: null,
-      vcodec: mp3 ? null : vp9 && !settings.h264_compat ? 'vp9' : 'h264', acodec: mp3 ? 'mp3' : 'aac', transcoded,
+      vcodec: mp3 ? null : vp9 && !settings.h264_compat ? srcCodec : 'h264', acodec: mp3 ? 'mp3' : 'aac', transcoded,
       filesize: Math.round(mp3 ? aSize * 0.9 : (j._size || 0) + aSize), finished_at: now() });
     delete j._size;
     pump();
@@ -606,20 +730,38 @@ export function createMock({ params, emit }) {
   function preload() {
     const stress = parseInt(params.get('jobs') || '0', 10);
     const t0 = now() - 3600;
+    const STRESS = ['instagram', 'youtube', 'tiktok', 'twitter'];
     for (let i = 0; i < stress; i++) {
-      const yt = i % 3 === 2;
-      const code = yt ? `Yt${(100000 + i).toString(36)}Q${i}`.padEnd(11, 'x').slice(0, 11) : `Cx${(100000 + i).toString(36)}Q${i}`;
-      const kind = yt ? (i % 2 ? 'video' : 'shorts') : 'reel';
-      const url = yt ? (kind === 'video' ? `https://www.youtube.com/watch?v=${code}` : `https://www.youtube.com/shorts/${code}`) : `https://www.instagram.com/reel/${code}`;
-      const j = newJob(url, code, yt ? 'youtube' : 'instagram', kind, {
+      const platform = STRESS[i % STRESS.length];
+      let code, kind, url;
+      if (platform === 'youtube') {
+        code = `Yt${(100000 + i).toString(36)}Q${i}`.padEnd(11, 'x').slice(0, 11);
+        kind = i % 8 === 1 ? 'video' : 'shorts';
+        url = kind === 'video' ? `https://www.youtube.com/watch?v=${code}` : `https://www.youtube.com/shorts/${code}`;
+      } else if (platform === 'tiktok') {
+        code = `73${String(i).padStart(17, '0')}`;
+        kind = 'video';
+        url = `https://www.tiktok.com/@${TT_AUTHORS[i % TT_AUTHORS.length]}/video/${code}`;
+      } else if (platform === 'twitter') {
+        code = `17${String(i).padStart(17, '0')}`;
+        kind = 'post';
+        url = `https://x.com/${X_AUTHORS[i % X_AUTHORS.length]}/status/${code}`;
+      } else {
+        code = `Cx${(100000 + i).toString(36)}Q${i}`;
+        kind = 'reel';
+        url = `https://www.instagram.com/reel/${code}`;
+      }
+      const [authors, titles] = SAMPLES[platform];
+      const j = newJob(url, code, platform, kind, {
         status: 'done', stage_text: 'Done', progress: 1, previewed: true,
-        author: yt ? YT_AUTHORS[i % YT_AUTHORS.length] : IG_AUTHORS[i % IG_AUTHORS.length],
-        title: yt ? YT_TITLES[i % YT_TITLES.length] : IG_TITLES[i % IG_TITLES.length],
-        duration_s: 12 + (i % 40), thumbnail: makeThumb(i + 100, yt && kind === 'video'),
+        author: authors[i % authors.length],
+        title: titles[i % titles.length],
+        duration_s: 12 + (i % 40),
         width: 1080, height: 1920, fps: 30, vcodec: 'h264', acodec: 'aac', format: 'mp4',
         filesize: 4e6 + (i % 13) * 1.7e6, transcoded: i % 6 === 0, already_existed: i % 9 === 0, created_at: t0 + i * 10, finished_at: t0 + i * 10 + 8,
       });
-      if (yt && kind === 'video') Object.assign(j, { width: 1920, height: 1080 });
+      if (isWide(j)) Object.assign(j, { width: 1920, height: 1080 });
+      j.thumbnail = makeThumb(i + 100, isWide(j));
       j.filepath = `${settings.output_dir}\\${j.author}_${code}.mp4`;
     }
     if (params.get('demo') !== '1') return;
@@ -655,6 +797,20 @@ export function createMock({ params, emit }) {
     newJob('https://www.instagram.com/reel/DCqueueA1b2', 'DCqueueA1b2', 'instagram', 'reel', { created_at: now() - 0.5, format: 'mp3' });
     ['M7lc1UVf-VE', 'aqz-KE-bpKQ'].forEach((c, i) => newJob(`https://www.youtube.com/watch?v=${c}`, c, 'youtube', 'video', { created_at: now() - 2 + i }));
     newJob('https://www.youtube.com/shorts/Ks-_Mh1QhMc', 'Ks-_Mh1QhMc', 'youtube', 'shorts', { created_at: now() - 0.2 });
+
+    // TikTok: one done (HEVC source, so the H.264 pass ran), one short link waiting in the queue.
+    const ttBase = (i) => ({ author: TT_AUTHORS[i], title: TT_TITLES[i], duration_s: 11 + i * 4.2, thumbnail: makeThumb(80 + i), width: 1080, height: 1920, fps: 30, acodec: 'aac' });
+    fp(newJob('https://www.tiktok.com/@studio.lumen/video/7301234567890123456', '7301234567890123456', 'tiktok', 'video',
+      { ...ttBase(0), created_at: t + 70, previewed: true, status: 'done', stage_text: 'Done', progress: 1, vcodec: 'h264', transcoded: true, filesize: 9.6 * 1048576, finished_at: t + 75 }));
+    newJob('https://vm.tiktok.com/ZMh7Qx2Lp', 'ZMh7Qx2Lp', 'tiktok', 'share', { created_at: now() - 0.4 });
+
+    // X: one done (AVC, no pass), one the extractor could not read.
+    const xBase = (i) => ({ author: X_AUTHORS[i], title: X_TITLES[i], duration_s: 21 + i * 13, thumbnail: makeThumb(90 + i, true), width: 1920, height: 1080, fps: 30, acodec: 'aac' });
+    fp(newJob('https://x.com/studio_lumen/status/1712345678901234567', '1712345678901234567', 'twitter', 'post',
+      { ...xBase(0), created_at: t + 80, previewed: true, status: 'done', stage_text: 'Done', progress: 1, vcodec: 'h264', filesize: 14.2 * 1048576, finished_at: t + 86 }));
+    newJob('https://x.com/i/status/1709876543210987654', '1709876543210987654', 'twitter', 'post', {
+      created_at: t + 190, previewed: true, status: 'error', stage_text: 'Failed', progress: 0.06, finished_at: t + 192,
+      error: { code: 'extractor', message: 'X changed something and the video could not be read. Try again later.', can_login: false, log_path: 'D:\\Apps\\MediaSaver\\media-saver_data\\logs\\jobs\\w.log' } });
   }
   preload();
 
@@ -680,10 +836,12 @@ export function createMock({ params, emit }) {
   const SETTINGS_RULES = {
     output_dir: (v) => typeof v === 'string' && v.length > 2,
     filename_template: (v) => typeof v === 'string' && /\{shortcode\}/.test(v) && !/[<>:"/\\|?*]/.test(v.replace(/\{[a-z]+\}/g, '')),
-    mode: (v) => ['instagram', 'youtube'].includes(v),
+    mode: (v) => ['instagram', 'youtube', 'tiktok', 'twitter'].includes(v),
     format: (v) => ['mp4', 'mp3'].includes(v),
     quality_instagram: (v) => ['low', 'medium', 'max'].includes(v),
     quality_youtube: (v) => ['360', '720', 'max'].includes(v),
+    quality_tiktok: (v) => ['low', 'medium', 'max'].includes(v),
+    quality_twitter: (v) => ['low', 'medium', 'max'].includes(v),
     h264_compat: (v) => typeof v === 'boolean',
     skip_existing: (v) => typeof v === 'boolean',
     concurrency: (v) => Number.isInteger(v) && v >= 1 && v <= 4,

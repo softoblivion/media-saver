@@ -58,11 +58,13 @@ function initModeSwitch() {
   seg.el.id = 'mode-switch';
   document.getElementById('mode-slot').appendChild(seg.el);
   onPref('mode', (m) => seg.set(m));
-  // Alt+1 / Alt+2 switch modes from anywhere.
+  // Alt+1..Alt+4 switch modes from anywhere (in the order of PLATFORMS). e.code also catches layouts
+  // where Alt+digit produces another character.
   addEventListener('keydown', (e) => {
-    if (!e.altKey || e.ctrlKey || e.metaKey) return;
-    const i = ['1', '2'].indexOf(e.key);
-    if (i < 0) return;
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const m = /^Digit([1-9])$/.exec(e.code || '') || /^([1-9])$/.exec(e.key || '');
+    const i = m ? Number(m[1]) - 1 : -1;
+    if (i < 0 || i >= PLATFORMS.length) return;
     e.preventDefault();
     setMode(PLATFORMS[i]);
   });

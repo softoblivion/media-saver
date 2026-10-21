@@ -74,6 +74,63 @@ IG_INFO = {
     ],
 }
 
+TT_INFO = {
+    "id": "7106594312292453675", "_type": "video", "extractor": "TikTok", "extractor_key": "TikTok",
+    "webpage_url": "https://www.tiktok.com/@tiktok/video/7106594312292453675",
+    "title": "how many frogs did you find? check out tiktok's #Minecraft communit...",
+    "description": "how many frogs did you find? check out tiktok's #Minecraft community today! @Gorillo",
+    "uploader": "tiktok", "uploader_id": "107955", "channel": "TikTok", "upload_date": "20220607",
+    "timestamp": 1654632929, "duration": 24, "thumbnail": "https://p16.tiktokcdn.example/thumb.jpeg",
+    "http_headers": {"Referer": "https://www.tiktok.com/@tiktok/video/7106594312292453675"},
+    "formats": [
+        {"format_id": "audio", "ext": "mp4", "protocol": "https", "vcodec": "none", "acodec": "mp4", "vbr": 0},
+        {"format_id": "download", "ext": "mp4", "protocol": "https", "vcodec": "h264", "acodec": "aac",
+         "format_note": "watermarked", "preference": -2},
+        {"format_id": "h264_540p_377700-0", "ext": "mp4", "protocol": "https", "vcodec": "h264", "acodec": "aac",
+         "width": 576, "height": 1024, "tbr": 377, "filesize": 1159730, "quality": 1, "preference": -1},
+        {"format_id": "h264_540p_1071120-0", "ext": "mp4", "protocol": "https", "vcodec": "h264", "acodec": "aac",
+         "width": 576, "height": 1024, "tbr": 1071, "filesize": 3288875, "quality": 1, "preference": -1},
+        {"format_id": "h264_540p_1071120-1", "ext": "mp4", "protocol": "https", "vcodec": "h264", "acodec": "aac",
+         "width": 576, "height": 1024, "tbr": 1071, "filesize": 3288875, "quality": 1, "preference": -1},
+        {"format_id": "bytevc1_540p_555965-0", "ext": "mp4", "protocol": "https", "vcodec": "h265", "acodec": "aac",
+         "width": 576, "height": 1024, "tbr": 555, "filesize": 1707091, "quality": 1, "preference": -1},
+        {"format_id": "bytevc1_720p_640712-0", "ext": "mp4", "protocol": "https", "vcodec": "h265", "acodec": "aac",
+         "width": 720, "height": 1280, "tbr": 640, "filesize": 1967308, "quality": 2, "preference": -1},
+        {"format_id": "bytevc1_1080p_1094429-0", "ext": "mp4", "protocol": "https", "vcodec": "h265", "acodec": "aac",
+         "width": 1080, "height": 1920, "tbr": 1094, "filesize": 3360445, "quality": 3, "preference": -1},
+        {"format_id": "bytevc1_1080p_1094429-1", "ext": "mp4", "protocol": "https", "vcodec": "h265", "acodec": "aac",
+         "width": 1080, "height": 1920, "tbr": 1094, "filesize": 3360445, "quality": 3, "preference": -1},
+    ],
+}
+
+X_INFO = {
+    "id": "1577855447914409984", "_type": "video", "extractor": "twitter", "extractor_key": "Twitter",
+    "webpage_url": "https://twitter.com/i/web/status/1577855540407197696",
+    "title": "Oshtru - gm now I can post image and video. nice update.",
+    "description": "gm now I can post image and video. nice update. https://t.co/cG7XgiINOm",
+    "uploader": "Oshtru", "uploader_id": "oshtru", "channel": None, "channel_id": "143077138",
+    "upload_date": "20221006", "timestamp": 1665025050, "duration": 30.03,
+    "thumbnail": "https://pbs.twimg.example/ext_tw_video_thumb/1577855447914409984/pu/img/x.jpg?name=orig",
+    "formats": [
+        {"format_id": "hls-audio-32000-Audio", "ext": "mp4", "protocol": "m3u8_native", "vcodec": "none",
+         "acodec": None, "tbr": 32, "abr": 32, "format_note": "Audio, low"},
+        {"format_id": "hls-audio-128000-Audio", "ext": "mp4", "protocol": "m3u8_native", "vcodec": "none",
+         "acodec": None, "tbr": 128, "abr": 128, "format_note": "Audio, high"},
+        {"format_id": "http-632", "ext": "mp4", "protocol": "https", "vcodec": None, "acodec": None,
+         "width": 320, "height": 400, "tbr": 632},
+        {"format_id": "hls-138", "ext": "mp4", "protocol": "m3u8_native", "vcodec": "avc1.4D4015", "acodec": "none",
+         "width": 320, "height": 400, "tbr": 138.267},
+        {"format_id": "http-950", "ext": "mp4", "protocol": "https", "vcodec": None, "acodec": None,
+         "width": 480, "height": 600, "tbr": 950},
+        {"format_id": "hls-253", "ext": "mp4", "protocol": "m3u8_native", "vcodec": "avc1.4D401F", "acodec": "none",
+         "width": 480, "height": 600, "tbr": 253.995},
+        {"format_id": "http-2176", "ext": "mp4", "protocol": "https", "vcodec": None, "acodec": None,
+         "width": 720, "height": 900, "tbr": 2176},
+        {"format_id": "hls-473", "ext": "mp4", "protocol": "m3u8_native", "vcodec": "avc1.640028", "acodec": "none",
+         "width": 720, "height": 900, "tbr": 473.664},
+    ],
+}
+
 YT_BOT = ("ERROR: [youtube] aqz-KE-bpKQ: Sign in to confirm you’re not a bot. Use --cookies-from-browser or "
           "--cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-"
           "yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors"

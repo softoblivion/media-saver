@@ -1,4 +1,4 @@
-"""Link cleaning for Instagram and YouTube: messy text -> canonical media URLs.
+"""Link cleaning for Instagram, YouTube, TikTok and X: messy text -> canonical media URLs.
 
 Canonical output (scheme, host, kind, id, nothing after it)::
 
@@ -6,6 +6,12 @@ Canonical output (scheme, host, kind, id, nothing after it)::
     https://www.instagram.com/p/<shortcode>         platform "instagram", kind "p"
     https://www.youtube.com/watch?v=<id>            platform "youtube",   kind "video"
     https://www.youtube.com/shorts/<id>             platform "youtube",   kind "shorts"
+    https://www.tiktok.com/@<user>/video/<id>       platform "tiktok",    kind "video"
+    https://www.tiktok.com/@/video/<id>             platform "tiktok",    kind "video" (input had no user)
+    https://vm.tiktok.com/<code>                    platform "tiktok",    kind "share" (also vt.tiktok.com)
+    https://www.tiktok.com/t/<code>                 platform "tiktok",    kind "share"
+    https://x.com/<user>/status/<id>                platform "twitter",   kind "post"
+    https://x.com/i/status/<id>                     platform "twitter",   kind "post" (input had no user)
 
 Instagram rules
 ---------------
@@ -35,18 +41,53 @@ YouTube rules
   ``/feed/``, ``/embed/videoseries`` and any other path. ``no_shortcode``: ``/watch`` without a valid ``v``, and
   ``/shorts/``, ``/embed/``, ``/v/``, ``/live/``, ``/e/``, ``youtu.be/`` with a missing or malformed id.
 
+TikTok rules
+------------
+* Hosts: ``tiktok.com`` with no subdomain, ``www.`` or ``m.``; the short-link hosts ``vm.tiktok.com`` and
+  ``vt.tiktok.com``. Other subdomains -> ``unsupported_path``.
+* Kind ``video``: ``/@<user>/video/<id>`` (``<user>`` kept as given: word characters, ``.`` and ``-``), ``/@/video/<id>``,
+  ``/video/<id>``, ``/embed/<id>``, ``/embed/v2/<id>``, ``/v/<id>.html`` (old ``m.tiktok.com`` form; the ``.html``
+  is stripped). The id is 15..25 digits, anything else -> ``no_shortcode``. Input without a user comes out as
+  ``https://www.tiktok.com/@/video/<id>``.
+* Kind ``share``: ``tiktok.com/t/<code>``, ``vm.tiktok.com/<code>``, ``vt.tiktok.com/<code>``; the target id is
+  unknown until the engine follows the link, so the host is kept (``shortcode`` = ``<code>``). The code is 6..20
+  characters of ``[A-Za-z0-9]``, else ``no_shortcode``. A short-link host without a path -> ``unsupported_path``.
+* ``unsupported_path``: bare host, profile ``/@<user>``, photo posts ``/@<user>/photo/<id>`` and ``/photo/<id>``,
+  ``/music/``, ``/tag/``, ``/discover``, ``/live``, ``/@<user>/live``, ``/search``, ``/foryou``, ``/following``,
+  ``/explore``, ``/upload``, ``/login`` and any other path. ``/@<user>/video/`` with a missing or malformed id ->
+  ``no_shortcode``.
+* Query (``is_from_webapp``, ``sender_device``, ``_r``, ``_t``, ``lang`` ...), fragment and trailing slash are dropped.
+  Segment keywords are case-insensitive, ids and users keep their case.
+
+X (Twitter) rules
+-----------------
+* Hosts: ``x.com`` and ``twitter.com`` with no subdomain, ``www.``, ``m.`` or ``mobile.``. Other subdomains
+  (``help.``, ``developer.``, ``business.`` ...) -> ``unsupported_path``. ``t.co`` short links need a network round
+  trip: host ``t.co`` -> ``unsupported_path`` with platform ``twitter``.
+* Kind ``post``: ``/<user>/status/<id>`` and ``/<user>/statuses/<id>`` (``<user>`` kept as given, charset
+  ``[A-Za-z0-9_]{1,15}``) -> ``https://x.com/<user>/status/<id>``; ``/i/status/<id>``, ``/i/web/status/<id>`` and
+  ``/statuses/<id>`` -> ``https://x.com/i/status/<id>``. The id is 10..25 digits, else ``no_shortcode``.
+* Tails (``/video/1``, ``/photo/2``, ``/analytics``, ``/retweets``, ``/likes``, ``/history``), query (``s``, ``t``,
+  ``ref_src`` ...), fragment and trailing slash are dropped.
+* ``unsupported_path``: bare host, profile ``/<user>``, ``/home``, ``/explore``, ``/search``, ``/i/spaces/``,
+  ``/i/broadcasts/``, ``/i/lists/``, ``/i/communities/``, ``/hashtag/``, ``/<user>/media``, ``/<user>/with_replies``,
+  ``/messages``, ``/notifications``, ``/settings``, ``/login`` and any other path. ``/<user>/status/`` with a missing
+  or malformed id -> ``no_shortcode``.
+
 Common
 ------
-* ``not_supported``: a URL-looking token whose host is neither Instagram nor YouTube.
-* ``other_platform`` (``clean_text`` with a ``platform`` filter only): a valid link of the other platform;
+* ``not_supported``: a URL-looking token whose host belongs to none of the four platforms (``t.co`` counts as X).
+* ``other_platform`` (``clean_text`` with a ``platform`` filter only): a valid link of another platform;
   ``clean``, ``shortcode``, ``platform`` and ``kind`` stay filled, the item counts as invalid and is left out of
   ``clean_text``.
 * Extraction from free text tolerates surrounding text in any language, emoji, quotes, brackets, angle brackets,
   markdown ``[text](url)``, trailing punctuation, CR/LF/tabs, and links glued together without a separator
   (``...?igsh=abchttps://...``). A token is split at every ``http(s)://`` (except one directly after ``=``, which
-  belongs to a ``?u=`` query) and at every scheme-less Instagram or YouTube host.
+  belongs to a ``?u=`` query) and at every scheme-less host of the four platforms.
 * ``clean_text`` de-duplicates by clean URL keeping the first occurrence (``youtu.be/<id>`` and ``watch?v=<id>``
-  are the same URL; ``shorts/<id>`` is a different one); invalid items are de-duplicated by their original token;
+  are the same URL; ``shorts/<id>`` is a different one; ``x.com/u/status/1``, ``twitter.com/u/status/1`` and
+  ``x.com/u/status/1?s=20`` are the same URL while ``x.com/i/status/1`` is another; a TikTok full URL and a short
+  link are different links); invalid items are de-duplicated by their original token;
   ``duplicates`` counts all dropped repeats.
 
 CLI: ``python -m app.core.linkclean`` reads stdin and prints the clean links, one per line.
@@ -61,7 +102,7 @@ from urllib.parse import parse_qs, unquote
 
 __all__ = ["LinkResult", "PLATFORMS", "extract_candidates", "clean_link", "clean_text"]
 
-PLATFORMS = ("instagram", "youtube")
+PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 
 # --- Instagram ---------------------------------------------------------------------------------------
 _IG_HOSTS = ("instagram.com", "instagr.am")
@@ -78,12 +119,27 @@ _YT_ID_PATHS = {"embed": "video", "v": "video", "live": "video", "e": "video", "
                 "shorts": "shorts"}
 _YT_NOT_IDS = {"videoseries"}  # /embed/videoseries?list=... is a playlist player
 
+# --- TikTok ------------------------------------------------------------------------------------------
+_TT_HOSTS = ("tiktok.com",)
+_TT_SUBDOMAINS = ("", "www", "m")
+_TT_SHORT_SUBDOMAINS = ("vm", "vt")
+_TT_USER_RE = re.compile(r"[\w.-]*\Z")
+_TT_ID_RE = re.compile(r"[0-9]{15,25}\Z")
+_TT_CODE_RE = re.compile(r"[A-Za-z0-9]{6,20}\Z")
+
+# --- X / Twitter -------------------------------------------------------------------------------------
+_TW_HOSTS = ("x.com", "twitter.com", "t.co")
+_TW_SUBDOMAINS = ("", "www", "m", "mobile")
+_TW_USER_RE = re.compile(r"[A-Za-z0-9_]{1,15}\Z")
+_TW_ID_RE = re.compile(r"[0-9]{10,25}\Z")
+_TW_STATUS_SEGMENTS = ("status", "statuses")
+
 _MAX_UNWRAP = 3
 
 # Positions where a candidate token may start.
 _START_RE = re.compile(
     r"(?<!=)https?://"
-    r"|(?<![\w@./:%=-])(?:[a-z0-9-]+\.)?(?:instagram\.com|instagr\.am|youtube\.com|youtu\.be|youtube-nocookie\.com)"
+    r"|(?<![\w@./:%=-])(?:[a-z0-9-]+\.)?(?:instagram\.com|instagr\.am|youtube\.com|youtu\.be|youtube-nocookie\.com|tiktok\.com|x\.com|twitter\.com)"
     r"(?=[/?#])"
     r"|(?<![\w@./:%=-])www\.[a-z0-9-]+(?:\.[a-z0-9-]+)+",
     re.IGNORECASE,
@@ -99,8 +155,8 @@ class LinkResult:
     original: str
     clean: str | None
     shortcode: str | None
-    platform: str | None  # "instagram" | "youtube" | None
-    kind: str | None  # "reel" | "p" | "video" | "shorts" | None
+    platform: str | None  # "instagram" | "youtube" | "tiktok" | "twitter" | None
+    kind: str | None  # "reel" | "p" | "video" | "shorts" | "share" (TikTok short link) | "post" (X) | None
     error: str | None  # None | "not_supported" | "unsupported_path" | "no_shortcode" | "other_platform"
 
     def to_dict(self) -> dict:
@@ -155,6 +211,12 @@ def _clean(original: str, raw: str, depth: int) -> LinkResult:
     yt = _match_host(host, _YT_HOSTS)
     if yt is not None:
         return _clean_youtube(original, yt[0], yt[1], path, query, depth)
+    tt = _match_host(host, _TT_HOSTS)
+    if tt is not None:
+        return _clean_tiktok(original, tt[1], path)
+    tw = _match_host(host, _TW_HOSTS)
+    if tw is not None:
+        return _clean_twitter(original, tw[0], tw[1], path)
     return _fail(original, "not_supported")
 
 
@@ -235,6 +297,79 @@ def _clean_youtube(original: str, base: str, sub: str, path: str, query: str, de
     return _fail(original, "unsupported_path", "youtube")
 
 
+def _tt_video(original: str, user: str, code: str) -> LinkResult:
+    if not _TT_ID_RE.match(code):
+        return _fail(original, "no_shortcode", "tiktok")
+    return LinkResult(original, f"https://www.tiktok.com/@{user}/video/{code}", code, "tiktok", "video", None)
+
+
+def _tt_share(original: str, host: str, code: str, path_prefix: str = "") -> LinkResult:
+    if not _TT_CODE_RE.match(code):
+        return _fail(original, "no_shortcode", "tiktok")
+    return LinkResult(original, f"https://{host}{path_prefix}/{code}", code, "tiktok", "share", None)
+
+
+def _clean_tiktok(original: str, sub: str, path: str) -> LinkResult:
+    segs = [unquote(s) for s in path.split("/") if s]
+    if sub in _TT_SHORT_SUBDOMAINS:
+        if not segs:
+            return _fail(original, "unsupported_path", "tiktok")
+        return _tt_share(original, f"{sub}.tiktok.com", segs[0])
+    if sub not in _TT_SUBDOMAINS or not segs:
+        return _fail(original, "unsupported_path", "tiktok")
+
+    first = segs[0].lower()
+    if first.startswith("@"):
+        user = segs[0][1:]
+        if len(segs) < 2 or segs[1].lower() != "video" or not _TT_USER_RE.match(user):
+            return _fail(original, "unsupported_path", "tiktok")
+        return _tt_video(original, user, segs[2] if len(segs) >= 3 else "")
+    if first == "video":
+        return _tt_video(original, "", segs[1] if len(segs) >= 2 else "")
+    if first == "embed":
+        if len(segs) >= 2 and segs[1].lower() == "v2":
+            return _tt_video(original, "", segs[2] if len(segs) >= 3 else "")
+        return _tt_video(original, "", segs[1] if len(segs) >= 2 else "")
+    if first == "v":
+        code = segs[1] if len(segs) >= 2 else ""
+        if code.lower().endswith(".html"):
+            code = code[: -len(".html")]
+        return _tt_video(original, "", code)
+    if first == "t":
+        return _tt_share(original, "www.tiktok.com", segs[1] if len(segs) >= 2 else "", "/t")
+    return _fail(original, "unsupported_path", "tiktok")
+
+
+def _tw_post(original: str, user: str | None, code: str) -> LinkResult:
+    if not _TW_ID_RE.match(code):
+        return _fail(original, "no_shortcode", "twitter")
+    return LinkResult(original, f"https://x.com/{user or 'i'}/status/{code}", code, "twitter", "post", None)
+
+
+def _clean_twitter(original: str, base: str, sub: str, path: str) -> LinkResult:
+    if base == "t.co" or sub not in _TW_SUBDOMAINS:
+        return _fail(original, "unsupported_path", "twitter")
+    segs = [unquote(s) for s in path.split("/") if s]
+    if not segs:
+        return _fail(original, "unsupported_path", "twitter")
+
+    first = segs[0].lower()
+    if first == "i":
+        rest = segs[1:]
+        if rest and rest[0].lower() == "web":
+            rest = rest[1:]
+        if rest and rest[0].lower() == "status":
+            return _tw_post(original, None, rest[1] if len(rest) >= 2 else "")
+        return _fail(original, "unsupported_path", "twitter")
+    if len(segs) >= 2 and segs[1].lower() in _TW_STATUS_SEGMENTS:
+        if not _TW_USER_RE.match(segs[0]):
+            return _fail(original, "unsupported_path", "twitter")
+        return _tw_post(original, segs[0], segs[2] if len(segs) >= 3 else "")
+    if first == "statuses":
+        return _tw_post(original, None, segs[1] if len(segs) >= 2 else "")
+    return _fail(original, "unsupported_path", "twitter")
+
+
 def clean_link(raw: str) -> LinkResult:
     """Clean one URL-like string. ``original`` is ``raw`` unchanged."""
     return _clean(raw, raw, 0)
@@ -243,7 +378,7 @@ def clean_link(raw: str) -> LinkResult:
 def clean_text(text: str, platform: str | None = None) -> dict:
     """Extract and clean every link in ``text``; returns the CleanResult object of BRIDGE_API.md.
 
-    ``platform`` None accepts links of both platforms; otherwise valid links of the other platform come back with
+    ``platform`` None accepts links of every platform; otherwise valid links of the other platforms come back with
     error ``other_platform`` (counted as invalid, not in ``clean_text``).
     """
     if platform is not None and platform not in PLATFORMS:

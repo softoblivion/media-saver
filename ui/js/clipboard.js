@@ -1,8 +1,8 @@
 // Clipboard prompt: on start and whenever the window regains focus (when settings.clipboard_watch is
 // on), read the clipboard, clean it for the current mode, and offer links that are neither queued
 // nor offered before: a glass pill "N links on the clipboard - Add". When the clipboard holds only
-// links of the other platform, the pill offers them for that platform ("Add to YouTube" switches
-// the mode and queues them there).
+// links of other platforms, the pill offers the links of one of them ("Add to TikTok" switches the
+// mode and queues them there).
 
 import { call, on } from './api.js';
 import { Lens, gel } from './glass.js';
@@ -10,7 +10,7 @@ import { SPRINGS, springAnimate, whenDone } from './motion.js';
 import { icon } from './icons.js';
 import { plural, nItems } from './format.js';
 import { toast } from './toast.js';
-import { getMode, getFormat, setMode, onPref, PLATFORM_NAME } from './mode.js';
+import { getMode, getFormat, setMode, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
 
 let pill, lens, settings, jobsRef;
 const offered = new Set();   // "platform:id" already offered (accepted or dismissed)
@@ -82,9 +82,17 @@ export async function check() {
     let platform = mode;
     let fresh = pickFresh(res.items.filter((it) => it.clean && !it.error));
     if (!fresh.length) {
-      // Nothing for this mode: offer the other platform's links, if that is all there is.
-      fresh = pickFresh(res.items.filter((it) => it.error === 'other_platform' && it.clean));
-      if (fresh.length) platform = fresh[0].platform;
+      // Nothing for this mode: offer the links of another platform. With links of several other
+      // platforms, the one with the most fresh links wins (ties: the first in the mode order), and
+      // only its links are offered, since one enqueue covers one platform.
+      const others = pickFresh(res.items.filter((it) => it.error === 'other_platform' && it.clean && it.platform));
+      const count = new Map();
+      for (const it of others) count.set(it.platform, (count.get(it.platform) || 0) + 1);
+      const best = Array.from(count).sort((a, b) => b[1] - a[1] || PLATFORMS.indexOf(a[0]) - PLATFORMS.indexOf(b[0]))[0];
+      if (best) {
+        platform = best[0];
+        fresh = others.filter((it) => it.platform === platform);
+      }
     }
     if (!fresh.length) return;
     current = {
@@ -101,10 +109,10 @@ export async function check() {
   }
 }
 
-function show(n, otherPlatform) {
-  const name = otherPlatform ? `${PLATFORM_NAME[otherPlatform]} ` : '';
+function show(n, foreign) {
+  const name = foreign ? `${PLATFORM_NAME[foreign]} ` : '';
   pill.querySelector('.clip-text').innerHTML = `<b>${n}</b> ${name}${plural(n, ['link', 'links'])} on the clipboard`;
-  pill.querySelector('.clip-add span').textContent = otherPlatform ? `Add to ${PLATFORM_NAME[otherPlatform]}` : 'Add';
+  pill.querySelector('.clip-add span').textContent = foreign ? `Add to ${PLATFORM_NAME[foreign]}` : 'Add';
   if (!pill.hidden && pill.dataset.leaving !== '1') {
     pill.__gel = pill.__gel || gel(pill, { amount: 0.5 });
     pill.__gel.pulse();
