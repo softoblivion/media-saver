@@ -233,6 +233,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "update_channel": "nightly",                   // "nightly" | "stable"
   "auto_update": true,                           // engines on every launch
   "auto_download_updates": true,                 // download a found update in the background; installing is always the user's "Restart" (ARCHITECTURE 5.7)
+  "update_check_interval": "30m",                // "30m" | "1h" | "6h" | "1d" | "1w": app-update check period while running; missing in an older file -> "30m"
   "auth_mode": "auto",                           // "auto" (anonymous first, then session) | "always" | "never"; Instagram only
   "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by every platform
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus

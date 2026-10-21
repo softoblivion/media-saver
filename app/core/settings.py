@@ -13,6 +13,7 @@ import re
 import threading
 from typing import Any
 
+from ..vendor.selfupdate import CHECK_INTERVALS, DEFAULT_CHECK_INTERVAL
 from .paths import atomic_write_json, default_output_dir
 
 log = logging.getLogger("mediasaver.core.settings")
@@ -26,6 +27,7 @@ QUALITY_KEYS = {"instagram": "quality_instagram", "youtube": "quality_youtube", 
                 "twitter": "quality_twitter"}
 FORMATS = ("mp4", "mp3")
 CHANNELS = ("nightly", "stable")
+UPDATE_CHECK_INTERVALS = tuple(key for key, _ in CHECK_INTERVALS)   # 30m 1h 6h 1d 1w
 AUTH_MODES = ("auto", "always", "never")
 BROWSERS = ("", "firefox", "edge", "chrome", "brave", "opera")
 TEMPLATE_TOKENS = ("author", "shortcode", "date", "title")
@@ -52,6 +54,7 @@ def defaults() -> dict[str, Any]:
         "update_channel": "nightly",
         "auto_update": True,
         "auto_download_updates": True,
+        "update_check_interval": DEFAULT_CHECK_INTERVAL,
         "auth_mode": "auto",
         "browser_cookies": "",
         "clipboard_watch": True,
@@ -131,6 +134,8 @@ def validate_value(key: str, value: Any) -> Any:
         return value
     if key == "update_channel":
         return _choice(key, value, CHANNELS, "Update channel")
+    if key == "update_check_interval":
+        return _choice(key, value, UPDATE_CHECK_INTERVALS, "Update check")
     if key == "auth_mode":
         return _choice(key, value, AUTH_MODES, "Sign-in mode")
     if key == "browser_cookies":

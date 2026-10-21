@@ -217,8 +217,10 @@ the configuration values in `docs/SELF_UPDATE.md`):
    settings file has it): when on, the UI calls `download_update()` as soon as a check reports `available`. The
    restart is never automatic: a `ready` file raises one sticky toast "Media Saver X.Y.Z is ready" with "Restart",
    and the version label and the panel keep "Restart to update". When off, nothing is downloaded without the
-   user's click. While the app runs, the engine checks again every 6 hours (`Engine.APP_RECHECK_S`, a daemon
-   thread that skips the round while a download runs or a file is `ready`, and ends with `Engine.shutdown`).
+   user's click. While the app runs, the engine checks again on the `update_check_interval` setting (`30m`, `1h`,
+   `6h`, `1d` or `1w`; default `30m`) through the vendored `UpdateScheduler` (`Engine.update_scheduler`: a daemon
+   thread started with the launch check, first periodic check one interval later; a changed setting restarts the
+   wait at once; the round is skipped while a download runs or a file is `ready`; `Engine.shutdown` stops it).
 6. Closing the window ends the app and everything it started: the shell calls `Engine.shutdown` (the periodic
    check stops, download workers stop, every engine subprocess tree is killed through its Job Object) and exits
    the process with `os._exit(0)`; a half-downloaded update stays as a `.part` file and is downloaded again on the

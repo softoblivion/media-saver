@@ -41,20 +41,27 @@ class EngineTest(unittest.TestCase):
 
     def test_periodic_update_check_runs_while_alive_and_stops_on_shutdown(self):
         calls = []
-        stages = iter(["up_to_date", "ready", "up_to_date"])
-        self.engine.APP_RECHECK_S = 0.05
+        self.engine.update_scheduler._period_override = 0.05
         self.engine.selfupdate.check_background = lambda: calls.append(1)
-        self.engine.selfupdate.status = lambda: {"stage": next(stages, "up_to_date")}
-        t = threading.Thread(target=self.engine._recheck_loop, daemon=True)
-        t.start()
+        self.engine.selfupdate.status = lambda: {"stage": "up_to_date"}
+        self.engine.update_scheduler.start()
         time.sleep(0.3)
         self.engine.shutdown()
-        t.join(1.0)
-        self.assertFalse(t.is_alive())
-        self.assertGreaterEqual(len(calls), 2)  # the "ready" round is skipped, the others check
+        self.engine.update_scheduler._thread.join(1.0)
+        self.assertFalse(self.engine.update_scheduler._thread.is_alive())
+        self.assertGreaterEqual(len(calls), 2)
         n = len(calls)
         time.sleep(0.15)
         self.assertEqual(len(calls), n)
+
+    def test_update_check_interval_setting_drives_the_scheduler(self):
+        self.assertEqual(self.engine.get_settings()["update_check_interval"], "30m")
+        self.assertEqual(self.engine.update_scheduler.interval_key, "30m")
+        self.engine.set_settings({"update_check_interval": "1d"})
+        self.assertEqual(self.engine.update_scheduler.interval_key, "1d")
+        with self.assertRaises(ValueError):
+            self.engine.set_settings({"update_check_interval": "5m"})
+        self.assertEqual(self.engine.update_scheduler.interval_key, "1d")
 
     def test_paths_from_env(self):
         self.assertEqual(self.engine.paths.root, os.path.join(self.tmp, "home"))
