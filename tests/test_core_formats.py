@@ -35,6 +35,7 @@ class Mp3PipelineTest(CoreTestBase, unittest.TestCase):
         for flag in ("-x", "--audio-format", "--audio-quality", "--no-playlist", "--ffmpeg-location"):
             self.assertIn(flag, call)
         self.assertEqual(call[call.index("-f") + 1], "ba/b")
+        self.assertEqual(call[call.index("-S") + 1], "channels:2")  # stereo before the 5.1 tracks
         self.assertEqual(call[call.index("--audio-format") + 1], "mp3")
         self.assertEqual(call[call.index("--audio-quality") + 1], "0")
         self.assertNotIn("--merge-output-format", call)
@@ -175,6 +176,25 @@ class YouTubeFormatSelectionTest(unittest.TestCase):
             {"format_id": "140-0", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128, "language_preference": 10}]}
         self.assertEqual(select_formats(info, "youtube", "max", True).audio["format_id"], "140-0")
 
+    def test_stereo_beats_surround(self):
+        # With a JavaScript runtime YouTube also lists 6-channel tracks (258 AAC 388 kbit/s, 380 AC-3, 328 E-AC-3).
+        surround = [
+            {"format_id": "258", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 387.9, "asr": 48000,
+             "audio_channels": 6, "protocol": "https", "language_preference": -1},
+            {"format_id": "380", "vcodec": "none", "acodec": "ac-3", "abr": 384.1, "asr": 48000,
+             "audio_channels": 6, "protocol": "https", "language_preference": -1},
+            {"format_id": "328", "vcodec": "none", "acodec": "ec-3", "abr": 384.1, "asr": 48000,
+             "audio_channels": 6, "protocol": "https", "language_preference": -1}]
+        stereo = [dict(f, audio_channels=2) for f in YT_INFO["formats"] if f["format_id"] in ("140", "251")]
+        video = [f for f in YT_INFO["formats"] if f["format_id"] == "299"]
+        for compat in (True, False):
+            with self.subTest(h264_compat=compat):
+                c = select_formats({"formats": video + surround + stereo}, "youtube", "max", compat)
+                self.assertEqual(c.audio["format_id"], "140")  # stereo AAC 129 kbit/s over 5.1 at 388
+        # unknown channel count counts as stereo; a surround track is still taken when nothing else exists
+        c = select_formats({"formats": video + surround}, "youtube", "max", True)
+        self.assertEqual(c.audio["format_id"], "258")
+
     def test_no_video_metadata_and_storyboards_only(self):
         info = {"formats": [{"format_id": "sb0", "ext": "mhtml", "vcodec": "none", "acodec": "none",
                              "width": 320, "height": 180, "format_note": "storyboard"},
@@ -260,7 +280,7 @@ class PlatformQualityTest(CoreTestBase, unittest.TestCase):
                              quality_youtube="360")
                 call = runner.ytdlp_calls("--load-info-json")[0]
                 self.assertEqual(call[call.index("-f") + 1], "ba/b")
-                self.assertNotIn("-S", call)
+                self.assertEqual(call[call.index("-S") + 1], "channels:2")  # no resolution cap in the sort
 
 
 class JobTableTest(CoreTestBase, unittest.TestCase):

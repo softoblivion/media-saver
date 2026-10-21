@@ -8,6 +8,9 @@ Components:
   Same SHA check against `SHA256SUMS`; differs -> `gallery-dl.exe -U`; still differs -> fresh download.
 - ffmpeg.exe + ffprobe.exe: bin/ -> PATH -> download yt-dlp/FFmpeg-Builds win64-gpl zip (extract the two exes
   only). The own copy is re-checked every 30 days.
+- deno.exe (JavaScript runtime for yt-dlp's YouTube challenge solver): bin/ -> PATH -> download the official
+  denoland/deno Windows x64 zip, verify the zip and the extracted exe against their `.sha256sum` sidecars.
+  The own copy is re-checked every 30 days like ffmpeg.
 
 All downloads go to `<name>.part`, are verified against the published SHA-256 and then replace the target.
 While a binary is being replaced the BinaryGate is held exclusively, so no job starts a subprocess.
@@ -44,6 +47,11 @@ FFMPEG_BASE = "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/
 FFMPEG_ZIP = "ffmpeg-master-latest-win64-gpl.zip"
 FFMPEG_SUMS = "checksums.sha256"
 FFMPEG_REFRESH_S = 30 * 24 * 3600
+DENO_BASE = "https://github.com/denoland/deno/releases/latest/download/"
+DENO_ZIP = "deno-x86_64-pc-windows-msvc.zip"
+DENO_ZIP_SUM = DENO_ZIP + ".sha256sum"
+DENO_EXE_SUM = "deno-x86_64-pc-windows-msvc.sha256sum"
+DENO_REFRESH_S = FFMPEG_REFRESH_S
 CONNECTIVITY_URLS = ("https://github.com/", "https://codeberg.org/")
 UPDATE_TIMEOUT = 90.0
 NO_SYSTEM_FFMPEG_ENV = "MEDIA_SAVER_NO_SYSTEM_FFMPEG"
@@ -170,6 +178,19 @@ def replace_file(src: str, dest: str, attempts: int = 10) -> None:
     raise last  # type: ignore[misc]
 
 
+def parse_hash_sidecar(text: str) -> str | None:
+    """First SHA-256 in a one-file sidecar: `<sha>  <name>` or PowerShell Get-FileHash output
+    (`Hash      : <SHA>` lines, CRLF) as published by denoland/deno."""
+    m = re.search(r"\b([0-9a-fA-F]{64})\b", text or "")
+    return m.group(1).lower() if m else None
+
+
+def parse_deno_version(text: str) -> str | None:
+    """`deno 2.9.7 (stable, release, x86_64-pc-windows-msvc)` -> `2.9.7`."""
+    m = re.match(r"^\s*deno\s+(\S+)", text or "")
+    return m.group(1)[:40] if m else None
+
+
 def parse_ffmpeg_version(text: str) -> str | None:
     m = re.search(r"version\s+(\S+)", text or "")
     if not m:
@@ -204,6 +225,8 @@ class Updater:
     def __init__(self, paths: AppPaths, get_settings: Callable[[], dict], on_status: Callable[[dict], None], *,
                  gate: BinaryGate | None = None, runner: ProcessRunner | None = None, net: Net | None = None,
                  use_system_ffmpeg: bool | None = None) -> None:
+        """`use_system_ffmpeg` also governs the PATH lookup of deno (both are tools taken from the machine when
+        present); the env switch MEDIA_SAVER_NO_SYSTEM_FFMPEG disables both."""
         self.paths = paths
         self.get_settings = get_settings
         self.on_status = on_status
@@ -220,13 +243,15 @@ class Updater:
         self._self_healed = False
         self._done_event = threading.Event()
         self._state = self._load_state()
-        self._bins: dict[str, str | None] = {"yt-dlp": None, "gallery-dl": None, "ffmpeg": None, "ffprobe": None}
+        self._bins: dict[str, str | None] = {"yt-dlp": None, "gallery-dl": None, "ffmpeg": None, "ffprobe": None,
+                                             "deno": None}
         self._status: dict[str, Any] = {
             "stage": "starting", "message": "Starting the engine…", "progress": None,
             "components": {
                 "yt-dlp": {"version": None, "channel": None, "updated": False, "ok": False},
                 "gallery-dl": {"version": None, "updated": False, "ok": False},
                 "ffmpeg": {"version": None, "source": None, "ok": False},
+                "deno": {"version": None, "source": None, "ok": False},
             },
             "last_check": self._state.get("last_check"),
         }
@@ -301,6 +326,23 @@ class Updater:
             self._bins["ffmpeg"], self._bins["ffprobe"] = (ff, fp) if version else (None, None)
         self._component("ffmpeg", version=version, source=source, ok=bool(version))
 
+    def _detect_deno(self) -> None:
+        own = self.paths.binary("deno.exe")
+        if os.path.isfile(own):
+            exe, source = own, "bundled"
+        elif self.use_system_ffmpeg and shutil.which("deno"):
+            exe, source = shutil.which("deno"), "system"
+        else:
+            with self._lock:
+                self._bins["deno"] = None
+            self._component("deno", version=None, source=None, ok=False)
+            return
+        res = self.runner.run([exe, "--version"], timeout=30)
+        version = parse_deno_version(res.stdout) if res.returncode == 0 else None
+        with self._lock:
+            self._bins["deno"] = exe if version else None
+        self._component("deno", version=version, source=source, ok=bool(version))
+
     def _detect_ytdlp(self) -> None:
         exe = self.paths.binary("yt-dlp.exe")
         version = self._version_of(exe, ["--version"]) if os.path.isfile(exe) else None
@@ -321,6 +363,7 @@ class Updater:
             self._detect_ytdlp()
             self._detect_gallerydl()
             self._detect_ffmpeg()
+            self._detect_deno()
         except Exception:  # noqa: BLE001
             log.exception("binary detection failed")
 
@@ -376,7 +419,7 @@ class Updater:
         auto = bool(settings.get("auto_update", True)) or force
         self._emit(stage="checking", message="Checking the engine…", progress=None)
         self._detect_existing()
-        missing = [n for n in ("yt-dlp", "ffmpeg") if not self._bins.get(n)]
+        missing = [n for n in ("yt-dlp", "ffmpeg", "deno") if not self._bins.get(n)]
         if not missing and not auto:
             self._finish(offline=False)
             return
@@ -388,6 +431,7 @@ class Updater:
         steps = [("yt-dlp", lambda: self._update_ytdlp(channel, auto))]
         if not only_ytdlp:
             steps.append(("ffmpeg", lambda: self._update_ffmpeg(force)))
+            steps.append(("deno", lambda: self._update_deno(force)))
             steps.append(("gallery-dl", lambda: self._update_gallerydl(auto)))
         for name, step in steps:
             try:
@@ -585,6 +629,68 @@ class Updater:
             self._with_gate(swap)
         finally:
             for p in (part, zip_path, self.paths.binary("ffmpeg.exe") + ".part", self.paths.binary("ffprobe.exe") + ".part"):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+    # --- deno ----------------------------------------------------------------------------------------
+    def _update_deno(self, force: bool) -> None:
+        source = self._status["components"]["deno"]["source"]
+        if source == "system":
+            return
+        state = self._state.setdefault("deno", {})
+        if source == "bundled":
+            age = time.time() - float(state.get("downloaded_at") or 0)
+            if age < DENO_REFRESH_S and not force:
+                return
+        expected = parse_hash_sidecar(self.net.get_text(DENO_BASE + DENO_ZIP_SUM))
+        if not expected:
+            raise RuntimeError(f"{DENO_ZIP_SUM} carries no SHA-256")
+        if source == "bundled" and state.get("zip_sha") == expected:
+            state["downloaded_at"] = time.time()  # still the latest release
+            return
+        exe_sha = parse_hash_sidecar(self.net.get_text(DENO_BASE + DENO_EXE_SUM))
+        if not exe_sha:
+            raise RuntimeError(f"{DENO_EXE_SUM} carries no SHA-256")
+        self.install_deno(expected, exe_sha)
+        state.update(downloaded_at=time.time(), zip_sha=expected)
+        self._detect_deno()
+
+    def install_deno(self, zip_sha: str, exe_sha: str) -> None:
+        """Download the release zip, verify it, extract deno.exe, verify the exe, swap it into bin/."""
+        zip_path = os.path.join(self.paths.cache_dir, DENO_ZIP)
+        part = zip_path + ".part"
+        target = self.paths.binary("deno.exe")
+        target_part = target + ".part"
+
+        def progress(done: int, total: int | None) -> None:
+            frac = (done / total) if total else None
+            pct = f" {int(frac * 100)}%" if frac is not None else ""
+            self._emit(stage="downloading", message=f"Downloading deno…{pct}", progress=frac)
+
+        try:
+            got = self.net.download(DENO_BASE + DENO_ZIP, part, progress)
+            if got != zip_sha:
+                raise VerifyError(f"deno zip SHA-256 mismatch ({got} != {zip_sha})")
+            os.replace(part, zip_path)
+            self._emit(stage="updating", message="Unpacking deno…", progress=None)
+            found = False
+            with zipfile.ZipFile(zip_path) as zf:
+                for member in zf.infolist():
+                    if member.filename.replace("\\", "/").rsplit("/", 1)[-1].lower() == "deno.exe":
+                        with zf.open(member) as src, open(target_part, "wb") as dst:
+                            shutil.copyfileobj(src, dst, 1 << 20)
+                        found = True
+                        break
+            if not found:
+                raise VerifyError("deno zip does not contain deno.exe")
+            got_exe = sha256_file(target_part)
+            if got_exe != exe_sha:
+                raise VerifyError(f"deno.exe SHA-256 mismatch ({got_exe} != {exe_sha})")
+            self._with_gate(lambda: replace_file(target_part, target))
+        finally:
+            for p in (part, zip_path, target_part):
                 try:
                     os.remove(p)
                 except OSError:

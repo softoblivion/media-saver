@@ -277,6 +277,7 @@ export function createMock({ params, emit }) {
       'yt-dlp': { version: '2026.10.12.181023', channel: 'nightly', updated: false, ok: true },
       'gallery-dl': { version: '1.30.9', updated: false, ok: true },
       ffmpeg: { version: '9.0.2', source: 'system', ok: true },
+      deno: { version: '2.9.7', source: 'bundled', ok: true },
     },
     last_check: now() - 86400,
   };
@@ -328,12 +329,13 @@ export function createMock({ params, emit }) {
       set({ stage: 'downloading', message: `Downloading yt-dlp ${settings.update_channel}…`, progress: Math.min(1, p) });
       await wait(140);
     }
-    set({ stage: 'updating', message: 'Checking gallery-dl and FFmpeg…', progress: null });
+    set({ stage: 'updating', message: 'Checking gallery-dl, FFmpeg and Deno…', progress: null });
     await wait(900);
     engine.components = {
       'yt-dlp': { version: newVer, channel: settings.update_channel, updated: true, ok: true },
       'gallery-dl': { version: '1.30.10', updated: true, ok: true },
       ffmpeg: { version: '9.0.2', source: 'system', ok: true },
+      deno: { version: '2.9.7', source: 'bundled', ok: true },
     };
     set({ stage: 'ready', message: 'Engine ready', progress: null, last_check: now() });
     updating = false;

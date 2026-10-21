@@ -18,7 +18,7 @@ const LABEL = {
   offline: 'Offline',
   error: 'Engine error',
 };
-const COMPONENT_NAMES = { 'yt-dlp': 'yt-dlp', 'gallery-dl': 'gallery-dl', ffmpeg: 'FFmpeg' };
+const COMPONENT_NAMES = { 'yt-dlp': 'yt-dlp', 'gallery-dl': 'gallery-dl', ffmpeg: 'FFmpeg', deno: 'Deno' };
 
 let chip, pop, overlay, hover, status = null;
 

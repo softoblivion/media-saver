@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core_fakes import YT_BOT, YT_INFO, YT_RATE, CoreTestBase, ScriptedRunner  # noqa: E402
 
-from app.core import auth  # noqa: E402
+from app.core import auth, downloader  # noqa: E402
 from app.core.downloader import (MESSAGES, YOUTUBE_MESSAGES, Rung, can_login_for, classify_error,  # noqa: E402
                                  message_for, plan_ladder)
 
@@ -127,6 +127,28 @@ class YouTubePipelineTest(CoreTestBase, unittest.TestCase):
         self.assertEqual(probes[1][probes[1].index("--cookies-from-browser") + 1], "firefox")
         self.assertIn("--no-playlist", probes[1])
         self.assertIn("Trying with browser cookies", [p["stage_text"] for p in self.job_events(job.id)])
+
+    def test_bundled_deno_is_passed_to_ytdlp(self):
+        deno = self.paths.binary("deno.exe")
+        open(deno, "wb").close()
+        self.bins["deno"] = deno
+        runner = ScriptedRunner(YT_INFO)
+        job = self.run_one(self.make(runner))
+        self.assertEqual(job.status, "done", job.error)
+        for argv in runner.ytdlp_calls("-J") + runner.ytdlp_calls("--load-info-json"):
+            self.assertEqual(argv[argv.index("--js-runtimes") + 1], f"deno:{deno}")
+        self.assertEqual(os.path.basename(downloader.subprocess_env()["DENO_DIR"]), "deno")
+        self.assertTrue(downloader.subprocess_env()["DENO_DIR"].startswith(self.paths.cache_dir))
+
+    def test_without_deno_no_runtime_flag(self):
+        runner = ScriptedRunner(YT_INFO)
+        job = self.run_one(self.make(runner))
+        self.assertEqual(job.status, "done", job.error)
+        self.assertNotIn("--js-runtimes", runner.ytdlp_calls("-J")[0])
+        self.bins["deno"] = self.paths.binary("deno.exe")  # recorded but no longer on disk
+        runner2 = ScriptedRunner(YT_INFO)
+        self.run_one(self.make(runner2))
+        self.assertNotIn("--js-runtimes", runner2.ytdlp_calls("-J")[0])
 
     def test_rate_limit_backoff_names_youtube(self):
         runner = ScriptedRunner(YT_INFO, probes=[("fail", YT_RATE), ("ok", None)])

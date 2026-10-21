@@ -46,7 +46,7 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(st["update"]["current"], "9.9.9")
         self.assertFalse(st["update"]["can_apply"])
         self.assertEqual(set(st["engine"]), {"stage", "message", "progress", "components", "last_check"})
-        self.assertEqual(set(st["engine"]["components"]), {"yt-dlp", "gallery-dl", "ffmpeg"})
+        self.assertEqual(set(st["engine"]["components"]), {"yt-dlp", "gallery-dl", "ffmpeg", "deno"})
         self.assertFalse(st["auth"]["logged_in"])
 
     def test_set_settings_emits_and_validates(self):

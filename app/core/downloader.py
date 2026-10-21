@@ -44,12 +44,18 @@ USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHT
 # =====================================================================================================
 
 
+# Extra variables for every engine subprocess; the Downloader sets DENO_DIR here so the deno cache that yt-dlp's
+# challenge solver creates stays inside the portable data folder instead of %LOCALAPPDATA%\deno.
+SUBPROCESS_ENV: dict[str, str] = {}
+
+
 def subprocess_env() -> dict[str, str]:
     env = dict(os.environ)
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
     env.pop("PYTHONHOME", None)  # a frozen parent must not leak its Python into the standalone engines
     env.pop("PYTHONPATH", None)
+    env.update(SUBPROCESS_ENV)
     return env
 
 
@@ -652,12 +658,16 @@ def _vkey(f: dict) -> tuple:
 
 
 def _akey(f: dict, h264_compat: bool) -> tuple:
-    """Original / default language track first, then non-DRC (YouTube's dynamic range compressed copies), then AAC
-    when the H.264 pass may follow, then direct files, then bitrate and sample rate."""
+    """Original / default language track first, then non-DRC (YouTube's dynamic range compressed copies), then
+    stereo / mono over surround (YouTube lists 5.1 AAC / AC-3 / E-AC-3 tracks once a JavaScript runtime solves the
+    player challenge; a 6-channel track in an MP4 or downmixed into an MP3 is not what a stereo source deserves),
+    then AAC when the H.264 pass may follow, then direct files, then bitrate and sample rate."""
     lang = f.get("language_preference")
     drc = "drc" in str(f.get("format_id") or "").lower() or "drc" in str(f.get("format_note") or "").lower()
+    channels = f.get("audio_channels")
+    stereo = 0 if isinstance(channels, (int, float)) and channels > 2 else 1
     aac = 1 if (h264_compat and (f.get("acodec") or "").startswith("mp4a")) else 0
-    return (lang if isinstance(lang, (int, float)) else -1, 0 if drc else 1, aac, _direct(f),
+    return (lang if isinstance(lang, (int, float)) else -1, 0 if drc else 1, stereo, aac, _direct(f),
             f.get("abr") or f.get("tbr") or 0, f.get("asr") or 0)
 
 
@@ -1010,6 +1020,7 @@ class Downloader:
         self.emit = emit
         self.binaries = binaries
         self.usable = usable
+        SUBPROCESS_ENV["DENO_DIR"] = os.path.join(paths.cache_dir, "deno")
         self.gate = gate or BinaryGate()
         self.self_heal = self_heal or (lambda: False)
         self.on_auth_invalid = on_auth_invalid or (lambda: None)
@@ -1587,6 +1598,9 @@ class Downloader:
                 "--socket-timeout", "20", "--retries", "3", "--extractor-retries", "2", "--no-mtime"]
         if platform == "youtube":
             argv.append("--no-playlist")  # a watch URL never pulls a playlist, even when one is attached
+        deno = self.binaries().get("deno")
+        if deno and os.path.exists(deno):
+            argv += ["--js-runtimes", f"deno:{deno}"]  # explicit path: the bundled runtime is not on PATH
         if rung.auth == "session":
             jar = os.path.join(job_dir, "cookies.txt")
             if not os.path.exists(jar) and not authmod.copy_for_job(self.paths.cookies_file, jar):
@@ -1719,7 +1733,9 @@ class Downloader:
         model = ProgressModel(mp3_stage_weights())
         self._set(job, status="downloading", stage_text="Downloading audio", progress=model.set("probe", 1.0))
         out_tmpl = os.path.join(job_dir, "media.%(ext)s")
-        argv = base + ["--load-info-json", info_path, "-f", "ba/b", "-x", "--audio-format", "mp3",
+        # `-S channels:2`: stereo / mono before the 5.1 tracks YouTube lists with a JavaScript runtime (yt-dlp's
+        # default order ranks more channels higher and would downmix a 6-channel AAC / AC-3 source into the MP3).
+        argv = base + ["--load-info-json", info_path, "-f", "ba/b", "-S", "channels:2", "-x", "--audio-format", "mp3",
                        "--audio-quality", "0", "--ffmpeg-location", ffmpeg,
                        "-o", out_tmpl, "--no-part", "--force-overwrites", *progress_args(),
                        "--print", "after_move:" + FILE_MARK + "%(filepath)j", "--no-simulate"]
