@@ -28,6 +28,13 @@ const BROWSERS = [
   { value: 'brave', label: 'Brave' },
   { value: 'opera', label: 'Opera' },
 ];
+const CHECK_INTERVALS = [
+  { value: '30m', label: 'Every 30 minutes' },
+  { value: '1h', label: 'Every hour' },
+  { value: '6h', label: 'Every 6 hours' },
+  { value: '1d', label: 'Every day' },
+  { value: '1w', label: 'Every week' },
+];
 const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'sound_on_done', 'auto_update', 'auto_download_updates'];
 
 let sheet, overlay, body;
@@ -164,6 +171,7 @@ function build() {
               <button type="button" class="btn btn-s" data-act="check-updates">${icon('refresh')}<span>Check for updates</span></button>
             </div>
           </div>
+          ${row('Update check', 'On launch, then repeated at this interval while the app runs', '<span data-slot="update_check_interval"></span>')}
           ${row('Download updates automatically', 'New versions download in the background. Installing needs a restart', '<span data-slot="auto_download_updates"></span>')}
           ${row('Logs', 'Engine and download logs, for troubleshooting', `<button type="button" class="btn btn-s" data-act="logs">${icon('logs')}<span>Open logs</span></button>`)}
         </div>
@@ -199,6 +207,13 @@ function build() {
     onChange: (v) => save({ update_channel: v }),
   });
   slot('update_channel').replaceWith(ctl.update_channel.el);
+  ctl.update_check_interval = new Select({
+    label: 'Update check',
+    options: CHECK_INTERVALS,
+    value: S.update_check_interval || '30m',
+    onChange: (v) => save({ update_check_interval: v }),
+  });
+  slot('update_check_interval').replaceWith(ctl.update_check_interval.el);
   mkSwitch('auto_download_updates', 'Download updates automatically');
 
   // Filename template: save on blur / Enter, tokens insert at the caret.
@@ -299,6 +314,7 @@ function sync() {
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);
   if (!busy('browser_cookies')) ctl.browser_cookies.set(S.browser_cookies || '');
+  if (!busy('update_check_interval')) ctl.update_check_interval.set(S.update_check_interval || '30m');
 }
 
 function renderAuth() {

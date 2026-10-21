@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from ..vendor import selfupdate as _lib
 from ..vendor.selfupdate import APPLY_FLAG, clean_env, run_apply  # noqa: F401  (re-exported for app.main)
+from ..vendor.selfupdate import UpdateScheduler  # noqa: F401  (re-exported for app.core.engine)
 from .paths import AppPaths
 from .updater import UA
 

@@ -16,7 +16,7 @@ from . import auth as authmod
 from . import settings as settingsmod
 from .downloader import BinaryGate, Downloader, ProcessRunner
 from .paths import AppPaths
-from .selfupdate import SelfUpdater
+from .selfupdate import SelfUpdater, UpdateScheduler
 from .updater import Net, Updater
 
 log = logging.getLogger("mediasaver.core.engine")
@@ -79,7 +79,6 @@ class Engine:
         self._open_folder = open_folder if open_folder is not None else self._default_open_folder
         self._lock = threading.RLock()
         self._started = False
-        self._stop = threading.Event()  # set by shutdown(): ends the periodic app-update check
         self._settings = settingsmod.SettingsStore(self.paths.settings_file)
         self._gate = BinaryGate()
         runner = runner or ProcessRunner()
@@ -92,6 +91,9 @@ class Engine:
             on_queue_drained=self._on_queue_drained, runner=runner)
         self.selfupdate = SelfUpdater(self.paths, app_version, self._on_update_status, net=net,
                                       on_toast=lambda level, text: self._emit("toast", {"level": level, "text": text}))
+        # periodic app-update checks on the `update_check_interval` setting; started with the launch check
+        self.update_scheduler = UpdateScheduler(self.selfupdate, self._settings.get()["update_check_interval"],
+                                                logger_name="mediasaver.core.selfupdate.schedule")
         log.info("engine created, version %s, home %s", app_version, self.paths.root)
 
     # --- events --------------------------------------------------------------------------------------
@@ -146,24 +148,11 @@ class Engine:
             log.exception("self-update startup cleanup failed")
         if self._app_updates is not False:
             self.selfupdate.check_background()
-            threading.Thread(target=self._recheck_loop, name="selfupdate-recheck", daemon=True).start()
-
-    APP_RECHECK_S = 6 * 3600  # while the app runs, look for a new release again every 6 hours
-
-    def _recheck_loop(self) -> None:
-        """Periodic app-update check; lives only while the app runs (daemon thread, ends on shutdown). A found
-        version is downloaded by the UI when `auto_download_updates` is on; installing is always a click."""
-        while not self._stop.wait(self.APP_RECHECK_S):
-            if self.selfupdate.status()["stage"] in ("downloading", "ready"):
-                continue
-            try:
-                self.selfupdate.check_background()
-            except Exception:  # noqa: BLE001
-                log.exception("periodic update check failed")
+            self.update_scheduler.start()  # a found version is downloaded by the UI when auto_download_updates is on
 
     def shutdown(self) -> None:
         log.info("engine shutdown")
-        self._stop.set()
+        self.update_scheduler.stop()
         self.downloader.shutdown(timeout=2.5)
 
     # --- state ---------------------------------------------------------------------------------------
@@ -234,6 +223,8 @@ class Engine:
                 self.downloader.set_concurrency(new["concurrency"])
             if "update_channel" in changed:
                 self.updater.start_background(force=True)
+            if "update_check_interval" in changed:
+                self.update_scheduler.set_interval(new["update_check_interval"])
         return new
 
     def update_engine(self) -> None:

@@ -179,6 +179,7 @@ class FakeEngine:
             "update_channel": "nightly",
             "auto_update": True,
             "auto_download_updates": True,
+            "update_check_interval": "30m",
             "auth_mode": "auto",
             "browser_cookies": "",
             "clipboard_watch": True,
@@ -545,6 +546,8 @@ class FakeEngine:
                 raise ValueError("Invalid mode.")
             if "format" in patch and patch["format"] not in FORMATS:
                 raise ValueError("Format must be mp4 or mp3.")
+            if "update_check_interval" in patch and patch["update_check_interval"] not in ("30m", "1h", "6h", "1d", "1w"):
+                raise ValueError("Invalid update check interval.")
             self._settings.update(patch)
             snapshot = dict(self._settings)
         self._emit("settings", snapshot)
