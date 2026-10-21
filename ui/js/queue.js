@@ -32,19 +32,19 @@ const AT_AUTHOR = new Set(['instagram', 'tiktok', 'twitter']);
 const EMPTY_COPY = {
   instagram: {
     title: 'No Reels yet',
-    text: 'Paste Reels links on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver strips the junk and saves every Reel as MP4 or MP3, in the quality you pick above Download.',
+    text: 'Paste links on the left or press <kbd>Ctrl</kbd>+<kbd>V</kbd>. Files are saved as MP4 or MP3 in the quality set above Download.',
   },
   youtube: {
     title: 'No YouTube videos yet',
-    text: 'Paste links to YouTube videos or Shorts on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download.',
+    text: 'Paste links on the left or press <kbd>Ctrl</kbd>+<kbd>V</kbd>. Files are saved as MP4 or MP3 in the quality set above Download.',
   },
   tiktok: {
     title: 'No TikTok videos yet',
-    text: 'Paste TikTok video links on the left, full or short, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download.',
+    text: 'Paste links on the left or press <kbd>Ctrl</kbd>+<kbd>V</kbd>. Files are saved as MP4 or MP3 in the quality set above Download.',
   },
   twitter: {
     title: 'No X videos yet',
-    text: 'Paste links to X posts with a video on the left, or just press <kbd>Ctrl</kbd>+<kbd>V</kbd> anywhere in the window. Media Saver cleans them and saves the videos as MP4 or MP3, in the quality you pick above Download.',
+    text: 'Paste links on the left or press <kbd>Ctrl</kbd>+<kbd>V</kbd>. Files are saved as MP4 or MP3 in the quality set above Download.',
   },
 };
 

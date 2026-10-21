@@ -178,11 +178,12 @@ class FakeEngine:
             "concurrency": 2,
             "update_channel": "nightly",
             "auto_update": True,
-            "auto_install_updates": False,
+            "auto_download_updates": True,
             "auth_mode": "auto",
             "browser_cookies": "",
             "clipboard_watch": True,
             "open_folder_when_done": False,
+            "sound_on_done": True,
         }
         self._engine_status: dict[str, Any] = {
             "stage": "starting",

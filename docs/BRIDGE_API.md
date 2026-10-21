@@ -232,10 +232,11 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "concurrency": 2,                              // 1..4, shared by all modes
   "update_channel": "nightly",                   // "nightly" | "stable"
   "auto_update": true,                           // engines on every launch
-  "auto_install_updates": false,                 // download and install a found update without a click (the UI drives it: see ARCHITECTURE 5.7)
+  "auto_download_updates": true,                 // download a found update in the background; installing is always the user's "Restart" (ARCHITECTURE 5.7)
   "auth_mode": "auto",                           // "auto" (anonymous first, then session) | "always" | "never"; Instagram only
   "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by every platform
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus
-  "open_folder_when_done": false                 // open output dir when the whole queue finishes
+  "open_folder_when_done": false,                // open output dir when the whole queue finishes
+  "sound_on_done": true                          // the UI plays assets/sounds/download-done.wav when a job finishes with a new file
 }
 ```

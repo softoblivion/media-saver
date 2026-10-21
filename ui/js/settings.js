@@ -12,7 +12,7 @@ import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
 import { toast } from './toast.js';
 import { getMode, getFormat, onPref } from './mode.js';
-import { openUpdatePanel, appVersion, setAutoInstall } from './update.js';
+import { openUpdatePanel, appVersion, setAutoDownload } from './update.js';
 
 const TOKENS = [
   { t: '{author}', d: 'author' },
@@ -28,7 +28,7 @@ const BROWSERS = [
   { value: 'brave', label: 'Brave' },
   { value: 'opera', label: 'Opera' },
 ];
-const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'auto_update', 'auto_install_updates'];
+const SWITCHES = ['h264_compat', 'skip_existing', 'clipboard_watch', 'open_folder_when_done', 'sound_on_done', 'auto_update', 'auto_download_updates'];
 
 let sheet, overlay, body;
 let S = null;          // current Settings
@@ -132,6 +132,7 @@ function build() {
         <div class="set-card">
           ${row('Watch the clipboard', 'Offer links from the clipboard when the window is focused', '<span data-slot="clipboard_watch"></span>')}
           ${row('Open folder when done', 'When the whole queue has finished', '<span data-slot="open_folder_when_done"></span>')}
+          ${row('Sound when a download finishes', 'A short sound for each finished file', '<span data-slot="sound_on_done"></span>')}
         </div>
       </section>
 
@@ -163,7 +164,7 @@ function build() {
               <button type="button" class="btn btn-s" data-act="check-updates">${icon('refresh')}<span>Check for updates</span></button>
             </div>
           </div>
-          ${row('Install updates automatically', 'Download a new version in the background and restart when the queue is idle', '<span data-slot="auto_install_updates"></span>')}
+          ${row('Download updates automatically', 'New versions download in the background. Installing needs a restart', '<span data-slot="auto_download_updates"></span>')}
           ${row('Logs', 'Engine and download logs, for troubleshooting', `<button type="button" class="btn btn-s" data-act="logs">${icon('logs')}<span>Open logs</span></button>`)}
         </div>
       </section>
@@ -182,6 +183,7 @@ function build() {
   slot('browser_cookies').replaceWith(ctl.browser_cookies.el);
   mkSwitch('clipboard_watch', 'Watch the clipboard');
   mkSwitch('open_folder_when_done', 'Open folder when done');
+  mkSwitch('sound_on_done', 'Sound when a download finishes');
   ctl.auth_mode = new Segmented({
     label: 'When to sign in',
     options: [{ value: 'auto', label: 'Auto' }, { value: 'always', label: 'Always' }, { value: 'never', label: 'Never' }],
@@ -197,7 +199,7 @@ function build() {
     onChange: (v) => save({ update_channel: v }),
   });
   slot('update_channel').replaceWith(ctl.update_channel.el);
-  mkSwitch('auto_install_updates', 'Install updates automatically');
+  mkSwitch('auto_download_updates', 'Download updates automatically');
 
   // Filename template: save on blur / Enter, tokens insert at the caret.
   const tpl = body.querySelector('[data-f="filename_template"]');
@@ -292,7 +294,7 @@ function sync() {
   if (document.activeElement !== tpl) tpl.value = S.filename_template || '';
   renderExample();
   for (const f of SWITCHES) if (!busy(f)) ctl[f].set(!!S[f]);
-  if (!busy('auto_install_updates')) setAutoInstall(!!S.auto_install_updates);
+  if (!busy('auto_download_updates')) setAutoDownload(S.auto_download_updates !== false);
   if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);

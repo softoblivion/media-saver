@@ -246,7 +246,9 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
   abbreviation.
 - Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the primary button) at the left of
   the composer's action row; `Download` takes the rest of the row (`.cmp-btn-slot`), so its morph measures the slot.
-  Below 380 px of row width the `Ctrl+Enter` hint hides.
+  Below 380 px of row width the `Ctrl+Enter` hint hides. The label text is centred on its own: the icon hangs to its
+  left (negative margin of its width + gap) and the `Ctrl+Enter` hint is out of the flow at the right end, so an
+  invisible hint (empty state) never pushes the text off centre.
 - Quality (per platform, Settings `quality_instagram` / `quality_youtube` / `quality_tiktok` / `quality_twitter`): a spec row (`#cmp-spec`, 34 px) directly
   above the action row: caption "QUALITY", a compact `Segmented` (`seg-q` variant, 28 px options) and a hint line at
   the right. With the format toggle and `Download` below it, it reads as "what you get" right before the press. Not in
@@ -310,23 +312,21 @@ reduced motion; `html.is-still` pauses the decorative CSS loops inside the app a
 
 Progress ticks only move the bar and the numbers, so the notes keep their scroll position. The first `available` of a
 session (initial state or event) raises one toast "Media Saver X.Y.Z is available" with a "View" action (not raised
-when automatic install is on: the install toast below follows instead).
+when the background download is on: the "ready" toast below follows instead).
 
-Automatic install (`Settings.auto_install_updates`, default off; ARCHITECTURE 5.7 item 5). `js/update.js` follows the
-confirmed value of the setting (`setAutoInstall`, called by the settings sheet and from the initial state; an
-unconfirmed optimistic switch never starts a download). While it is on:
+Background download (`Settings.auto_download_updates`, default on; ARCHITECTURE 5.7 items 5-6). `js/update.js`
+follows the confirmed value of the setting (`setAutoDownload`, called by the settings sheet and from the initial
+state). While it is on, stage `available` calls `download_update()` once per `latest` (a repeated `available` of the
+same version, or an `error` after the automatic download, never starts another one; "Try again" stays manual). On
+or off, stage `ready` raises one sticky toast per `latest`: "Media Saver X.Y.Z is ready" with the action "Restart"
+(or "View" when `can_apply` is false, from source); it stays until clicked. "Restart" and the panel's "Restart to
+update" share one path: with jobs probing, downloading or processing, the warning toast "Downloads in progress will
+stop when the app restarts" + "Restart anyway" comes first. The app never restarts by itself. The panel shows the
+accent caption "New versions download in the background" while the setting is on.
 
-- stage `available`: `download_update()` is called once per `latest` (a repeated `available` of the same version, or an
-  `error` after the automatic download, never starts another one; "Try again" stays manual);
-- stage `ready` (and `can_apply`): if no job is `queued` / `probing` / `downloading` / `processing` (`getJobs()` of
-  `js/queue.js`), the toast "Installing Media Saver X.Y.Z, the app restarts" shows and `apply_update()` is called
-  about 1.5 s later (a job that appears in that time sends it back to waiting); with active jobs it waits on the `job` /
-  `job_removed` events (no polling) and does the same the moment the queue is idle. `apply_update()` is called once
-  per `latest` unless it fails;
-- turning the switch on while a version is `available` or `ready` starts the same flow at once; turning it off
-  cancels a pending wait or countdown;
-- the panel shows a small accent caption under the sub-line: "Installs automatically", or "Installs automatically once
-  downloads finish" while it waits for the queue. The manual `Download` / `Restart to update` buttons keep working.
+Finish sound (`Settings.sound_on_done`, default on; `js/sound.js`): `assets/sounds/download-done.wav` (0.75 s, 44.1
+kHz stereo) plays when a job changes to `done` with a new file; not for "Already downloaded", not for restored
+history; at most once per second, so a batch that finishes together sounds once.
 
 Release notes Markdown: everything is HTML-escaped first; then `#` headings (level 1 as a title, others as small caps
 labels), `-` / `*` / `+` bullets with continuation lines, blank-line paragraphs, `**bold**`, `` `code` `` and
@@ -344,8 +344,8 @@ everywhere.
   done job that took the H.264 pass and one queued short link; X: one done job and one `extractor` error "X changed
   something and the video could not be read. Try again later.", `can_login` false), `jobs=N` (N finished jobs spread
   over Instagram, YouTube, TikTok, X in turn), `mode=youtube|tiktok|twitter`, `format=mp3`, `update=available|uptodate|error`
-  (launch check result; `error` fails the first check and finds 2.1.0 on "Try again"), `autoinstall=1` (starts with
-  "Install updates automatically" on), `hold=1` (queued jobs never
+  (launch check result; `error` fails the first check and finds 2.1.0 on "Try again"), `autodownload=0` (starts with
+  "Download updates automatically" off), `hold=1` (queued jobs never
   start: previews and format toggles stay inspectable), `clip=0`, `fast=1`, `offline=1`.
 - The page makes no network request: fonts, icons and images are local or `data:` URLs (checked in the browser's
   network log with the mock).
@@ -373,6 +373,9 @@ everywhere.
 
 ## 9. Copy and locale rules
 
+- Neutral, factual copy (workspace rule, `_workspace/CONVENTIONS.md`, "UI copy"): say what the control does or
+  what happened, in as few words as that takes. No emotion, hooks, filler or salesmanship ("just", "already",
+  "any junk", "magic", exclamation marks, "Media Saver strips the junk"). One line where one line does.
 - The UI is English only (US). Buttons, labels and titles use sentence case: "Download", "Paste", "Clean links",
   "Copy clean links", "Sign in to Instagram", "Clear finished", "Open folder", "Change folder…", "Update now", "Check for updates",
   "Restart to update", "Try again". Platform and format names keep their own case: Instagram, YouTube, TikTok, X,
@@ -395,32 +398,31 @@ everywhere.
 
   | Place | Instagram | YouTube |
   |---|---|---|
-  | Input placeholder | "Paste Reels links, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window." | "Paste YouTube links to videos or Shorts, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window." |
-  | Preview hint | "... just `instagram.com/reel/code`, no tails like `?igsh=`" | "... just `youtube.com/watch?v=id` or `/shorts/id`, no tails like `&t=` or `?si=`" |
+  | Input placeholder | "Paste Instagram Reels or post links, one or many. Other text is ignored." | "Paste YouTube video or Shorts links, one or many. Other text is ignored." |
+  | Preview hint | "Clean links appear here as `instagram.com/reel/code`" | "Clean links appear here as `youtube.com/watch?v=id`" |
   | Ready button | "Download Reel" / "Download 3 Reels" | "Download video" / "Download 3 videos" |
   | Ready button, MP3 | "Download as MP3" / "Download 3 as MP3" | same |
-  | Nothing pasted | "Paste Reels links. Ctrl+V works anywhere in the window" | "Paste YouTube links. Ctrl+V works anywhere in the window" |
+  | Nothing pasted | "Paste Instagram links or press Ctrl+V" | "Paste YouTube links or press Ctrl+V" |
   | No usable link | "No Instagram Reels or post links found here" | "No YouTube video or Shorts links found here" |
   | Other-platform links | chip action "Switch to YouTube"; counter "N YouTube"; toast "These are YouTube links" + "Switch to YouTube" | the same with Instagram |
   | Chip notes | "not a Reel or post", "no video code", "not supported" | "not a video", "no video ID", "not supported" |
-  | Empty queue | "No Reels yet" + paste hint | "No YouTube videos yet" + paste hint |
+  | Empty queue | "No Reels yet" + "Paste links on the left or press Ctrl+V. Files are saved as MP4 or MP3 in the quality set above Download." | "No YouTube videos yet" + the same text |
   | Error row | "Sign in to Instagram" / "Retry signed in" when `can_login` | the core's message and "Log" only |
   | Settings | "Instagram" group shown | "Instagram" group hidden |
   | Quality control | Low / Medium / Max, hints "≤ 480p" / "≤ 720p" / "Best" | 360p / 720p / Max, hints "≤ 360p" / "≤ 720p" / "Best, up to 4K" |
-  | Empty queue text | "... as MP4 or MP3, in the quality you pick above Download." | the same |
   | Clipboard pill | "N links on the clipboard" + "Add" | the same; links of another platform only: "N Instagram links on the clipboard" + "Add to Instagram" |
 
   | Place | TikTok | X |
   |---|---|---|
-  | Input placeholder | "Paste TikTok video links, full or short, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window." | "Paste links to X posts with a video, one by one or a whole batch, with any junk around them. Ctrl+V works anywhere in the window." |
-  | Preview hint | "... just `tiktok.com/@user/video/id` or `vm.tiktok.com/code`, no tails like `?is_from_webapp=`" | "... just `x.com/user/status/id`, no tails like `?s=20&t=`" |
+  | Input placeholder | "Paste TikTok video links, full or short, one or many. Other text is ignored." | "Paste links to X posts with a video, one or many. Other text is ignored." |
+  | Preview hint | "Clean links appear here as `tiktok.com/@user/video/id`" | "Clean links appear here as `x.com/user/status/id`" |
   | Ready button | "Download video" / "Download 3 videos" | the same |
   | Ready button, MP3 | "Download as MP3" / "Download 3 as MP3" | the same |
   | Progress (one job) | "Downloading video" | the same |
-  | Nothing pasted | "Paste TikTok links. Ctrl+V works anywhere in the window" | "Paste X links. Ctrl+V works anywhere in the window" |
+  | Nothing pasted | "Paste TikTok links or press Ctrl+V" | "Paste X links or press Ctrl+V" |
   | No usable link | "No TikTok video links found here" | "No X post links found here" |
   | Chip notes | "not a video" (photo post, profile, other path), "no video ID", "not supported" | "not a post" (profile, other path, `t.co` link), "no post ID", "not supported" |
-  | Empty queue | "No TikTok videos yet" + "Paste TikTok video links on the left, full or short, or just press Ctrl+V anywhere in the window. Media Saver cleans them and saves them as MP4 or MP3, in the quality you pick above Download." | "No X videos yet" + "Paste links to X posts with a video on the left, or just press Ctrl+V anywhere in the window. Media Saver cleans them and saves the videos as MP4 or MP3, in the quality you pick above Download." |
+  | Empty queue | "No TikTok videos yet" + the shared empty-queue text | "No X videos yet" + the same |
   | Error row | the core's message and "Log" only | the same |
   | Settings | "Instagram" group hidden | the same |
   | Quality control | Low / Medium / Max, hints "≤ 480p" / "≤ 720p" / "Best" | the same |
@@ -434,9 +436,10 @@ everywhere.
   "Switch to <the platform with the most links>". Valid chips note the cut: "−1 char", "−17 chars".
 
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
-  TikTok and X videos as MP4 or MP3"; switch "Install updates automatically" (hint "Download a new version in the background and restart when the queue is
-  idle"; the launch check itself always runs, so there is no switch for it); toast before an automatic restart
-  "Installing Media Saver X.Y.Z, the app restarts"; panel caption "Installs automatically".
+  TikTok and X videos as MP4 or MP3"; switch "Download updates automatically" (hint "New versions download in the
+  background. Installing needs a restart"; the check itself always runs, so there is no switch for it); sticky toast
+  "Media Saver X.Y.Z is ready" + "Restart"; panel caption "New versions download in the background". Switch "Sound
+  when a download finishes" (hint "A short sound for each finished file").
 - The runtime data folder is `media-saver_data\` (never `data\`) wherever copy or mock paths name it (mock log paths:
   `D:\Apps\MediaSaver\media-saver_data\logs\jobs\<id>.log`). The default output dir is the core's decision (the
   user's Videos folder + `Media-Saver`, BRIDGE_API Settings); the UI only shows `Settings.output_dir`. The mock's

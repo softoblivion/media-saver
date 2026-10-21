@@ -209,11 +209,16 @@ sees or stores the password.
    `MediaSaver.exe.old`, copies itself over it and starts it. No script, no console. On the next launch the marker
    produces one "Updated to vX.Y.Z" toast and `MediaSaver.exe.old` is deleted.
 4. Any failure leaves the current exe untouched; the UI shows the message and offers to retry.
-5. `auto_install_updates` (default off; a missing key in an older settings file means off): when on, the UI
-   calls `download_update()` as soon as a check reports `available` and `apply_update()` as soon as the file is
-   `ready` and no job is queued or running (otherwise it waits for the queue to drain), with a toast before the
-   restart. When off, nothing is downloaded or installed without the user's click. The core never downloads or
-   applies on its own.
+5. `auto_download_updates` (default on; replaces the 2.1.2 `auto_install_updates`, which is ignored when an older
+   settings file has it): when on, the UI calls `download_update()` as soon as a check reports `available`. The
+   restart is never automatic: a `ready` file raises one sticky toast "Media Saver X.Y.Z is ready" with "Restart",
+   and the version label and the panel keep "Restart to update". When off, nothing is downloaded without the
+   user's click. While the app runs, the engine checks again every 6 hours (`Engine.APP_RECHECK_S`, a daemon
+   thread that skips the round while a download runs or a file is `ready`, and ends with `Engine.shutdown`).
+6. Closing the window ends the app and everything it started: the shell calls `Engine.shutdown` (the periodic
+   check stops, download workers stop, every engine subprocess tree is killed through its Job Object) and exits
+   the process with `os._exit(0)`; a half-downloaded update stays as a `.part` file and is downloaded again on the
+   next run. Nothing keeps running after the window is closed.
 
 Deviation from the workspace recipe (`_workspace/RECIPES.md`, section 1, "Apply"): the recipe lets the running
 app rename itself and relaunch; Media Saver lets the downloaded exe do the swap after the app exited (verified

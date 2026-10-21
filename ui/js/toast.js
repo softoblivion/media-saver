@@ -17,7 +17,7 @@ export function initToasts(el = document.getElementById('toasts')) {
  * Show a toast.
  * @param {'info'|'success'|'warning'|'error'} level
  * @param {string} text one short English sentence
- * @param {{action?:{label:string, run:Function}, ms?:number}} opts
+ * @param {{action?:{label:string, run:Function}, ms?:number, sticky?:boolean}} opts  sticky: stays until clicked
  */
 export function toast(level, text, opts = {}) {
   if (!root) return;
@@ -26,7 +26,7 @@ export function toast(level, text, opts = {}) {
     if (t.dataset.text === text && !t.classList.contains('is-leaving')) {
       t.__gel && t.__gel.pulse();
       clearTimeout(t.__timer);
-      t.__timer = setTimeout(() => dismiss(t), opts.ms || 3800);
+      if (!opts.sticky) t.__timer = setTimeout(() => dismiss(t), opts.ms || 3800);
       return t;
     }
   }
@@ -48,7 +48,7 @@ export function toast(level, text, opts = {}) {
   }
   el.addEventListener('click', () => dismiss(el));
   const live = Array.from(root.children).filter((t) => !t.classList.contains('is-leaving'));
-  if (live.length >= MAX) dismiss(live[live.length - 1]);
+  if (live.length >= MAX) dismiss(live.filter((t) => !t.__sticky).pop() || live[live.length - 1]);
   flip(() => root.prepend(el));
   const lens = new Lens(el, 'capsule', { strength: 0 });
   el.__lens = lens;
@@ -58,7 +58,8 @@ export function toast(level, text, opts = {}) {
     { transform: 'translateY(-46px) scale(0.72, 0.6)', opacity: 0 },
     { transform: 'translateY(0) scale(1)', opacity: 1 },
   ], SPRINGS.bouncy);
-  el.__timer = setTimeout(() => dismiss(el), opts.ms || (level === 'error' ? 6000 : 3800));
+  el.__sticky = !!opts.sticky;
+  if (!opts.sticky) el.__timer = setTimeout(() => dismiss(el), opts.ms || (level === 'error' ? 6000 : 3800));
   return el;
 }
 

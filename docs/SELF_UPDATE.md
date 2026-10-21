@@ -63,8 +63,8 @@ Offline and limit errors are told apart by the exception text of `Net` (`HTTP 40
 `Net` retries three times, so an offline check takes about eight seconds before it reports.
 
 The check runs on every launch (`Engine.start`; only the headless CLI and tests pass `app_updates=False`) and on
-the "Check for updates" button. Automatic download and install is the UI's job and a separate setting,
-`auto_install_updates` (default off): ARCHITECTURE.md 5.7, item 5.
+the "Check for updates" button, and again every 6 hours while the app runs. The background download is the UI's
+job, setting `auto_download_updates` (default on); the restart is always a click: ARCHITECTURE.md 5.7, items 5-6.
 
 ## 4. Download and verification
 

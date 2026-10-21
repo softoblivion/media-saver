@@ -148,11 +148,12 @@ members-only, sensitive content) can use the cookies of a browser chosen in Sett
 | `concurrency` | `2` | Parallel downloads, 1–4, shared by both modes |
 | `update_channel` | `nightly` | `nightly` or `stable` channel of yt-dlp |
 | `auto_update` | `true` | Check engines on every start |
-| `auto_install_updates` | `false` | Download and install a new version without asking (the check itself always runs) |
+| `auto_download_updates` | `true` | Download a new version in the background; installing is always a click on **Restart** |
 | `auth_mode` | `auto` | Instagram: `auto` (anonymous first), `always` (session first), `never` |
 | `browser_cookies` | *(empty)* | Optional browser to read cookies from: `firefox`, `edge`, `chrome`, `brave`, `opera` (every platform) |
 | `clipboard_watch` | `true` | Offer links found in the clipboard on window focus |
 | `open_folder_when_done` | `false` | Open the output folder when the queue drains |
+| `sound_on_done` | `true` | Play a short sound when a download finishes |
 
 ## Link cleaning rules
 
@@ -211,13 +212,13 @@ GitHub and Codeberg (engine and app updates).
 ## Updates
 
 - **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
-- **The app:** checked on every launch, or **Check for updates** from the version label next
-  to the engine chip. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
+- **The app:** checked on every launch and every 6 hours while it runs, or **Check for updates** from the version
+  label next to the engine chip. A new version downloads in the background (`auto_download_updates`, on by
+  default) and a notice offers **Restart**; the app never restarts by itself. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
   against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: the downloaded exe waits
   for the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new
-  one started) and relaunches it. If anything fails the current exe stays untouched. With **Install updates
-  automatically** on (Settings, off by default) the download and the restart happen by themselves once the queue
-  is idle.
+  one started) and relaunches it. If anything fails the current exe stays untouched. Closing the window ends the
+  app and every process it started; nothing runs in the background after that.
 - Versions 2.0.0 and 2.1.0 cannot update themselves (their updater hung in a console window): download the
   current `MediaSaver.exe` once by hand; from 2.1.1 on the update applies in place.
 - Every release ships two assets: `MediaSaver.exe` and `SHA256SUMS`. Release notes live in
