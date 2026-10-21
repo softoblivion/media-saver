@@ -17,7 +17,8 @@ Runtime requirement on the target machine: the **Microsoft Edge WebView2 Runtime
 current Windows 10; Evergreen installer: https://developer.microsoft.com/microsoft-edge/webview2/).
 The exe itself needs no Python.
 
-Requirements files: `requirements.txt` (runtime), `requirements-dev.txt` (build tools). `app/core` is stdlib-only.
+Requirements files: `requirements.txt` (runtime), `requirements-dev.txt` (build tools). `app/core` is stdlib-only;
+the self-update package is vendored in `app/vendor/selfupdate/` (no install step, see `SELF_UPDATE.md`).
 
 ## 2. Run from source
 
@@ -153,7 +154,7 @@ in chat for that repository, then the pre-publish checklist of the workspace is 
    Not a draft and not a prerelease (`/releases/latest` ignores both). The two asset names must stay exactly
    `MediaSaver.exe` and `SHA256SUMS` because the self-updater looks them up by name.
 7. Verify as an installed copy would: from a scratch folder, run an older exe or the read-only smoke test of
-   `SELF_UPDATE.md` section 8 with a lower version; it must report `available` with the new version, and the
+   `SELF_UPDATE.md` section 7 with a lower version; it must report `available` with the new version, and the
    `SHA256SUMS` asset must contain the hash of the uploaded exe
    (`gh release download vX.Y.Z -p SHA256SUMS -O -` compared with `Get-FileHash`).
 

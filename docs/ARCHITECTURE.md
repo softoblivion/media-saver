@@ -51,12 +51,14 @@ media-saver/
   app/core/paths.py          AppPaths (portable runtime data locations)
   app/core/settings.py       settings schema, defaults, validation, persistence
   app/core/updater.py        bootstrap + update of yt-dlp, gallery-dl, ffmpeg
-  app/core/selfupdate.py     check / download / verify / apply of a new MediaSaver.exe
+  app/core/selfupdate.py     Media Saver's configuration of the vendored self-updater (adapter)
   app/core/downloader.py     job queue, preview fetch, subprocess runner, progress parsing, formats, fallbacks
   app/core/auth.py           cookies.txt read/write, auth status
   app/core/linkclean.py      link extraction and canonicalisation for the four platforms
   app/core/engine.py         facade used by the bridge (section 6)
   app/core/cli.py            headless harness: python -m app.core.cli <links>
+  app/vendor/selfupdate/     vendored self-update package (check, download, verify, apply mode; shared HTTP and
+                             file helpers); a synced copy, never edited here; VENDORED.txt names its version
   ui/                        index.html, css/, js/ (incl. js/mock-api.js), assets/ (icon, fonts)
   tests/                     unittest suite (test_core_*, test_linkclean, test_bridge_*)
   build/                     entry.py, MediaSaver.spec, build.ps1, make_icon.py, icon.ico
@@ -69,14 +71,14 @@ Build output (`release/`, `build/work`, `build/dist`), `.venv/` and the runtime 
 source (`media-saver_data/`, `Downloads/`) are not tracked.
 
 Rules for all code: comments, docs and user-facing strings in English; `app/core` uses the Python standard library
-only; tests use `unittest` (`python -m unittest discover -s tests`). Each module keeps its owning document current.
+and `app/vendor` only (the vendored packages are stdlib-only too); tests use `unittest` (`python -m unittest discover -s tests`). Each module keeps its owning document current.
 
 Module table (owner = the session that may write there during a task; see `_workspace/PARALLEL.md`):
 
 | Module | Path | Owning doc | Owner |
 |---|---|---|---|
 | Core engine (links, queue, formats, preview, engine updater) | `app/core/linkclean.py`, `downloader.py`, `updater.py`, `cli.py`; `tests/test_linkclean.py`, `tests/test_core_*` except settings and engine | `ENGINE.md` | engine worker |
-| Self-update | `app/core/selfupdate.py`; `tests/test_core_selfupdate.py`; `build/`; `app/fake_engine.py`; `tests/test_bridge_*` | `SELF_UPDATE.md`, `BUILD.md` | self-update worker |
+| Self-update | `app/core/selfupdate.py` (adapter); `app/vendor/selfupdate/` (vendored, replaced only by the sync described in `SELF_UPDATE.md`); `tests/test_core_selfupdate.py`; `build/`; `app/fake_engine.py`; `tests/test_bridge_*` | `SELF_UPDATE.md`, `BUILD.md` | self-update worker |
 | UI | `ui/**` | `UI_DESIGN.md` | ui worker |
 | Shell and contracts | `app/main.py`, `bridge.py`, `login.py`, `winutil.py`, `app/core/engine.py`, `paths.py`, `settings.py`, `auth.py`; `tests/test_core_settings.py`, `tests/test_core_engine.py`; `README.md`, `ARCHITECTURE.md`, `BRIDGE_API.md`, release notes | `ARCHITECTURE.md`, `BRIDGE_API.md` | integrator |
 
@@ -197,7 +199,8 @@ sees or stores the password.
 
 ### 5.7 App self-update
 
-`app/core/selfupdate.py` (details and the release layout in `docs/SELF_UPDATE.md`):
+`app/core/selfupdate.py` configures the vendored package `app/vendor/selfupdate` (details, the release layout and
+the configuration values in `docs/SELF_UPDATE.md`):
 
 1. On every launch (always; no setting switches the check off) and on "Check for updates": read the latest release of
    `softoblivion/media-saver` (tag `vX.Y.Z`, asset `MediaSaver.exe`, asset `SHA256SUMS`, notes), compare SemVer
@@ -288,11 +291,10 @@ class Downloader:
     # unchanged: start, shutdown, set_concurrency, jobs, get, cancel, retry, remove, job_file, mark_waiting,
     #            load_history, save_history
 
-# app/core/selfupdate.py
-class SelfUpdater:
+# app/core/selfupdate.py (adapter; the methods come from app/vendor/selfupdate.SelfUpdater)
+class SelfUpdater(app.vendor.selfupdate.SelfUpdater):
     def __init__(self, paths: AppPaths, current_version: str, on_status: Callable[[dict], None], *,
-                 net: Net | None = None, repo: str = "softoblivion/media-saver",
-                 asset_name: str = "MediaSaver.exe", exe_path: str | None = None,
+                 net: Net | None = None, exe_path: str | None = None,
                  on_toast: Callable[[str, str], None] | None = None,
                  spawn=None, urlopen=None) -> None       # spawn / urlopen: test hooks
     def status(self) -> dict                            # UpdateStatus

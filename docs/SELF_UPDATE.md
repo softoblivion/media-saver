@@ -1,19 +1,66 @@
 # App self-update
 
-Owner: self-update worker. Code: `app/core/selfupdate.py`; tests: `tests/test_core_selfupdate.py`. The facade calls
-(`check_updates`, `download_update`, `apply_update`, the `update` event) are defined in `ARCHITECTURE.md` section 6 and
-`BRIDGE_API.md`; the payload is `UpdateStatus` there. This file owns everything below that: the release layout, how
-a release is found and verified, the swap helper, failure handling and how to test it.
+Owner: self-update worker. Code: `app/core/selfupdate.py` (Media Saver's configuration, an adapter) on top of the
+vendored package `app/vendor/selfupdate/` (the mechanism); tests: `tests/test_core_selfupdate.py`. The facade calls
+(`check_updates`, `download_update`, `apply_update`, the `update` event) are defined in `ARCHITECTURE.md` section 6
+and `BRIDGE_API.md`; the payload is `UpdateStatus` there. This file owns the Media Saver side: the release layout,
+the configuration values, the messages as the user sees them, the history of the update path and how to test it.
 
-## 1. Release layout (what the updater expects on GitHub)
+## 1. The vendored package
 
-Repository `softoblivion/media-saver` (constructor argument `repo`). The newest **published, non-draft,
-non-prerelease** release is the one `GET /releases/latest` returns, so a prerelease is never offered.
+`app/vendor/selfupdate/` is a copy of the `selfupdate` package (version in its `VENDORED.txt`), maintained outside
+this repository together with its own test suite and shared with other apps. Never edit the copy here: changes
+are made in the package and the copy is replaced as a whole with the maintainer's sync script,
+
+```
+vendor-sync.ps1 -Lib selfupdate -Project media-saver [-Check]
+```
+
+then this project's full tests and build run. `-Check` only reports whether the copy differs. The package's tests
+run where it is maintained; `tests/test_core_selfupdate.py` here pins Media Saver's configuration and the calls the
+app relies on. The package imports nothing outside itself and only the Python standard library.
+
+Besides the updater, the package provides the helpers the rest of `app/core` uses: `Net`, `OfflineError`,
+`parse_sums`, `sha256_file`, `replace_file` (re-exported by `app/core/updater.py`) and `atomic_write_bytes`,
+`atomic_write_text`, `atomic_write_json` (re-exported by `app/core/paths.py`).
+
+| Module | Contents |
+|---|---|
+| `updater.py` | `UpdateConfig`, `SelfUpdater`, `UpdateStatus`, `Messages`, version parsing |
+| `applymode.py` | `run_apply` (the `--apply-update` mode), `clean_env`, the swap and the wait for the old process |
+| `net.py` | `Net`, `ReleaseNet` (GitHub API headers), `OfflineError` |
+| `fileio.py` | atomic writes, retried replace, SHA-256, checksum file parsing |
+
+## 2. Configuration (`app/core/selfupdate.py`)
+
+| `UpdateConfig` field | Media Saver value |
+|---|---|
+| `repo` | `softoblivion/media-saver` |
+| `asset_name` | `MediaSaver.exe` (downloads: `updates\MediaSaver-<version>.exe`) |
+| `app_name` | `Media Saver` |
+| `version` | `app.__version__` |
+| `updates_dir` | `AppPaths.updates_dir` = `media-saver_data\updates` |
+| `exe_path` | `AppPaths.exe_path` (the frozen exe; `None` from source) |
+| `on_status` / `on_toast` | `Engine._on_update_status` (the `update` event) / a `toast` event |
+| `net` | the Engine's `net` argument (tests); otherwise `ReleaseNet` |
+| `user_agent` | `app.core.updater.UA`, the same as the engine downloads |
+| `legacy_files` | `apply-update.cmd` (helper of 2.0.0 / 2.1.0, deleted on startup) |
+| `logger_name` | `mediasaver.core.selfupdate` (lands in `logs\app.log`) |
+| `release_url_env` | `MEDIA_SAVER_RELEASE_URL`: when set, its value (the URL of a JSON document in the GitHub API "latest release" format) replaces the GitHub lookup; the redirect fallback is skipped then. For end-to-end tests only |
+
+`SelfUpdater(paths, current_version, on_status, *, net, exe_path, on_toast, spawn, urlopen)` keeps the constructor
+the Engine has always called and builds the configuration from it. `app/main.py` routes
+`--apply-update <pid> <target>` to `run_apply` before the single-instance mutex and before any window.
+
+## 3. Release layout (what the updater expects on GitHub)
+
+The newest **published, non-draft, non-prerelease** release is the one `GET /releases/latest` returns, so a
+prerelease is never offered.
 
 | Item | Rule |
 |---|---|
 | Tag | `vX.Y.Z` (SemVer, leading `v` stripped for display and comparison). A tag that does not start with digits is an error ("Could not read the release version"). |
-| Asset `MediaSaver.exe` | the one-file build, exactly this name (constructor argument `asset_name`) |
+| Asset `MediaSaver.exe` | the one-file build, exactly this name |
 | Asset `SHA256SUMS` | text file, line `<sha256 lowercase>  MediaSaver.exe` (two spaces; `build\build.ps1` writes it) |
 | Release body | Markdown release notes, shown in the update dialog as they are (`docs/releases/vX.Y.Z.md`) |
 
@@ -22,10 +69,10 @@ MediaSaver.exe" / "The release has no checksum file". v1.0.0 (asset `ReelsSaver.
 updater, so 1.x installs cannot update themselves; the first self-updating version is 2.0.0, and the first update
 that can be offered is 2.0.1 or later.
 
-## 2. States
+## 4. States and messages
 
 `idle` -> `checking` -> `up_to_date` | `available` | `error`; `available` -> `downloading` -> `ready` | `error`.
-`ready` -> the app exits and the helper takes over. Messages are the exact strings in the module (one sentence each).
+`ready` -> the app exits and the downloaded exe takes over.
 
 | Stage | Message | Notes |
 |---|---|---|
@@ -37,76 +84,29 @@ that can be offered is 2.0.1 or later.
 | `ready` | Version X.Y.Z is ready to install | `can_apply` true when the app runs as the packaged exe; from source the text gets " (applies to the packaged MediaSaver.exe only)" and `can_apply` stays false |
 | `error` | No internet connection / GitHub limited the request, try again later / The release has no MediaSaver.exe / The release has no checksum file / The downloaded file is damaged (checksum mismatch) / Could not read the release version / No release has been published yet / Could not save the update file / Could not start the update helper / The update is not ready to install | `check_updates()` or `download_update()` may be called again |
 
-Rules: one operation at a time (a second request while a check or download runs is ignored); every change goes
-through `on_status(copy)` and a failing callback is logged, never raised; `download` is allowed only from
-`available`, or from `error` when the last check found a newer release; a check result clears the facts of the
-previous one, so a failed check never leaves a stale "latest".
+After a finished update the next launch shows the toast "Media Saver updated to vX.Y.Z" once.
 
-## 3. Check
+## 5. How it works (summary; the code of the package is the reference)
 
-1. `GET https://api.github.com/repos/<repo>/releases/latest` with `Accept: application/vnd.github+json`,
-   `X-GitHub-Api-Version: 2022-11-28` and the shared `User-Agent` (`ReleaseNet`, a `Net` subclass that adds the two
-   headers on `api.github.com` only). It yields tag, body (notes), `published_at` and the assets with size and URL.
-2. Fallback when the API answers 403 / 429 (unauthenticated limit: 60 requests per hour and IP), cannot be reached
-   or returns something unexpected: `GET https://github.com/<repo>/releases/latest` is followed through its redirect and
-   the tag is read from the final URL (`/releases/tag/<tag>`). Assets are then
-   `https://github.com/<repo>/releases/download/<tag>/<name>`; the size comes from a `HEAD` `Content-Length` (a 404
-   there means the asset does not exist), `notes` and `published_at` stay `null`. The page does not count against
-   the API limit.
-3. SemVer compare: the numeric `X.Y.Z` prefix of the tag against `app.__version__` as tuples of ints (missing parts
-   are zero, a suffix such as `-beta.1` is ignored). Newer -> `available`, else `up_to_date`. The asset check
-   ("The release has no MediaSaver.exe") applies to newer releases only.
-4. If `updates\MediaSaver-<latest>.exe` is already there and its size and SHA-256 match the release, the stage is
-   `ready` straight away (a restart between "Download" and "Restart to update" costs nothing).
-
-Offline and limit errors are told apart by the exception text of `Net` (`HTTP 403` / `HTTP 429` -> limit message);
-`Net` retries three times, so an offline check takes about eight seconds before it reports.
-
-The check runs on every launch (`Engine.start`; only the headless CLI and tests pass `app_updates=False`) and on
-the "Check for updates" button, and again every 6 hours while the app runs. The background download is the UI's
-job, setting `auto_download_updates` (default on); the restart is always a click: ARCHITECTURE.md 5.7, items 5-6.
-
-## 4. Download and verification
-
-1. Fetch `SHA256SUMS` of the release tag (the URL from the API asset list, otherwise
-   `https://github.com/<repo>/releases/download/<tag>/SHA256SUMS`) and take the entry for `MediaSaver.exe`. A missing
-   file or entry stops here: "The release has no checksum file". Nothing is downloaded without a checksum.
-2. Stream the asset with `Net.download` to `updates\MediaSaver-<latest>.exe.part`; progress is published at most once
-   per percent.
-3. Verify the byte size against the release asset size (when known) and the streamed SHA-256 against the checksum.
-   A mismatch deletes the `.part` file and ends in "The downloaded file is damaged (checksum mismatch)".
-4. `os.replace` to `MediaSaver-<latest>.exe`, remember the expected SHA-256, stage `ready`.
-
-## 5. Apply (the downloaded exe swaps itself in)
-
-`apply()` returns `True` only after the new exe has been started in apply mode; the bridge then closes the window
-the way the title bar button does. Preconditions: stage `ready`, `exe_path` set (frozen build), the file still
-there with the expected SHA-256 (re-hashed). Steps:
-
-1. Write `updates\applied.json` = `{"version": "<latest>", "at": <epoch>}`.
-2. Start `updates\MediaSaver-<latest>.exe --apply-update <pid> <target>` (`<pid>` = this process, `<target>` =
-   the installed `MediaSaver.exe`; `--no-launch` is appended in tests). The child gets a clean environment
-   (`clean_env()`: `_PYI_*` / `_MEIPASS2` removed, `PYINSTALLER_RESET_ENVIRONMENT=1`) and the flags
-   `CREATE_NEW_PROCESS_GROUP | CREATE_BREAKAWAY_FROM_JOB` (plain `CREATE_NEW_PROCESS_GROUP` when the job refuses
-   breakaway), stdin / stdout / stderr on `DEVNULL`. There is no `cmd`, no console and no pipe anywhere: a windowed
-   exe starts another windowed exe.
-3. The app exits.
-
-What the new exe does in apply mode (`run_apply`, reached from `app/main.py` before the single-instance mutex and
-before any window; every step is appended to `updates\apply.log`):
-
-1. Wait for `<pid>` to end: `OpenProcess(SYNCHRONIZE)` + `WaitForSingleObject` in one-second slices, at most 120 s.
-   A pid that no longer exists counts as exited.
-2. Swap: remove a stale `<target>.old`, rename `<target>` to `<target>.old`, copy itself (`sys.executable`) over
-   `<target>` and compare sizes. The rename is retried up to 40 times, 0.5 s apart (the old exe may still be held by
-   its own shutdown or by an antivirus scan). When the copy fails, `.old` is moved back and the run stops.
-3. Start `<target>` (clean environment, cwd = its folder) and exit. The copy in `updates\` stays until the new
-   version's `startup()` deletes it as "not newer than the running version".
+- Check: GitHub API `releases/latest`; on 403 / 429 or no answer, the `github.com/<repo>/releases/latest` redirect
+  plus a `HEAD` for the size. SemVer compare against `app.__version__`. A verified file already in `updates\` goes
+  straight to `ready`.
+- When: on every launch (`Engine.start`; only the headless CLI and tests pass `app_updates=False`), on the "Check
+  for updates" button, and every 6 hours while the app runs. The background download is the UI's job, setting
+  `auto_download_updates` (default on); the restart is always a click: ARCHITECTURE.md 5.7, items 5-6.
+- Download: `SHA256SUMS` first (nothing is downloaded without a checksum), then the exe to
+  `updates\MediaSaver-<v>.exe.part`; size and SHA-256 verified, then renamed.
+- Apply: `updates\applied.json` is written, `updates\MediaSaver-<v>.exe --apply-update <pid> <MediaSaver.exe>`
+  starts with a clean PyInstaller environment and no console, the app exits. The new exe waits for the pid (at
+  most 120 s), renames `MediaSaver.exe` to `MediaSaver.exe.old`, copies itself over it, starts it; every step goes
+  to `updates\apply.log`. A failed copy restores the old exe. The next launch deletes `.old`, the marker, the
+  legacy helper and every download not newer than the running version.
 
 Why not a script: 2.0.0 and 2.1.0 used a `cmd` helper started with `DETACHED_PROCESS`; a detached `cmd` has no
 console, so every console tool it ran (`tasklist`, `find`, `ping`) opened a visible console of its own and the
-`tasklist | find` pipe hung waiting for keyboard input. The helper could not be fixed from the new side: it is the
-old exe that starts it, so 2.0.0 and 2.1.0 installs need one manual download of a newer `MediaSaver.exe`.
+`tasklist | find` pipe hung waiting for keyboard input (seen on a friend's PC: a console titled
+`find.exe " <pid> "` after "Restart to update"). The helper could not be fixed from the new side: it is the old exe
+that starts it, so 2.0.0 and 2.1.0 installs need one manual download of a newer `MediaSaver.exe`.
 
 ## 6. Failure handling
 
@@ -118,59 +118,45 @@ old exe that starts it, so 2.0.0 and 2.1.0 installs need one manual download of 
 | Disk full / folder not writable | "Could not save the update file" |
 | File changed between download and apply | file deleted, "The downloaded file is damaged (checksum mismatch)", `apply()` returns `False`, the app keeps running |
 | The new exe cannot be started in apply mode | marker removed, "Could not start the update helper", app keeps running |
-| Exe locked for 20 s or the move fails | old exe stays (or is restored); the next launch finds a marker with another version, logs "did not apply", and the update is offered again |
+| Exe locked for 20 s or the copy fails | old exe stays (or is restored); the next launch finds a marker with another version, logs "did not apply", and the update is offered again |
 | Running from source | `can_apply` false; `apply()` refuses |
 
-The running exe is never touched before the apply mode has waited for the app to exit; a failed swap moves
-`.old` back, and `apply.log` in `updates\` says what happened.
+## 7. Testing
 
-## 7. Platform notes (symptom / cause / fix)
-
-- A `cmd` helper started with `DETACHED_PROCESS` has no console; every console child (`tasklist`, `find`, `ping`)
-  then allocates a visible console of its own and a pipe between them breaks (`find` reads its new console and
-  waits for keyboard input). Seen on a friend's PC with 2.1.0: a console window titled `find.exe " <pid> "` hung
-  after "Restart to update". Fix: no script and no console tools at all; the windowed exe does the swap
-  (`run_apply`). `CREATE_NO_WINDOW` is also ignored when combined with `DETACHED_PROCESS`, which is why the
-  window was visible in the first place.
-- A process started from a PyInstaller one-file exe inherits `_PYI_*` variables that make a second launch of the
-  same exe reuse the first one's extraction folder (which is being deleted). `clean_env()` drops them and sets
-  `PYINSTALLER_RESET_ENVIRONMENT=1` (PyInstaller 6.9+), so the apply-mode exe and the relaunched app each extract
-  afresh.
-- A launcher that puts the app in a job object with "kill on close" would end the apply-mode exe together with the
-  app; `CREATE_BREAKAWAY_FROM_JOB` detaches it when the job allows that, otherwise the plain flags are used.
-- `os.replace` of the running exe can fail for a moment after the app exits (its own shutdown, antivirus scan);
-  the rename is retried for up to 20 s.
-
-## 8. Testing
-
-`tests/test_core_selfupdate.py` runs without network or a real exe:
-
-- `FakeNet` (canned `get_text` / `download` per URL, errors as values) replaces `Net`; a fake `urlopen` replaces the
-  redirect and `HEAD` calls of the fallback; `spawn` is injected so `apply()` never starts a process;
-  `exe_path` is a temp file; `MEDIA_SAVER_HOME` is a temp folder.
-- Covered: available / up to date / offline / API 403 with fallback through the redirect URL (with and without
-  `Content-Length`, missing asset, no release) / bad tag / missing asset; version parsing and comparison; the API
-  headers of `ReleaseNet`; one operation at a time; download ok (progress, `.part` gone), size mismatch, checksum
-  mismatch, missing `SHA256SUMS` and missing entry, network and disk errors with retry; an already downloaded and
-  verified file going straight to `ready` (and a corrupt one not); `apply()` refused when not ready, without
-  `exe_path`, after the file changed or vanished, and its marker / spawn arguments; `startup()` toast, stale
-  marker, `.old` deletion, leftover cleanup, broken marker; the apply mode itself (`run_apply`): a stand-in
-  process of two seconds is "the app", the function waits for it,
-  swaps a dummy target (in a folder with spaces and parentheses), keeps `.old`, restores the old file when the new
-  one is missing, and deletes itself.
-- Not covered: a real GitHub release, the PyInstaller one-file restart in a frozen build, antivirus locking the exe,
-  SmartScreen.
+`tests/test_core_selfupdate.py` runs without network or a real exe: the configuration values, the default net
+and User-Agent, Media Saver's messages and file names through a check / download / apply with a fake net and an
+injected `spawn`, the startup toast and the legacy helper cleanup, logging to `mediasaver.core.selfupdate`, the
+shared helpers being the vendored ones, `VENDORED.txt`, and `main()` routing `--apply-update` to `run_apply`.
+`MEDIA_SAVER_HOME` is a temp folder.
 
 `tests/test_bridge_fake_engine.py` and `app/fake_engine.py` simulate the whole flow for the UI: `run_dev.bat --fake`
 starts with an update offered (next minor version, a sample changelog, 13 MB), "Download" runs three seconds,
 "Restart to update" closes the window. `MEDIA_SAVER_FAKE_UPDATE=uptodate` or `=error` simulates the other outcomes.
 
+Frozen build check (no release needed), from a scratch folder with `MEDIA_SAVER_HOME` set: start the built exe and
+open the version panel: it shows "Media Saver is up to date" (or the newer version) and "Checked … ago". Then copy
+the exe to `updates\MediaSaver-9.9.9.exe` and run
+`MediaSaver-9.9.9.exe --apply-update 1 "<scratch>\Target Dir (x86)\MediaSaver.exe" --no-launch` against a dummy
+target: exit code 0, the target holds the new exe, `MediaSaver.exe.old` the dummy, `apply.log` ends with
+"swap done".
+
 Read-only smoke test against the real API (never downloads): from the project root with `MEDIA_SAVER_HOME` set to a
 scratch folder,
 `.venv\Scripts\python -c "from app.core.paths import AppPaths; from app.core.selfupdate import SelfUpdater; print(SelfUpdater(AppPaths(), '0.0.1', print).check())"`.
-While the newest release has no `MediaSaver.exe` it reports "The release has no MediaSaver.exe"; with a version at or above
-the newest tag it reports "Media Saver is up to date".
+With a version at or above the newest tag it reports "Media Saver is up to date".
+
+End-to-end against a local server (no release needed): build the version under test (N) and a build of N+1 (version
+bumped locally, not committed); put the N+1 exe as `MediaSaver.exe`, its `SHA256SUMS` and a `latest.json`
+(`{"tag_name": "vN+1", "body": "...", "assets": [{"name": "MediaSaver.exe", "size": <bytes>,
+"browser_download_url": "http://127.0.0.1:8765/MediaSaver.exe"}, {"name": "SHA256SUMS", ...}]}`) in a folder and
+serve it with `python -m http.server 8765`; start N from a scratch folder with `MEDIA_SAVER_HOME` and
+`MEDIA_SAVER_RELEASE_URL=http://127.0.0.1:8765/latest.json`; the update downloads in the background; press
+"Restart". Assert: N+1 runs from the same path, no console window, `MediaSaver.exe.old` gone within ~15 s,
+settings and history in the data folder unchanged.
 
 End-to-end by hand (needs two releases): build version N, publish N+1 as described in `BUILD.md` section 7, start
 the exe of version N from a scratch folder with `MEDIA_SAVER_HOME` set, press "Check for updates", "Download",
 "Restart to update"; the window reopens on N+1, shows the toast, and `MediaSaver.exe.old` is gone.
+
+Not covered by automated tests: a real GitHub release, the PyInstaller one-file restart in a frozen build,
+antivirus locking the exe, SmartScreen.
