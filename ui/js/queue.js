@@ -7,7 +7,7 @@
 
 import { call, on } from './api.js';
 import { Lens, gel } from '../vendor/liquid_ui/js/glass.js';
-import { SPRINGS, springAnimate, springEasing, whenDone, reducedMotion } from '../vendor/liquid_ui/js/motion.js';
+import { SPRINGS, springAnimate, springEasing, enterRow, leaveRow, fadeIn, fadeOut } from '../vendor/liquid_ui/js/motion.js';
 import { icon, kindGlyph } from './icons.js';
 import { bytes, speed, eta, duration, codec, escapeHtml, timeAgo, shortLink } from './format.js';
 import { toast } from '../vendor/liquid_ui/js/toast.js';
@@ -154,24 +154,25 @@ function onFolderOutside(e) {
   if (!folderMenu.contains(e.target) && !moreBtn.contains(e.target)) closeFolderMenu(false);
 }
 
+// The menu appears and leaves with the kit's menu motion (fadeIn / fadeOut); `menuOpen` is the
+// logical state, since the element stays visible for the length of the exit animation.
+let menuOpen = false;
+
 function openFolderMenu(focusIndex = 0) {
-  if (!folderMenu.hidden) return;
-  folderMenu.hidden = false;
+  if (menuOpen) return;
+  menuOpen = true;
+  folderMenu.classList.remove('is-closing');
+  fadeIn(folderMenu);
   moreBtn.setAttribute('aria-expanded', 'true');
-  if (!reducedMotion.matches) {
-    springAnimate(folderMenu, [
-      { opacity: 0, transform: 'translateY(-6px) scale(.96)' },
-      { opacity: 1, transform: 'none' },
-    ], SPRINGS.snappy, { fill: 'none' });
-  }
   const items = folderItems();
   items[(focusIndex + items.length) % items.length].focus();
   addEventListener('pointerdown', onFolderOutside, true);
 }
 
 function closeFolderMenu(refocus = true) {
-  if (folderMenu.hidden) return;
-  folderMenu.hidden = true;
+  if (!menuOpen) return;
+  menuOpen = false;
+  fadeOut(folderMenu);
   moreBtn.setAttribute('aria-expanded', 'false');
   removeEventListener('pointerdown', onFolderOutside, true);
   if (refocus) moreBtn.focus();
@@ -185,12 +186,12 @@ function initFolder(settings) {
   renderFolder();
 
   folderBtn.addEventListener('click', openFolder);
-  moreBtn.addEventListener('click', () => (folderMenu.hidden ? openFolderMenu(0) : closeFolderMenu()));
+  moreBtn.addEventListener('click', () => (menuOpen ? closeFolderMenu() : openFolderMenu(0)));
   moreBtn.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       openFolderMenu(e.key === 'ArrowDown' ? 0 : -1);
-    } else if (e.key === 'Escape' && !folderMenu.hidden) {
+    } else if (e.key === 'Escape' && menuOpen) {
       e.preventDefault();
       e.stopPropagation();
       closeFolderMenu();
@@ -241,15 +242,9 @@ function onModeChange() {
   }
   scroller.scrollTop = 0;
   renderHead();
-  if (reducedMotion.matches) return;
-  // The first cards of the new mode settle in with a short stagger; the rest are off screen.
-  const order = Array.from(list.children).filter((c) => !c.hidden).slice(0, 8);
-  order.forEach((el, i) => {
-    springAnimate(el, [
-      { opacity: 0, transform: 'translateY(10px) scale(0.97)' },
-      { opacity: 1, transform: 'none' },
-    ], SPRINGS.bouncy, { delay: i * 28, fill: 'backwards' });
-  });
+  // The first cards of the new mode enter with the kit's row entrance (staggered); the rest are off
+  // screen. enterRow() is a no-op with reduced motion.
+  Array.from(list.children).filter((c) => !c.hidden).slice(0, 8).forEach((el, i) => enterRow(el, i, { from: 10 }));
 }
 
 function renderEmpty() {
@@ -481,10 +476,7 @@ function insertSorted(el, j) {
     return;
   }
   flipList(() => list.insertBefore(el, before));
-  springAnimate(el, [
-    { opacity: 0, transform: 'translateY(-14px) scale(0.94)' },
-    { opacity: 1, transform: 'none' },
-  ], SPRINGS.bouncy, { fill: 'backwards' });
+  enterRow(el, 0);
 }
 
 function removeCard(id) {
@@ -497,18 +489,11 @@ function removeCard(id) {
     el.remove();
     return;
   }
+  // The kit's row exit: fade and shrink, then the gap collapses so the cards below slide up, then
+  // the element is removed. The list gap (10 px) is not a margin, so the collapse leaves it; the
+  // leaving card loses it through .is-leaving.
   el.classList.add('is-leaving');
-  const h = el.offsetHeight;
-  const a = springAnimate(el, [
-    { opacity: 1, transform: 'none' },
-    { opacity: 0, transform: 'scale(0.92)' },
-  ], SPRINGS.sheetClose);
-  whenDone(a, () => {
-    // Collapse the gap so the cards below slide up.
-    const c = el.animate([{ height: `${h}px`, marginBottom: getComputedStyle(el).marginBottom }, { height: '0px', marginBottom: '0px' }],
-      { ...springEasing(SPRINGS.smooth), fill: 'forwards' });
-    whenDone(c, () => el.remove());
-  });
+  leaveRow(el);
 }
 
 /** FLIP visible cards around a DOM change. */

@@ -28,6 +28,8 @@ FORMATS = ("mp4", "mp3")
 CHANNELS = ("nightly", "stable")
 AUTH_MODES = ("auto", "always", "never")
 BROWSERS = ("", "firefox", "edge", "chrome", "brave", "opera")
+THEMES = ("dusk", "nova", "frost", "bloom")  # the UI kit's palettes; the UI applies the confirmed value
+DEFAULT_THEME = "dusk"
 TEMPLATE_TOKENS = ("author", "shortcode", "date", "title")
 CONCURRENCY_MIN, CONCURRENCY_MAX = 1, 4
 TEMPLATE_MAX_LEN = 100
@@ -57,6 +59,7 @@ def defaults() -> dict[str, Any]:
         "clipboard_watch": True,
         "open_folder_when_done": False,
         "sound_on_done": True,
+        "theme": DEFAULT_THEME,
     }
 
 
@@ -137,6 +140,9 @@ def validate_value(key: str, value: Any) -> Any:
         if value is None:
             value = ""
         return _choice(key, value, BROWSERS, "Browser for cookies")
+    if key == "theme":
+        # An unknown name (an older or edited file, a stale UI) falls back to the default rather than failing.
+        return value if isinstance(value, str) and value in THEMES else DEFAULT_THEME
     raise KeyError(key)
 
 

@@ -16,7 +16,23 @@ import { initUpdate } from './update.js';
 import { initSound } from './sound.js';
 import { initPrefs, getMode, setMode, onPref, PLATFORMS, PLATFORM_NAME } from './mode.js';
 import { Segmented } from '../vendor/liquid_ui/js/controls.js';
+import { applyTheme } from '../vendor/liquid_ui/js/theme.js';
 import { initQuality } from './quality.js';
+
+// The theme the page paints with before the bridge answers: the inline script of index.html reads
+// this key, so a restart shows the saved theme without a flash of the default one.
+const THEME_KEY = 'media-saver.theme';
+
+/** Apply a confirmed settings object's theme and remember it for the next launch. */
+function syncTheme(settings) {
+  if (!settings || !settings.theme) return;
+  const name = applyTheme(settings.theme);
+  try {
+    localStorage.setItem(THEME_KEY, name);
+  } catch {
+    // storage unavailable: the next launch starts from the default and the bridge corrects it
+  }
+}
 
 function initTitlebar() {
   document.querySelectorAll('.ic-slot[data-icon]').forEach((s) => (s.outerHTML = icon(s.dataset.icon)));
@@ -117,6 +133,8 @@ async function boot() {
   }
   document.documentElement.dataset.backend = backendMode();
 
+  syncTheme(state.settings);
+  on('settings', syncTheme);
   initPrefs(state.settings);
   initModeSwitch();
   initEngine(state.engine);

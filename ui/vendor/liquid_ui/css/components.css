@@ -1,6 +1,7 @@
 /* Liquid UI components: segmented control, switch, stepper, select, slider, text field,
    overlays (scrim, sheet, popover), update popover, menus and split buttons, toasts, settings
-   sheet rows, title bar (brand, version pill, window cluster). docs/LIQUID_UI.md, section 5. */
+   sheet rows, title bar (brand, version pill, window cluster), the hero pill. The kit's
+   documentation, "Components". Transitions use the motion tokens --d-1 .. --d-4. */
 
 /* ---------------------------------------------------------------------------------------------
    Segmented control with droplet */
@@ -30,7 +31,7 @@
   letter-spacing: var(--tr-control);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: color var(--t-med) ease, opacity var(--t-med) ease;
+  transition: color var(--d-2) ease, opacity var(--d-2) ease;
   white-space: nowrap;
 }
 
@@ -158,13 +159,17 @@
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--fill-3);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 46%),
+    var(--fill-3);
+  box-shadow: inset 0 0 0 0.5px var(--btn-stroke), inset 0 1px 0 var(--btn-bevel), inset 0 -1px 0 var(--btn-shade);
   cursor: pointer;
-  transition: opacity var(--t-fast) ease, background-color var(--t-fast) ease;
+  transition: opacity var(--d-2) ease, background-color var(--d-1) ease;
 }
 
 .step-btn .ic { width: 15px; height: 15px; }
-.step-btn:hover { background: var(--fill-4); }
+.step-btn:hover, .step-btn.is-hover { background-color: var(--fill-4); }
+.step-btn.is-pressed { background: var(--fill-4); box-shadow: inset 0 0 0 0.5px var(--btn-stroke), inset 0 1px 2px rgba(0, 0, 0, 0.25); }
 .step-btn:disabled { opacity: 0.3; cursor: default; }
 
 .step-val {
@@ -202,14 +207,19 @@
   padding: 0 10px 0 14px;
   border: 0;
   border-radius: var(--r-pill);
-  background: var(--fill-2);
-  box-shadow: inset 0 0 0 0.5px var(--stroke-2);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0) 46%),
+    var(--btn-fill);
+  box-shadow: inset 0 0 0 0.5px var(--btn-stroke), inset 0 1px 0 var(--btn-bevel), inset 0 -1px 0 var(--btn-shade), var(--btn-drop);
   font: var(--t-control);
   font-weight: var(--w-medium);
   cursor: pointer;
+  transition: background-color var(--d-1) ease, box-shadow var(--d-1) ease;
 }
 
-.select-btn:hover { background: var(--fill-3); }
+.select-btn:hover, .select-btn.is-hover { background-color: var(--btn-fill-hover); }
+.select-btn.is-pressed { background: var(--btn-fill-press); box-shadow: inset 0 0 0 0.5px var(--btn-stroke), inset 0 1px 2px rgba(0, 0, 0, 0.25); }
+.select-btn[aria-expanded="true"] { background-color: var(--btn-fill-hover); }
 .select-btn .ic { width: 16px; height: 16px; color: var(--ink-3); }
 
 .select-menu {
@@ -251,10 +261,14 @@
   cursor: pointer;
 }
 
+.select-opt,
+.menu-item { transition: background-color var(--d-1) ease; }
 .select-opt:hover,
 .select-opt:focus-visible,
 .menu-item:hover,
 .menu-item:focus-visible { background: var(--fill-3); outline: none; }
+.select-menu.is-closing,
+.split-menu.is-closing { pointer-events: none; }
 .menu-item:disabled { opacity: 0.36; pointer-events: none; }
 .menu-item .ic { width: 16px; height: 16px; color: var(--ink-3); }
 .menu-item.is-danger { color: var(--rose-ink); }
@@ -300,7 +314,7 @@
   border-radius: 99px;
   background: #fff;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
-  transition: transform 0.25s cubic-bezier(.2, 1.4, .4, 1), box-shadow 0.2s ease;
+  transition: transform var(--d-3) var(--ease-spring), box-shadow var(--d-2) ease;
 }
 
 .slider-in:active::-webkit-slider-thumb {
@@ -309,7 +323,7 @@
 }
 
 .slider-in:focus-visible { outline: none; }
-.slider-in:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px rgba(140, 180, 255, 0.85); }
+.slider-in:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--focus-ring); }
 
 .slider-val {
   width: 34px;
@@ -340,14 +354,14 @@
   font-size: 13px;
   --ff-feat: var(--ff-mono);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.07);
-  transition: box-shadow var(--t-fast) ease;
+  transition: box-shadow var(--d-1) ease;
   user-select: text;
 }
 
 .field:focus,
 .field:focus-visible {
   outline: none;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(120, 160, 255, 0.7);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 2px var(--focus-ring);
 }
 
 .field-s { width: 140px; }
@@ -427,7 +441,7 @@
   border-radius: inherit;
   background: var(--accent-grad);
   transform: translateX(calc((var(--p) - 1) * 100%));
-  transition: transform 0.3s var(--ease-out);
+  transition: transform var(--d-3) var(--ease-out);
 }
 
 .pop-progress.is-indet span {
@@ -640,13 +654,17 @@
   padding: 0 12px;
   border: 0;
   border-radius: var(--r-pill);
-  background: var(--fill-3);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 46%),
+    var(--fill-3);
+  box-shadow: inset 0 0 0 0.5px var(--btn-stroke), inset 0 1px 0 var(--btn-bevel), inset 0 -1px 0 var(--btn-shade);
   font: var(--t-control-s);
   letter-spacing: var(--tr-control);
   cursor: pointer;
+  transition: background-color var(--d-1) ease;
 }
 
-.toast-action:hover { background: var(--fill-4); }
+.toast-action:hover, .toast-action.is-hover { background-color: var(--fill-4); }
 
 /* ---------------------------------------------------------------------------------------------
    Settings sheet: head, scroller, groups and rows (the content is the app's) */
@@ -755,7 +773,7 @@
 .tb-glyph {
   display: grid;
   place-items: center;
-  filter: drop-shadow(0 2px 8px rgba(70, 130, 255, 0.55));
+  filter: drop-shadow(0 2px 8px var(--glyph-glow));
 }
 
 .tb-name {
@@ -787,7 +805,7 @@
   --lens-tint: rgba(255, 255, 255, 0.035);
   --lens-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   --lens-bloom: 0.08;
-  transition: color var(--t-fast) ease;
+  transition: color var(--d-2) ease;
 }
 
 .ver-pill:hover,
@@ -836,13 +854,15 @@
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
-  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+  transition: background-color var(--d-1) ease, color var(--d-2) ease;
 }
 
 .tb-btn .ic { width: 16px; height: 16px; }
-.tb-btn:hover { background: var(--fill-3); color: var(--ink-1); }
-.tb-close:hover { background: #e5484d; color: #fff; }
-.tb-gear .ic { width: 18px; height: 18px; transition: rotate 0.6s var(--ease-out); }
+.tb-btn:hover, .tb-btn.is-hover { background: var(--fill-3); color: var(--ink-1); }
+.tb-btn.is-pressed { background: var(--fill-4); color: var(--ink-1); }
+.tb-close:hover, .tb-close.is-hover { background: #e5484d; color: #fff; }
+.tb-close.is-pressed { background: #c93c41; color: #fff; }
+.tb-gear .ic { width: 18px; height: 18px; transition: rotate var(--d-4) var(--ease-spring); }
 .tb-gear:hover .ic,
 .tb-gear.is-source .ic { rotate: 60deg; }
 .tb-gear.is-source { background: var(--fill-3); color: var(--ink-1); }
@@ -854,6 +874,210 @@
   background: var(--stroke-2);
 }
 
+
+/* ---------------------------------------------------------------------------------------------
+   Theme row (js/theme.js mountThemeControl): four swatch chips, one checked. */
+
+.theme-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.theme-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px 0 6px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--fill-1);
+  color: var(--ink-2);
+  font: var(--t-control-s);
+  letter-spacing: var(--tr-control);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 0.5px var(--stroke-1);
+  transition: background-color var(--d-1) ease, color var(--d-2) ease, box-shadow var(--d-1) ease;
+}
+
+.theme-chip:hover,
+.theme-chip.is-hover { background: var(--fill-2); color: var(--ink-1); }
+.theme-chip.is-on { background: var(--fill-3); color: var(--ink-1); box-shadow: inset 0 0 0 1px var(--accent-ink); }
+
+.theme-sw {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--h) 70%, black) 0%, var(--h) 100%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+
+.theme-sw i {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--a);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.35);
+}
+
+.theme-name { white-space: nowrap; }
+
+/* ---------------------------------------------------------------------------------------------
+   Hero pill: the one large primary action of a view (Start, Download). A pill lens (the app
+   adds `new Lens(el, 'pill')` and `gel(el)`), tinted only while it is the primary action; a
+   neutral glass track with a liquid level while running; mint when done. Markup:
+     <button class="hero" data-state="empty|ready|sending|progress|done">
+       <span class="pm-fill" aria-hidden="true"><span class="pm-liquid"></span></span>
+       <span class="pm-layer pm-label">icon <span class="pm-text">Start</span></span>
+       <span class="pm-layer pm-spin"><span class="spinner"></span></span>          (optional)
+       <span class="pm-layer pm-progress"><span class="pm-ptext tnum"></span><span class="pm-pmeta tnum"></span></span>
+       <span class="pm-layer pm-done">icon <span>Done</span></span>
+     </button>
+   --hero-h sets the height (52 px); the app sets the width. `.pm-instant` on the button moves
+   the level without travel (set it, write --p, remove it on the next frame). */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  flex: none;
+  height: var(--hero-h, 52px);
+  min-width: 148px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  color: #fff;
+  font: var(--t-headline);
+  letter-spacing: var(--tr-headline);
+  cursor: pointer;
+  --lens-tint: rgba(255, 255, 255, 0.05);
+  --lens-shadow: var(--shadow-m);
+  transition: color var(--d-3) ease, box-shadow var(--d-4) ease;
+}
+
+.hero[data-state="empty"] { color: var(--ink-4); cursor: default; text-shadow: none; }
+.hero[data-state="ready"],
+.hero[data-state="sending"] { --lens-tint: var(--accent-grad-a); --lens-shadow: 0 14px 30px -10px var(--btn-glow), var(--shadow-s); }
+.hero[data-state="sending"] { cursor: default; }
+.hero[data-state="progress"] { --lens-tint: rgba(10, 18, 40, 0.36); cursor: default; }
+.hero[data-state="done"] { --lens-tint: var(--mint-grad-a); --lens-shadow: 0 14px 30px -10px rgba(47, 224, 192, 0.6), var(--shadow-s); cursor: default; }
+
+/* Top streak of the tinted glass. */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 1px 20px auto;
+  height: 44%;
+  z-index: 2;
+  border-radius: 999px 999px 40% 40%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.26), transparent);
+  opacity: 0;
+  transition: opacity var(--d-3) ease;
+  pointer-events: none;
+}
+
+.hero[data-state="ready"]::after,
+.hero[data-state="sending"]::after,
+.hero[data-state="done"]::after { opacity: 1; }
+
+.hero .pm-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(12px) scale(0.92);
+  filter: blur(3px);
+  transition: opacity var(--d-2) ease, transform 0.45s var(--ease-out), filter var(--d-3) ease;
+  pointer-events: none;
+}
+
+.hero .pm-layer .ic { width: 18px; height: 18px; }
+.hero .pm-label .ic { width: 16px; height: 16px; }
+
+.hero[data-state="ready"] .pm-label,
+.hero[data-state="empty"] .pm-label,
+.hero[data-state="sending"] .pm-spin,
+.hero[data-state="progress"] .pm-progress,
+.hero[data-state="done"] .pm-done {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+.hero .pm-spin .spinner { width: 22px; height: 22px; border-width: 2.5px; border-color: rgba(255, 255, 255, 0.28); border-top-color: #fff; animation-play-state: paused; }
+.hero[data-state="sending"] .pm-spin .spinner { animation-play-state: running; }
+
+.hero .pm-progress { justify-content: space-between; padding: 0 22px; }
+.hero .pm-ptext { font: var(--w-strong) 14px / 1 var(--font-text); font-variant-numeric: tabular-nums; }
+.hero .pm-pmeta { font: var(--t-callout); font-weight: var(--w-medium); font-variant-numeric: tabular-nums; opacity: 0.85; }
+
+/* Liquid level of the progress state: a static clip with the pill's shape; the liquid inside is
+   wider than the pill by its soft edge and moves by translateX only ((p - 1) * 100 % of its own
+   width puts the whole edge left of the pill at p = 0 and the opaque body flush right at p = 1). */
+.hero .pm-fill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity var(--d-3) ease;
+  pointer-events: none;
+}
+
+.hero[data-state="progress"] .pm-fill { opacity: 1; }
+
+.hero .pm-liquid {
+  --pm-edge: 56px;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(100% + var(--pm-edge));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0) 55%),
+    var(--accent-grad);
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - var(--pm-edge)), rgba(0, 0, 0, 0.5) calc(100% - var(--pm-edge) * 0.5), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - var(--pm-edge)), rgba(0, 0, 0, 0.5) calc(100% - var(--pm-edge) * 0.5), transparent);
+  transform: translateX(calc((var(--p, 0) - 1) * 100%));
+  transition: transform 0.9s cubic-bezier(0.22, 0.8, 0.3, 1);
+  opacity: 0.88;
+}
+
+.hero.pm-instant .pm-liquid { transition: none; }
+
+/* Sheen: a faint highlight drifting through the filled part only, while running. */
+.hero .pm-liquid::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: var(--pm-edge);
+  width: max(0px, calc(var(--p, 0) * 100% - var(--pm-edge)));
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.13) 50%, transparent 70%) no-repeat;
+  background-size: 60% 100%;
+  background-position: -150% 0;
+}
+
+.hero[data-state="progress"] .pm-liquid::after { animation: pm-sheen 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+
+@keyframes pm-sheen {
+  from { background-position: -150% 0; }
+  to { background-position: 250% 0; }
+}
+
 @keyframes ver-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
@@ -861,5 +1085,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .pop-progress.is-indet span,
-  .ver-pill[data-stage="downloading"] .ver-dot { animation: none; }
+  .ver-pill[data-stage="downloading"] .ver-dot,
+  .hero[data-state="progress"] .pm-liquid::after { animation: none; }
+  .hero .pm-layer { transition: opacity var(--d-2) ease; transform: none; filter: none; }
 }

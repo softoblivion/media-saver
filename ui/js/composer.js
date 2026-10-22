@@ -1,7 +1,7 @@
 // Input capsule: paste area, live clean preview (chips morph original -> clean), counters, tools,
 // Ctrl+V anywhere, drag and drop of text / URLs / .txt files, the format toggle (MP4 / MP3) and the
-// primary "Download" button that morphs into a circle while sending and into a progress pill while
-// the batch downloads. Everything follows the current mode (js/mode.js): links are cleaned for that
+// primary "Download" button: the kit's hero pill (states empty / ready / sending / progress / done),
+// which narrows to a circle while sending and shows a liquid level while the batch downloads. Everything follows the current mode (js/mode.js): links are cleaned for that
 // platform, links of another platform get an inline "Switch to <their platform>" action and one
 // counter pill per platform present ("2 TikTok", "1 X").
 
@@ -335,7 +335,7 @@ function makeChip({ it, dup }) {
         <span class="pv-ic">${icon(ic)}</span>
         <span class="pv-text"><span class="pv-orig">${escapeHtml(shortLink(it))}</span></span>
       </div>
-      <button type="button" class="btn btn-s pv-switch" data-switch="${escapeHtml(it.platform)}">${icon('swap')}<span>Switch to ${escapeHtml(name)}</span></button>`;
+      <button type="button" class="btn btn-xs pv-switch" data-switch="${escapeHtml(it.platform)}">${icon('swap')}<span>Switch to ${escapeHtml(name)}</span></button>`;
     gel(el.querySelector('.pv-switch'));
     return el;
   }
@@ -532,7 +532,7 @@ function flyOut() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Primary button morph
+// Primary button: the kit's hero pill
 
 const ACTIVE = new Set(['queued', 'probing', 'downloading', 'processing']);
 
@@ -566,12 +566,14 @@ function onJob(job) {
 }
 
 function initButton() {
+  // The kit's layer markup (its documentation, "Hero pill"); the app adds the pill lens and the gel.
   btn.innerHTML = `
     <span class="pm-fill" aria-hidden="true"><span class="pm-liquid"></span></span>
     <span class="pm-layer pm-label">${icon('down')}<span class="pm-text">Download</span></span>
     <span class="pm-layer pm-spin" aria-hidden="true"><span class="spinner"></span></span>
-    <span class="pm-layer pm-progress"><span class="pm-ptext"></span><span class="pm-pmeta"></span></span>
+    <span class="pm-layer pm-progress"><span class="pm-ptext tnum"></span><span class="pm-pmeta tnum"></span></span>
     <span class="pm-layer pm-done">${icon('check')}<span class="pm-done-text">Done</span></span>`;
+  new Lens(btn, 'pill');
   gel(btn, { amount: 0.8 });
   btn.addEventListener('click', () => {
     if (btnState === 'ready' || btnState === 'empty') download();

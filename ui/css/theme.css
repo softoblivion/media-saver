@@ -1,36 +1,10 @@
-/* Media Saver's identity on top of the Liquid UI kit (vendor/liquid_ui/css/tokens.css): the "lagoon"
-   colours (cobalt to violet with a mint accent), its glass tints, its scene base and its layout
-   tokens. Loaded after the kit; the kit's copy is never edited (docs/UI_DESIGN.md, section 3). */
+/* Media Saver's layout tokens on top of the Liquid UI kit (vendor/liquid_ui/css/tokens.css). The
+   identity (accent, scene colours, glass tints) comes from the kit's themes (css/themes.css, Dusk by
+   default, switched in Settings > Appearance); nothing of it is overridden here. Loaded after the
+   kit; the kit's copy is never edited (docs/UI_DESIGN.md, section 3). */
 
 :root {
-  /* Identity: "lagoon" - cobalt to violet with a mint accent */
-  --accent: #5d8dff;
-  --accent-2: #8a6cff;
-  --accent-ink: #b9ccff;
-  --accent-grad: linear-gradient(135deg, #48a2ff 0%, #6a7bff 45%, #9c62ff 100%);
-  --accent-grad-a: linear-gradient(135deg, rgba(72, 162, 255, 0.55), rgba(124, 99, 255, 0.55));
-  --mint-grad: linear-gradient(135deg, #2fe0c0 0%, #4fb6ff 100%);
-  --rose-grad: linear-gradient(135deg, #ff7a6b 0%, #ff4f8e 100%);
-  --glyph-glow: rgba(80, 110, 255, 0.5);
-
-  /* Glass tints and the scene base: violet-leaning darks that match the lagoon fields */
-  --tint-regular: rgba(22, 26, 48, 0.26);
-  --tint-sheet: rgba(14, 16, 32, 0.44);
-  --well: rgba(4, 6, 16, 0.32);
-  --bg-top: #06070d;
-  --bg-mid: #0b0d18;
-  --bg-bottom: #0b0d18;
-
   /* Layout: a 46 px title bar; the composer column (the clipboard pill and toasts centre on the rest) */
   --titlebar-h: 46px;
   --cmp-w: clamp(360px, 37vw, 450px);
-}
-
-/* Scene base: near-black with a violet glow at the top left and a teal one at the bottom right
-   (the kit's colour fields, lines and specks sit on top, js/scene.js). */
-#scene {
-  background:
-    radial-gradient(120% 90% at 18% 0%, #141a3c 0%, transparent 60%),
-    radial-gradient(90% 80% at 100% 100%, #0d1f2c 0%, transparent 60%),
-    var(--bg-top);
 }

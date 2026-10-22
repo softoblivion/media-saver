@@ -8,7 +8,7 @@
 //  - Slider: a range input with a live number (quality).
 // Every control that owns a Lens has destroy(): panels are built and torn down with the card.
 
-import { Spring, SPRINGS, clamp, springEasing, whenDone, reducedMotion } from './motion.js';
+import { Spring, SPRINGS, clamp, springEasing, whenDone, reducedMotion, fadeIn, fadeOut, afterHold } from './motion.js';
 import { Lens, gel } from './glass.js';
 import { icon } from './icons.js';
 import { escapeHtml } from './format.js';
@@ -102,9 +102,11 @@ export class Segmented {
   }
 
   _scrollPress() {
-    const up = () => this.lift.to(0, SPRINGS.bouncy);
+    let downAt = 0;
+    const up = () => afterHold(downAt, () => this.lift.to(0, SPRINGS.smooth));
     this.el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || this.disabled) return;
+      downAt = performance.now();
       this.lift.to(1, SPRINGS.snappy);
       addEventListener('pointerup', up, { once: true });
       addEventListener('pointercancel', up, { once: true });
@@ -126,7 +128,7 @@ export class Segmented {
     this.el.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || this.disabled) return;
       const r = this.el.getBoundingClientRect();
-      start = { x: e.clientX, left: r.left, moved: false };
+      start = { x: e.clientX, left: r.left, moved: false, at: performance.now() };
       this.lift.to(1, SPRINGS.snappy);
       this.el.setPointerCapture(e.pointerId);
     });
@@ -142,8 +144,10 @@ export class Segmented {
       if (!start) return;
       const moved = start.moved;
       const left = start.left;
+      const at = start.at;
       start = null;
-      this.lift.to(0, SPRINGS.bouncy);
+      // The lifted droplet settles after the hold, while it travels to the chosen option.
+      afterHold(at, () => { if (!start) this.lift.to(0, SPRINGS.smooth); });
       const cx = moved ? this.x.value + this._optRect(this.value).w / 2 : e.clientX - left;
       let best = null;
       for (const b of this.opts) {
@@ -257,10 +261,14 @@ export class Switch {
       this.thumb.style.setProperty('--lift', v.toFixed(3));
       this._render();
     });
+    let downAt = 0;
     el.addEventListener('pointerdown', (e) => {
-      if (e.button === 0 && !this.disabled) this.press.to(1, SPRINGS.snappy);
+      if (e.button === 0 && !this.disabled) {
+        downAt = performance.now();
+        this.press.to(1, SPRINGS.snappy);
+      }
     });
-    const up = () => this.press.to(0, SPRINGS.bouncy);
+    const up = () => afterHold(downAt, () => this.press.to(0, SPRINGS.smooth));
     el.addEventListener('pointerup', up);
     el.addEventListener('pointerleave', up);
     el.addEventListener('click', () => {
@@ -416,7 +424,7 @@ export class Select {
     this.btn = el.querySelector('.select-btn');
     this.menu = el.querySelector('.select-menu');
     gel(this.btn);
-    this.btn.addEventListener('click', () => (this.menu.hidden ? this.openMenu() : this.closeMenu()));
+    this.btn.addEventListener('click', () => (this.menu.hidden || this.menu.classList.contains('is-closing') ? this.openMenu() : this.closeMenu()));
     this.menu.addEventListener('click', (e) => {
       const b = e.target.closest('.select-opt');
       if (!b) return;
@@ -437,16 +445,21 @@ export class Select {
   }
 
   openMenu() {
-    this.menu.hidden = false;
-    this.menu.animate([{ opacity: 0, transform: 'translateY(6px) scale(.96)' }, { opacity: 1, transform: 'none' }], { duration: 200, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    if (!this.menu.hidden) return;
+    this.menu.getAnimations().forEach((a) => a.cancel());
+    this.menu.classList.remove('is-closing');
+    fadeIn(this.menu);
+    this.btn.setAttribute('aria-expanded', 'true');
     const cur = this.menu.querySelector('.is-on') || this.menu.querySelector('.select-opt');
     cur && cur.focus();
     addEventListener('pointerdown', this._outside, true);
   }
 
   closeMenu() {
-    this.menu.hidden = true;
+    if (this.menu.hidden || this.menu.classList.contains('is-closing')) return;
+    this.btn.setAttribute('aria-expanded', 'false');
     removeEventListener('pointerdown', this._outside, true);
+    fadeOut(this.menu);
   }
 
   _sync() {

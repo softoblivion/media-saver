@@ -12,7 +12,7 @@
 //
 // Only Chromium renders url() filters in backdrop-filter, which is exactly the WebView2 target.
 
-import { Spring, SPRINGS, clamp } from './motion.js';
+import { Spring, SPRINGS, clamp, afterHold } from './motion.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const IOR = 1.5;
@@ -365,6 +365,8 @@ export function initLight() {
 export function gel(el, { amount = 1 } = {}) {
   if (el.__gel) return el.__gel;
   let down = false;
+  let downAt = 0;
+  let seq = 0;
   const st = { sx: 1, sy: 1 };
   const render = () => {
     el.style.scale = `${st.sx.toFixed(4)} ${st.sy.toFixed(4)}`;
@@ -379,24 +381,37 @@ export function gel(el, { amount = 1 } = {}) {
   const size = () => Math.max(24, Math.min(el.offsetWidth, el.offsetHeight * 3));
   const press = (e) => {
     if (e.button !== 0 || el.disabled || el.getAttribute('aria-disabled') === 'true') return;
+    if (down) {
+      // A new press during the hold of the previous one: drop that pending release.
+      removeEventListener('pointerup', release);
+      removeEventListener('pointercancel', release);
+    }
     down = true;
+    downAt = performance.now();
+    seq += 1;
     // Smaller controls squish more; large surfaces barely move.
     const k = amount * clamp(60 / size(), 0.25, 1);
-    sx.to(1 + 0.10 * k, SPRINGS.press);
-    sy.to(1 - 0.07 * k, SPRINGS.press);
+    sx.to(1 + 0.08 * k, SPRINGS.press);
+    sy.to(1 - 0.06 * k, SPRINGS.press);
     el.classList.add('is-pressed');
     addEventListener('pointerup', release, { once: true });
     addEventListener('pointercancel', release, { once: true });
   };
   const release = () => {
     if (!down) return;
-    down = false;
-    el.classList.remove('is-pressed');
     removeEventListener('pointerup', release);
     removeEventListener('pointercancel', release);
-    // Release: the jelly wobble. A small inverse kick makes the overshoot read as elastic.
-    sx.to(1, SPRINGS.jelly, -0.8 * amount);
-    sy.to(1, SPRINGS.jelly, 0.8 * amount);
+    const mine = seq;
+    // The press stays visible for PRESS_HOLD_MS (`down` stays true until then, so a spring that
+    // comes to rest meanwhile does not clear the scale for a frame), then relaxes: a soft
+    // elastic return, no kick against the direction of travel (both read as a twitch).
+    afterHold(downAt, () => {
+      if (mine !== seq) return;
+      down = false;
+      el.classList.remove('is-pressed');
+      sx.to(1, SPRINGS.jelly);
+      sy.to(1, SPRINGS.jelly);
+    });
   };
   el.addEventListener('pointerdown', press);
   // Keyboard activation gets a short pulse too.
@@ -404,8 +419,8 @@ export function gel(el, { amount = 1 } = {}) {
     if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) pulse();
   });
   const pulse = () => {
-    sx.set(1 + 0.06 * amount);
-    sy.set(1 - 0.05 * amount);
+    sx.set(1 + 0.05 * amount);
+    sy.set(1 - 0.04 * amount);
     sx.to(1, SPRINGS.jelly);
     sy.to(1, SPRINGS.jelly);
   };
