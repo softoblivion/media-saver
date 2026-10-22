@@ -140,7 +140,8 @@ YT_RATE = "ERROR: [youtube] aqz-KE-bpKQ: Unable to download API page: HTTP Error
 
 class ScriptedRunner:
     """Emulates yt-dlp / ffmpeg / ffprobe. `probes` is a list of outcomes for the `-J` calls, in order:
-    ("ok", info) | ("fail", stderr) | ("block", None) (waits for cancel) | ("slow", seconds)."""
+    ("ok", info) | ("fail", stderr) | ("block", None) (waits for cancel) | ("slow", seconds) |
+    ("wait", threading.Event) (returns the info once the event is set, or canceled when cancel comes first)."""
 
     def __init__(self, info, probes=(), transcode=False, mp3_codec="mp3"):
         self.info = info
@@ -189,6 +190,12 @@ class ScriptedRunner:
                 return ProcessResult(None, "", "", canceled=True)
             if kind == "slow":
                 time.sleep(value)
+                return ProcessResult(0, json.dumps(self.info), "")
+            if kind == "wait":
+                while not value.is_set():
+                    if cancel is not None and cancel.is_set():
+                        return ProcessResult(None, "", "", canceled=True)
+                    time.sleep(0.02)
                 return ProcessResult(0, json.dumps(self.info), "")
             if kind == "fail":
                 return ProcessResult(1, "", value)

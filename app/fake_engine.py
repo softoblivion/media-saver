@@ -31,6 +31,12 @@ EmitFn = Callable[[str, dict], None]
 PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 FORMATS = ("mp4", "mp3")
 THEMES = ("dusk", "nova", "frost", "bloom")
+# The quality ladder of the real engine (docs/ENGINE.md section 4.5): short-side cap for mp4 (None = best the
+# site has) and the MP3 bitrate in kbit/s; the same four values on every platform.
+QUALITIES = ("low", "medium", "high", "max")
+QUALITY_CAPS = {"low": 480, "medium": 720, "high": 1080, "max": None}
+MP3_BITRATES = {"low": 128, "medium": 192, "high": 256, "max": 320}
+QUALITY_LABELS = {"instagram": "Instagram", "youtube": "YouTube", "tiktok": "TikTok", "twitter": "X"}
 FAKE_UPDATE_ENV = "MEDIA_SAVER_FAKE_UPDATE"
 FAKE_UPDATE_NOTES = (
     "## Added\n- YouTube videos and Shorts\n- MP3 audio downloads\n- Preview of queued links\n\n"
@@ -146,6 +152,23 @@ def _demo_title(platform: str, code: str) -> str:
     return f"Demo {'reel' if platform == 'instagram' else 'video'} {code}"
 
 
+def _demo_size(platform: str, kind: str, quality: str) -> tuple[int, int]:
+    """(width, height) of the simulated mp4: the best the demo site has, capped by the quality ladder."""
+    if platform == "youtube" and kind == "video":
+        w, h = 3840, 2160          # horizontal, up to 2160p
+    elif platform == "youtube":
+        w, h = 2160, 3840          # Shorts, vertical, up to 2160p
+    else:
+        w, h = 1080, 1920          # Instagram, TikTok, X: vertical, up to 1080p
+    cap = QUALITY_CAPS.get(quality)
+    short = min(w, h)
+    if cap is None or short <= cap:
+        return w, h
+    scale = cap / short
+    w2, h2 = round(w * scale), round(h * scale)
+    return w2 + (w2 % 2), h2 + (h2 % 2)
+
+
 def _bump_minor(version: str) -> str:
     parts = [int(p) if p.isdigit() else 0 for p in re.split(r"[.\-+]", version)[:3]]
     parts += [0] * (3 - len(parts))
@@ -160,7 +183,8 @@ class FakeEngine:
         self.paths = FakePaths(Path(base))
         self._lock = threading.RLock()
         self._jobs: dict[str, dict] = {}
-        self._order: list[str] = []
+        self._order: list[str] = []      # oldest first; the list shows it newest first (top = last here)
+        self._last_created = 0.0         # created_at of the newest job, kept strictly increasing
         self._cancel: set[str] = set()
         self._stop = threading.Event()
         self._started = False
@@ -319,6 +343,7 @@ class FakeEngine:
                 (j["platform"], j["shortcode"]) for j in self._jobs.values() if j["status"] not in ("done", "error", "canceled")
             }
             queued_now: set[tuple[str, str]] = set()
+            accepted = []
             for item in cleaned["items"]:
                 if item["error"] or not item["clean"]:
                     skipped.append({"input": item["original"], "reason": "invalid"})
@@ -328,10 +353,18 @@ class FakeEngine:
                     skipped.append({"input": item["original"], "reason": "duplicate"})
                     continue
                 queued_now.add(key)
+                accepted.append(item)
+            # As the real engine: the batch is added in reverse, so the first pasted link is on top of the list
+            # (newest created_at) and starts first; `added` comes back in paste order.
+            for item in reversed(accepted):
                 job = self._new_job(item["clean"], item["shortcode"], item["platform"], item["kind"], job_format)
-                added.append(_deep(job))
-        for job in added:
+                added.insert(0, _deep(job))
+        for job in reversed(added):  # oldest first, like the real engine
             self._emit("job", job)
+        for job in added:
+            # previews of the whole batch run at once, in parallel with the queue (the real engine's pool)
+            threading.Thread(target=self._preview, args=(job["id"], job["shortcode"], job["platform"]),
+                             name="fake-preview", daemon=True).start()
             threading.Thread(target=self._run_job, args=(job["id"],), name="fake-job", daemon=True).start()
         return {"added": added, "skipped": skipped}
 
@@ -357,11 +390,25 @@ class FakeEngine:
             "width": None, "height": None, "fps": None, "vcodec": None, "acodec": None,
             "filesize": None, "filepath": None, "already_existed": False, "transcoded": False,
             "attempt": {"engine": "yt-dlp", "auth": "anonymous"}, "error": None,
-            "created_at": time.time(), "finished_at": None,
+            "created_at": self._next_created_at(), "finished_at": None,
         }
         self._jobs[job_id] = job
         self._order.append(job_id)
         return job
+
+    def _next_created_at(self) -> float:
+        """Caller holds the lock. time.time(), but strictly greater than the created_at of every job so far."""
+        value = max(time.time(), self._last_created + 0.001)
+        self._last_created = value
+        return value
+
+    def _top_queued_id(self) -> Optional[str]:
+        """Caller holds the lock. The queued job shown topmost (the last queued one in `_order`)."""
+        for jid in reversed(self._order):
+            job = self._jobs.get(jid)
+            if job is not None and job["status"] == "queued":
+                return jid
+        return None
 
     def _update_job(self, job_id: str, **fields: Any) -> Optional[dict]:
         with self._lock:
@@ -377,22 +424,23 @@ class FakeEngine:
         return sum(1 for j in self._jobs.values() if j["status"] in ("probing", "downloading", "processing"))
 
     def _preview(self, job_id: str, code: str, platform: str) -> None:
-        """Simulated preview fetch: title, author, duration and thumbnail arrive while the job is still queued."""
+        """Simulated preview fetch, one thread per job so a pasted batch gets its previews within about a second.
+        Fills only empty fields (a job that started meanwhile keeps what its probe set), then `previewed`."""
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None or job["previewed"]:
                 return
-        time.sleep(self._rnd.uniform(0.6, 1.2))
+            delay = self._rnd.uniform(0.3, 0.9)
+        time.sleep(delay)
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job["status"] != "queued":
+            if job is None or job_id in self._cancel or job["status"] == "canceled":
                 return
-        author = _demo_author(platform, code)
-        self._update_job(
-            job_id, previewed=True, title=_demo_title(platform, code),
-            author=author, duration_s=round(self._rnd.uniform(12, 95), 1),
-            thumbnail=_thumbnail_data_uri(sum(map(ord, code))),
-        )
+            found = {"title": _demo_title(platform, code), "author": _demo_author(platform, code),
+                     "duration_s": round(self._rnd.uniform(12, 95), 1),
+                     "thumbnail": _thumbnail_data_uri(sum(map(ord, code)))}
+            fields = {k: v for k, v in found.items() if not job.get(k)}
+        self._update_job(job_id, previewed=True, **fields)
 
     def _run_job(self, job_id: str) -> None:
         def canceled() -> bool:
@@ -404,8 +452,8 @@ class FakeEngine:
                 return
             code, platform = job["shortcode"], job["platform"]
         self._cancel.discard(job_id)
-        self._preview(job_id, code, platform)
-        # Wait for a free slot: the job stays "queued" (format can still be changed) while others run.
+        # Wait for a free slot and for the turn: the queued job shown topmost starts first (as the real engine);
+        # the job stays "queued" (format can still be changed) while others run.
         while True:
             if canceled():
                 return self._finish_canceled(job_id)
@@ -413,11 +461,14 @@ class FakeEngine:
                 job = self._jobs.get(job_id)
                 if job is None:
                     return
-                if self._running_count() < int(self._settings["concurrency"]):
+                if (self._running_count() < int(self._settings["concurrency"])
+                        and self._top_queued_id() == job_id):
                     job["status"] = "probing"
                     fmt = job["format"]
+                    kind = job["kind"]
+                    quality = self._settings.get(f"quality_{platform}", "max")
                     break
-            time.sleep(0.2)
+            time.sleep(0.05)
         self._update_job(job_id, status="probing", stage_text="Fetching info", progress=0.04)
         time.sleep(0.8)
         if canceled():
@@ -444,9 +495,20 @@ class FakeEngine:
         mp3 = fmt == "mp3"
         meta: dict[str, Any] = {"acodec": "mp3" if mp3 else "aac"}
         if not mp3:
-            meta.update(width=1080, height=1920, fps=30)
-        self._update_job(job_id, title=_demo_title(platform, code), author=author, **meta)
-        total = 3_456_789 if mp3 else 12_345_678
+            width, height = _demo_size(platform, kind, quality)
+            meta.update(width=width, height=height, fps=30)
+        with self._lock:
+            current = self._jobs.get(job_id) or {}
+            duration = current.get("duration_s") or 60.0
+        meta["title"] = _demo_title(platform, code)
+        meta["author"] = author
+        if not current.get("duration_s"):
+            meta["duration_s"] = duration
+        self._update_job(job_id, **meta)
+        if mp3:   # the file size follows the ladder's MP3 bitrate (kbit/s -> bytes)
+            total = int(duration * MP3_BITRATES.get(quality, 320) * 125)
+        else:     # the mp4 size scales a 1080p base by picture area
+            total = int(12_345_678 * (width * height) / (1080 * 1920))
         steps = 24
         for i in range(steps):
             if canceled():
@@ -494,6 +556,9 @@ class FakeEngine:
             if job is None or job["status"] not in ("error", "canceled"):
                 return False
             job.update(status="queued", stage_text="Queued", progress=0.0, error=None, finished_at=None)
+            # as the real engine: the retried job moves to the top of the order and starts next; created_at stays
+            self._order.remove(job_id)
+            self._order.append(job_id)
             snapshot = _deep(job)
         self._emit("job", snapshot)
         threading.Thread(target=self._run_job, args=(job_id,), name="fake-job", daemon=True).start()
@@ -557,14 +622,10 @@ class FakeEngine:
                 raise ValueError("Unknown setting: " + ", ".join(unknown))
             if "concurrency" in patch and not (isinstance(patch["concurrency"], int) and 1 <= patch["concurrency"] <= 4):
                 raise ValueError("Concurrent downloads must be between 1 and 4.")
-            if "quality_instagram" in patch and patch["quality_instagram"] not in ("low", "medium", "max"):
-                raise ValueError("Invalid Instagram quality.")
-            if "quality_youtube" in patch and patch["quality_youtube"] not in ("360", "720", "max"):
-                raise ValueError("Invalid YouTube quality.")
-            if "quality_tiktok" in patch and patch["quality_tiktok"] not in ("low", "medium", "max"):
-                raise ValueError("Invalid TikTok quality.")
-            if "quality_twitter" in patch and patch["quality_twitter"] not in ("low", "medium", "max"):
-                raise ValueError("Invalid X quality.")
+            for platform, label in QUALITY_LABELS.items():
+                key = f"quality_{platform}"
+                if key in patch and patch[key] not in QUALITIES:
+                    raise ValueError(f"Invalid {label} quality.")
             if "mode" in patch and patch["mode"] not in PLATFORMS:
                 raise ValueError("Invalid mode.")
             if "format" in patch and patch["format"] not in FORMATS:

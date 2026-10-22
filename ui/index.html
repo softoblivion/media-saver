@@ -37,19 +37,19 @@
   <div id="app">
     <header id="titlebar">
       <div class="tb-drag pywebview-drag-region"></div>
+      <!-- Three columns (1fr auto 1fr): brand + version pill, the mode switch centred in the window, the right cluster. -->
       <div class="tb-brand">
         <span id="tb-glyph" class="tb-glyph"></span>
         <span class="tb-name pywebview-drag-region">Media Saver</span>
+        <button type="button" id="ver-pill" class="ver-pill" aria-haspopup="dialog"><span class="ver-dot" aria-hidden="true"></span><span class="ver-text"></span></button>
       </div>
-      <!-- Mode switch (Instagram / YouTube / TikTok / X), js/main.js -->
+      <!-- Mode switch (Instagram / YouTube / TikTok / X as icons), js/main.js -->
       <div id="mode-slot" class="tb-mode"></div>
       <div class="tb-right">
-        <button type="button" id="ver-pill" class="ver-pill" aria-haspopup="dialog"><span class="ver-dot" aria-hidden="true"></span><span class="ver-text"></span></button>
         <button type="button" id="engine-chip" class="eng-chip" aria-haspopup="dialog"></button>
         <button type="button" id="btn-settings" class="round-lens" aria-label="Settings" aria-haspopup="dialog"></button>
         <div class="win-btns">
           <button type="button" id="win-min" class="win-btn" aria-label="Minimize"></button>
-          <button type="button" id="win-max" class="win-btn" aria-label="Maximize"></button>
           <button type="button" id="win-close" class="win-btn win-close" aria-label="Close"></button>
         </div>
       </div>
@@ -97,8 +97,7 @@
         <div class="cmp-action">
           <div id="format-slot"></div>
           <div class="cmp-btn-slot">
-            <button type="button" id="btn-download" class="hero" data-state="empty" aria-keyshortcuts="Control+Enter"></button>
-            <span class="cmp-kbd-hint" aria-hidden="true"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
+            <button type="button" id="btn-download" class="hero" data-state="empty"></button>
           </div>
         </div>
       </section>

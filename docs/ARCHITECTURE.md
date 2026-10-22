@@ -46,7 +46,7 @@ media-saver/
   app/main.py                entry: windows, single instance, engine lifecycle
   app/bridge.py              pywebview js_api class, event pump
   app/login.py               Instagram sign-in window, cookie capture
-  app/winutil.py             clipboard, Explorer, single instance, DWM corners, frameless resize
+  app/winutil.py             clipboard, Explorer, single instance, DWM corners and border colour, fixed-size window hook
   app/fake_engine.py         stand-in Engine for UI work without network (`--fake`)
   app/core/paths.py          AppPaths (portable runtime data locations)
   app/core/settings.py       settings schema, defaults, validation, persistence
@@ -138,10 +138,15 @@ blocks on it (links can be queued; jobs wait until the engine is ready).
 1. Probe: `yt-dlp -J` (metadata, formats, thumbnail) with the auth ladder below; reused from the preview fetch
    (5.4) when that succeeded; thumbnail fetched and cached.
 2. Download from the saved info json (`--load-info-json`) so the site is hit once for metadata, then media.
-3. mp4: best video + best audio, sorted by resolution, then fps, then bitrate, capped by the platform's quality
-   setting (`quality_instagram`, `quality_tiktok`, `quality_twitter`: low = short side <= 480, medium <= 720, max =
-   best; `quality_youtube`: 360, 720, max = best up to 2160p); merge to MP4.
-   mp3: best audio only, extracted / encoded to MP3 by ffmpeg (`-x --audio-format mp3 --audio-quality 0`).
+3. Quality: one four-step ladder for every platform and both formats, read from the job's own platform setting
+   (`quality_instagram`, `quality_youtube`, `quality_tiktok`, `quality_twitter`) when the job starts:
+   low = short side <= 480 / MP3 128 kbps, medium = <= 720 / 192 kbps, high = <= 1080 / 256 kbps, max = best
+   available (YouTube up to 2160p) / 320 kbps; default max. Settings files of earlier versions are mapped on load
+   ("360" -> low, "720" -> medium, any other value outside the ladder -> high; details in `docs/ENGINE.md` 4.5).
+   mp4: best video + best audio, sorted by resolution, then fps, then bitrate, capped by that short side; merge to
+   MP4.
+   mp3: best audio only, extracted / encoded to MP3 by ffmpeg at the ladder bitrate
+   (`-x --audio-format mp3 --audio-quality <128K|192K|256K|320K>`).
 4. H.264 compatibility (setting `h264_compat`, default on, mp4 only): if the chosen video codec is not AVC, transcode
    video with libx264 (CRF 16, preset slow, yuv420p), keep AAC audio or encode AAC 256k; prefer an AVC format at
    the same max resolution when one exists so no transcode is needed.
@@ -153,6 +158,13 @@ blocks on it (links can be queued; jobs wait until the engine is ready).
    YouTube: anonymous -> browser cookies when a browser is chosen (age-restricted and members-only videos); no
    gallery-dl rung, no in-app sign-in.
 7. Rate limit -> wait with backoff (30 s, 90 s) and retry, at most 2 times.
+8. Queue order: downloads start from the top of the list the UI shows (newest first). The links of one `enqueue`
+   call are added so that the first pasted link ends up on top (the batch is added in reverse; `added` of the
+   result stays in paste order), and a free download worker starts the queued job shown topmost, then the next one
+   below it. A pasted batch therefore reads and runs top to bottom in paste order; a link pasted later appears above
+   the older queued ones and starts next. `created_at` is strictly increasing per added job, so the UI order (by
+   `created_at`) and the engine order agree. A retried job moves to the top of the engine order and starts next;
+   its `created_at` stays, so a running UI keeps its card in place (details in `docs/ENGINE.md` 3).
 
 ### 5.3 Link cleaning
 
@@ -177,21 +189,28 @@ All four platforms, from any text (`app/core/linkclean.py`, rules and edge cases
 
 ### 5.4 Preview of queued links
 
-Right after `enqueue` a preview worker (one thread, serial, lowest priority) fetches metadata of every queued job
-that has none: anonymous `yt-dlp -J` on every platform, stores the info json in the job cache,
-fills `title`, `author`, `duration_s`, `thumbnail` and sets `previewed`. The download step reuses the stored info
-when it is younger than 10 minutes and the same auth rung applies. A failed preview is silent (the job shows the
-link until the download probes it). Preview fetches respect the engine gate and stop while the engine updates.
+Right after `enqueue` a pool of three preview workers (`PREVIEW_WORKERS`) fetches metadata of the queued jobs
+that have none, in parallel and top of the list first (the download start order of 5.2): anonymous `yt-dlp -J` on
+every platform, stores the info json in the job cache, fills `title`, `author`, `duration_s`, `thumbnail` and sets
+`previewed` (false while a fetch is pending, true when it finished or gave up); the card shows a placeholder until
+then. The download step reuses the stored info when it is younger than 10 minutes and the same auth rung applies.
+A job that starts downloading never waits for its preview: a fetch that has not started its subprocess is dropped,
+a running one is let finish, and whichever answer arrives first (preview or the download's own probe) sets the
+fields; a later preview never replaces them and an empty value never replaces a field. The thumbnail of a
+downloading job is made right after its probe, before the download. A failed preview is silent (the job shows the
+link until the download probes it). Preview fetches respect the engine gate and stop while the engine updates;
+cancel, remove and shutdown kill the fetch of that job, and shutdown stops the pool.
 
 ### 5.5 Modes and formats
 
 - `settings.mode` is the platform shown by the UI; the jobs of every platform live in one job table and one history; the
   UI filters by `job.platform`. Duplicate detection is per platform + id. Concurrency is shared.
 - `settings.format` is the default for new jobs; `enqueue(..., format)` and `set_job_format(id, format)` override it
-  per job while queued. mp3 ignores the quality settings and `h264_compat`.
+  per job while queued. mp3 ignores `h264_compat`; the quality setting gives its bitrate (5.2 item 3).
 - Quality is a per-platform setting shown in the main window next to the mode and format controls (not in the
-  settings sheet): `quality_instagram`, `quality_youtube`, `quality_tiktok`, `quality_twitter`; a job uses the
-  setting of its platform at start.
+  settings sheet): `quality_instagram`, `quality_youtube`, `quality_tiktok`, `quality_twitter`, each "low" |
+  "medium" | "high" | "max"; a job uses the setting of its platform at start, for mp4 (resolution cap) and mp3
+  (bitrate) alike.
 
 ### 5.6 Instagram sign-in
 
@@ -240,6 +259,23 @@ the shutdown path of the app unchanged and tolerates the PyInstaller bootloader 
 for a moment.
 
 The version lives in `app/__init__.py` only; the build writes it into the exe's version resource.
+
+Update notice: the kit's update sheet (`ui/vendor/liquid_ui/js/update.js`; the workspace template in
+`_workspace/RECIPES.md`, section 1, "Update notice"): the first time in a run that a newer version is reported,
+a modal sheet opens with the new version, the installed version with size and date, the release notes and the
+buttons Install / Later; Install downloads when needed and calls `apply_update` as soon as the file is verified
+(through the restart warning while downloads run); Later closes it until the version pill is clicked. The page
+still never downloads by itself: the background download stays the engine's job (item 5 above).
+
+### 5.8 Window
+
+The window is frameless and has a fixed size: 1180 x 780 logical pixels, scaled down in steps (1120 x 745,
+1060 x 710, 1000 x 675, 940 x 640) to fit the work area of a small monitor, never below 940 x 640. It cannot be
+resized or maximized: no sizing border, no maximize button, no maximize by system command or double click on the
+title bar (workspace rule "Fixed window size by default", 2026-10-21, `_workspace/CONVENTIONS.md`, "Application
+windows"). The page draws its own title bar with minimize and close (`window_minimize`, `window_close`), covers the
+whole client area, and DWM gives it rounded corners and a border colour equal to the page background. The size
+lock is `FixedSizeHook` in `app/winutil.py`; details in `BUILD.md`, section 5.
 
 ## 6. Engine facade (contract between `app/core` and `app/bridge.py`)
 
@@ -296,6 +332,10 @@ def clean_link(raw: str) -> LinkResult                                   # LinkR
 # app/core/downloader.py
 class Downloader:
     def add(self, url: str, shortcode: str, platform: str, kind: str, fmt: str) -> dict   # Job dict; starts the preview
+    def add_batch(self, items: list[tuple[str, str, str, str, str]]) -> list[dict]
+                                                        # one pasted batch (url, shortcode, platform, kind, fmt) in
+                                                        # paste order; first link on top (5.2 item 8); Job dicts in
+                                                        # paste order; Engine.enqueue uses it
     def active_keys(self) -> set[str]                   # "<platform>:<shortcode>" of queued / active jobs
     def set_format(self, job_id: str, fmt: str) -> dict | None
     def clear_finished(self, platform: str | None = None) -> int

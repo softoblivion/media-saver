@@ -23,8 +23,11 @@ from app.bridge import Bridge, EventPump
 WINDOW_TITLE = "Media Saver"
 MUTEX_NAME = "Local\\MediaSaver.SingleInstance"
 BACKGROUND = "#0b0d14"
-START_SIZE = (1180, 780)  # page viewport in logical pixels
+# Window = page viewport, logical pixels, fixed (not resizable, no maximize: workspace rule of 2026-10-21). The first
+# size of the ladder that fits the monitor work area is used; the last step wins when even that does not fit.
+START_SIZE = (1180, 780)
 MIN_SIZE = (940, 640)
+SIZE_LADDER = ((1180, 780), (1120, 745), (1060, 710), (1000, 675), (940, 640))  # START_SIZE .. MIN_SIZE
 HTTP_PORT_FIRST = 42001  # fixed port keeps the page origin (and its localStorage) stable between launches
 HTTP_PORT_TRIES = 40
 
@@ -172,10 +175,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         js_api=bridge,
         width=START_SIZE[0],
         height=START_SIZE[1],
-        min_size=MIN_SIZE,
         frameless=True,
         easy_drag=False,
-        resizable=True,
+        resizable=False,
         shadow=True,
         text_select=True,  # the UI decides where selection is allowed; pywebview's global user-select:none is off
         background_color=BACKGROUND,
@@ -199,8 +201,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     window.events.loaded += on_loaded
     window.events.closing += on_closing
     window.events.shown += on_shown
-    window.events.maximized += lambda: bridge._on_window_state(maximized=True)
-    window.events.restored += lambda: bridge._on_window_state(maximized=False)
 
     try:
         webview.start(
@@ -220,21 +220,26 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 
 def _setup_native_window(window: Any, bridge: Bridge) -> None:
-    """Runs on the UI thread after the form is shown: DWM corners, focus tracking."""
+    """Runs on the UI thread after the form is shown: fixed size fitted to the work area, no maximize, DWM corners and
+    border colour, focus tracking."""
     native = window.native
     if native is None:
         return
     try:
         hwnd = int(native.Handle.ToInt64())
         winutil.set_rounded_corners(hwnd)
-        hook = winutil.FramelessResizeHook(hwnd, min_client_size=MIN_SIZE)
+        winutil.set_border_color(hwnd, BACKGROUND)
+        hook = winutil.FixedSizeHook(hwnd)
         if hook.install():
             _keep_alive.append(hook)  # the ctypes callback must outlive the window
-            hook.set_client_size(*START_SIZE, apply=native.SetBounds)
+            width, height = hook.fit_size(SIZE_LADDER)
+            rect = hook.lock(width, height, apply=native.SetBounds)
+            log.info("window %sx%s logical, %sx%s physical, scale %.2f", width, height, rect[2], rect[3],
+                     winutil.window_scale(hwnd))
         else:
-            log.warning("edge resizing hook was not installed")
+            log.warning("fixed-size hook was not installed")
     except Exception:  # noqa: BLE001
-        log.exception("DWM / frame setup failed")
+        log.exception("DWM / window size setup failed")
     try:
         native.Activated += lambda *_: bridge._on_window_state(focused=True)
         native.Deactivate += lambda *_: bridge._on_window_state(focused=False)

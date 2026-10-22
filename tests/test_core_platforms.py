@@ -153,7 +153,7 @@ class PipelineTest(CoreTestBase, unittest.TestCase):
     def test_tiktok_mp4_reads_quality_tiktok(self):
         runner = ScriptedRunner(TT_INFO)
         job = self.run_job(runner, TT_URL, TT_ID, "tiktok", "video", h264_compat=False, quality_tiktok="medium",
-                           quality_instagram="low", quality_youtube="360", quality_twitter="low")
+                           quality_instagram="low", quality_youtube="low", quality_twitter="low")
         self.assertEqual(job.status, "done", job.error)
         self.assertEqual(self.video_id(runner), "bytevc1_720p_640712-0")
         self.assertEqual(job.author, "tiktok")

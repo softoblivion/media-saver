@@ -13,7 +13,7 @@ produces the payloads. A field not listed here does not exist; add it here first
 - The page is served by pywebview's local HTTP server on `http://127.0.0.1:<port>/` (first free port of
   42001-42040, fixed so the origin and `localStorage` stay stable), never from `file://` (Chromium refuses ES
   modules there). The UI uses relative URLs only; fonts and images come from `ui/assets`, never from the network.
-- `ready()` is followed by one initial `window` event, so the UI knows the maximized / focused state at start.
+- `ready()` is followed by one initial `window` event, so the UI knows the focused state at start.
 - `window.pywebview` appears asynchronously: the UI waits for the `pywebviewready` DOM event. When the page is opened
   in a normal browser (no `window.pywebview`), the UI uses `ui/js/mock-api.js`, which implements every method and
   event below with simulated data.
@@ -26,10 +26,10 @@ produces the payloads. A field not listed here does not exist; add it here first
 |---|---|---|---|
 | `ready()` | — | `State` | First call of the UI. Starts the engine when the window has not done so yet, enables event delivery. |
 | `clean_links(text, platform)` | `text: str`, `platform: Platform \| null` | `CleanResult` | Pure, no side effects. `platform` null = links of every platform are valid; otherwise links of the other platforms get error `other_platform`. |
-| `enqueue(text, platform, format)` | `text: str` (any text with links), `platform: Platform \| null`, `format: Format \| null` | `EnqueueResult` | Cleans, de-duplicates, adds jobs. `format` null = the `format` setting. |
+| `enqueue(text, platform, format)` | `text: str` (any text with links), `platform: Platform \| null`, `format: Format \| null` | `EnqueueResult` | Cleans, de-duplicates, adds jobs: the first pasted link ends up on top of the list and starts first. `format` null = the `format` setting. |
 | `set_job_format(id, format)` | `id: str`, `format: Format` | `Job \| null` | Per-item override; only while the job is `queued`. `null` when the job is not queued or unknown. Emits `job`. |
 | `cancel(id)` | `id: str` | `bool` | |
-| `retry(id)` | `id: str` | `bool` | For `error` / `canceled` jobs. |
+| `retry(id)` | `id: str` | `bool` | For `error` / `canceled` jobs. The job is queued again at the top of the engine order (starts next); `created_at` is unchanged. |
 | `remove(id)` | `id: str` | `bool` | Running job is canceled first. Emits `job_removed`. |
 | `clear_finished(platform)` | `platform: Platform \| null` | `int` | Removes `done` / `error` / `canceled` jobs of that platform (null = all) from the list (files stay). |
 | `open_file(id)` | `id: str` | `bool` | Opens the file with the default player. |
@@ -51,8 +51,7 @@ produces the payloads. A field not listed here does not exist; add it here first
 | `copy_text(text)` | `text: str` | `bool` | |
 | `open_url(url)` | `url: str` | `bool` | Default browser; only `https://` URLs (anything else returns `false`). Used by the links of the release notes in the update popover. |
 | `window_minimize()` | — | `null` | |
-| `window_toggle_maximize()` | — | `bool` | Returns the new maximized state. |
-| `window_close()` | — | `null` | Graceful: engine shutdown, then exit. |
+| `window_close()` | — | `null` | Graceful: engine shutdown, then exit. The window is fixed-size (ARCHITECTURE 5.8): there is no maximize method. |
 
 Update UI: the version pill, the update popover and the "Updates" rows of the settings sheet are the update control
 of the vendored Liquid UI kit (`ui/vendor/liquid_ui/js/update.js`, mounted by `ui/js/update.js`, UI_DESIGN.md 6.1).
@@ -73,7 +72,7 @@ and rejects when the update is not ready (the kit ignores the result and shows a
 | `auth` | `Auth` | Login, logout, cookies import, session found invalid. |
 | `settings` | `Settings` | Settings changed (by UI or by the app). |
 | `toast` | `{ "level": "info" \| "success" \| "warning" \| "error", "text": str }` | Short notification, one sentence. |
-| `window` | `{ "maximized": bool, "focused": bool }` | Window state change (focus is used for the clipboard prompt). |
+| `window` | `{ "focused": bool }` | Window focus change (used for the clipboard prompt). The window is fixed-size and cannot be maximized, so there is no maximized state. |
 
 ## 4. Types
 
@@ -133,7 +132,7 @@ target id is unknown until the engine follows it); X `post`.
 ### EnqueueResult
 ```json
 {
-  "added": [Job],
+  "added": [Job],                                                      // paste order; the first pasted link is on top of the list
   "skipped": [ { "input": "…", "reason": "invalid" | "duplicate" } ]   // duplicate = same platform + id already queued/active
 }
 ```
@@ -164,7 +163,7 @@ target id is unknown until the engine follows it); X `post`.
   "transcoded": false,                      // true when the H.264 pass ran
   "attempt": { "engine": "yt-dlp" | "gallery-dl", "auth": "anonymous" | "session" | "browser" },
   "error": null | { "code": ErrorCode, "message": "Readable text", "can_login": bool, "log_path": "…" },
-  "created_at": 1760950000.0,
+  "created_at": 1760950000.0,               // strictly increasing per added job; the first link of a paste gets the greatest
   "finished_at": null
 }
 ```
@@ -174,9 +173,14 @@ ErrorCode: `login_required`, `private`, `not_found`, `rate_limited`, `network`, 
 
 - A job with status `canceled` always carries `error.code == "canceled"` (the UI shows no error row for it).
 - `fps` can be fractional (23.976).
-- Preview: right after `enqueue` the core fetches title, author, duration and thumbnail of every queued job
-  (anonymous metadata request, one job at a time) and emits `job`; `previewed` turns true when that finished. The
-  download reuses the fetched metadata, so the site is not asked twice.
+- Preview: right after `enqueue` the core fetches title, author, duration and thumbnail of the queued jobs
+  (anonymous metadata requests, up to three at a time, top of the list first) and emits `job`; `previewed` is false
+  while the fetch is pending and turns true when it finished or gave up. Until then the card shows a placeholder.
+  The download reuses the fetched metadata, so the site is not asked twice. A job that starts downloading first
+  gets the fields from whichever answer comes first; a non-empty field is never emptied.
+- Order: `get_state().jobs` is newest first, which is the list order top to bottom; `created_at` is strictly
+  increasing per job, so sorting by `created_at` descending gives the same order. Downloads start from the top:
+  the queued job shown topmost starts first.
 - `can_login` is only ever true for Instagram jobs.
 
 ### EngineStatus
@@ -232,10 +236,10 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "filename_template": "{author}_{shortcode}",   // tokens: {author} {shortcode} {date} {title}; must contain {shortcode}
   "mode": "instagram",                           // Platform shown in the UI (persisted; each mode keeps its own queue view)
   "format": "mp4",                               // Format default for new jobs
-  "quality_instagram": "max",                    // "low" | "medium" | "max": short side <= 480 / <= 720 / best (mp4 only)
-  "quality_youtube": "max",                      // "360" | "720" | "max": short side <= 360 / <= 720 / best, up to 2160p (mp4 only)
-  "quality_tiktok": "max",                       // "low" | "medium" | "max": short side <= 480 / <= 720 / best, up to 1080p (mp4 only)
-  "quality_twitter": "max",                      // "low" | "medium" | "max": short side <= 480 / <= 720 / best, up to 1080p (mp4 only)
+  "quality_instagram": "max",                    // "low" | "medium" | "high" | "max": short side <= 480 / 720 / 1080 / best for mp4, 128 / 192 / 256 / 320 kbps for mp3; stored legacy values are mapped on load
+  "quality_youtube": "max",                      // "low" | "medium" | "high" | "max": short side <= 480 / 720 / 1080 / best (up to 2160p) for mp4, 128 / 192 / 256 / 320 kbps for mp3; stored legacy values ("360" -> "low", "720" -> "medium", other -> "high") are mapped on load
+  "quality_tiktok": "max",                       // "low" | "medium" | "high" | "max": short side <= 480 / 720 / 1080 / best for mp4, 128 / 192 / 256 / 320 kbps for mp3; stored legacy values are mapped on load
+  "quality_twitter": "max",                      // "low" | "medium" | "high" | "max": short side <= 480 / 720 / 1080 / best for mp4, 128 / 192 / 256 / 320 kbps for mp3; stored legacy values are mapped on load
   "h264_compat": true,                           // mp4 only
   "skip_existing": true,
   "concurrency": 2,                              // 1..4, shared by all modes

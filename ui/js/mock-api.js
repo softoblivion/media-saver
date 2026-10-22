@@ -27,6 +27,11 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const now = () => Date.now() / 1000;
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+// Quality steps of every platform (Settings quality_<platform>): MP4 short side and MP3 bitrate.
+const QUALITY_STEPS = ['low', 'medium', 'high', 'max'];
+const MP4_SHORT = { low: 480, medium: 720, high: 1080 };   // max: the best (YouTube videos 2160, else 1080)
+const MP3_KBPS = { low: 128, medium: 192, high: 256, max: 320 };
+
 // ---------------------------------------------------------------------------------------------
 // Link cleaning (mirror of the canonical rules in docs/ARCHITECTURE.md 5.3)
 
@@ -411,7 +416,6 @@ export function createMock({ params, emit }) {
   const jobs = new Map();
   let jobCounter = 0;
   let thumbSeed = 1;
-  let maximized = false;
   let clipboard = params.get('clip') === '0'
     ? ''
     : 'Look what I found 👉 https://www.instagram.com/reel/DPx7Qm2kLc9/?igsh=MTd4c2FyZ3pxNnB6Ng== and also https://instagram.com/reels/C9vT_aa81Zq?utm_source=ig_web_copy_link and this one https://youtu.be/kJQP7kiw5Fk?si=Qe1x2';
@@ -563,35 +567,38 @@ export function createMock({ params, emit }) {
     };
   }
 
-  // Preview worker: one job at a time, the first about 0.8 s after enqueue.
-  let previewing = false;
-  async function runPreviews() {
-    if (previewing) return;
-    previewing = true;
-    await wait(800);
-    for (;;) {
-      if (!ready) break;   // previews respect the engine gate; runUpdate() restarts the worker
-      const next = Array.from(jobs.values())
-        .filter((j) => !j.previewed && j.status === 'queued')
-        .sort((a, b) => a.created_at - b.created_at)[0];
-      if (!next) break;
-      const failed = /PRIV|LOGIN|AGE/i.test(next.shortcode || '');
-      if (!failed) Object.assign(next, sampleMeta(next));
-      next.previewed = true;
-      if (jobs.has(next.id)) emitJob(next);
-      await wait(380);
-    }
-    previewing = false;
+  // Previews, as the core fetches them: in parallel right after enqueue, the topmost card (newest
+  // created_at) first, all of them within about a second. A job that already started keeps its
+  // pending preview; a preview that arrives after the probe filled the fields changes nothing.
+  const previewing = new Set();
+  function runPreviews() {
+    if (!ready) return;   // previews respect the engine gate; runUpdate() starts them again
+    const waiting = Array.from(jobs.values())
+      .filter((j) => !j.previewed && !previewing.has(j.id) && (j.status === 'queued' || ACTIVE.has(j.status)))
+      .sort((a, b) => b.created_at - a.created_at);
+    waiting.forEach((j, i) => {
+      previewing.add(j.id);
+      setTimeout(() => {
+        previewing.delete(j.id);
+        if (!jobs.has(j.id) || j.previewed) return;
+        const failed = /PRIV|LOGIN|AGE/i.test(j.shortcode || '');
+        if (!failed) Object.assign(j, sampleMeta(j));
+        j.previewed = true;
+        emitJob(j);
+      }, (Math.min(250 + i * 70, 900) + rand(0, 60)) / speed);
+    });
   }
 
   const ACTIVE = new Set(['probing', 'downloading', 'processing']);
   const running = () => Array.from(jobs.values()).filter((j) => ACTIVE.has(j.status)).length;
 
+  // Start order, as the core does it: the most recently added queued job first, so the card on top
+  // of the newest-first list starts first (a pasted batch is added in reverse: its first link on top).
   function pump() {
     if (!ready || hold) return;
     const queued = Array.from(jobs.values())
       .filter((j) => j.status === 'queued')
-      .sort((a, b) => a.created_at - b.created_at);
+      .sort((a, b) => b.created_at - a.created_at);
     for (const j of queued) {
       if (running() >= settings.concurrency) break;
       runJob(j);
@@ -637,11 +644,12 @@ export function createMock({ params, emit }) {
     const isPrivate = /PRIV/i.test(code);
     const existed = n % 7 === 1 && settings.skip_existing;
     const tall = !isWide(j);
-    // Short side from the platform's quality setting, read when the job starts (ARCHITECTURE 5.2):
-    // Instagram, TikTok and X low 480 / medium 720 / max 1080; YouTube 360 / 720 / max 2160 for
-    // videos, 1080 for Shorts.
+    // Quality from the platform's setting, read when the job starts (ARCHITECTURE 5.2), the same
+    // ladder everywhere: MP4 short side low 480 / medium 720 / high 1080 / max the best (2160 for
+    // YouTube videos, 1080 otherwise); MP3 low 128 / medium 192 / high 256 / max 320 kbps.
     const q = settings[`quality_${j.platform || 'instagram'}`];
-    const short = { low: 480, medium: 720, 360: 360, 720: 720 }[q] || (yt && !tall ? 2160 : 1080);
+    const short = MP4_SHORT[q] || (yt && !tall ? 2160 : 1080);
+    const kbps = MP3_KBPS[q] || MP3_KBPS.max;
     // YouTube serves AVC up to 1080p only: 1440p / 4K arrive as VP9 / AV1 and need the H.264 pass.
     // TikTok often serves HEVC, which takes the pass too; X serves AVC (no pass).
     const srcCodec = tt ? 'hevc' : j.platform === 'twitter' ? 'avc1' : yt && (n % 5 === 4 || short > 1080) ? 'vp9' : ig && n % 5 === 4 ? 'vp9' : 'avc1';
@@ -740,7 +748,8 @@ export function createMock({ params, emit }) {
     j.filepath = `${settings.output_dir}\\${fileName(j)}`;
     setJob({ status: 'done', stage_text: 'Done', progress: 1, speed_bps: null, eta_s: null,
       vcodec: mp3 ? null : vp9 && !settings.h264_compat ? srcCodec : 'h264', acodec: mp3 ? 'mp3' : 'aac', transcoded,
-      filesize: Math.round(mp3 ? aSize * 0.9 : (j._size || 0) + aSize), finished_at: now() });
+      // An MP3's size follows its bitrate: duration x kbps / 8.
+      filesize: Math.round(mp3 ? (j.duration_s || 30) * kbps * 125 : (j._size || 0) + aSize), finished_at: now() });
     delete j._size;
     pump();
   }
@@ -834,8 +843,8 @@ export function createMock({ params, emit }) {
   preload();
 
   // ---- window focus -> "window" events ------------------------------------------------------
-  addEventListener('focus', () => emit('window', { maximized, focused: true }));
-  addEventListener('blur', () => emit('window', { maximized, focused: false }));
+  addEventListener('focus', () => emit('window', { focused: true }));
+  addEventListener('blur', () => emit('window', { focused: false }));
 
   const state = () => ({
     app_version: APP_VERSION,
@@ -857,10 +866,10 @@ export function createMock({ params, emit }) {
     filename_template: (v) => typeof v === 'string' && /\{shortcode\}/.test(v) && !/[<>:"/\\|?*]/.test(v.replace(/\{[a-z]+\}/g, '')),
     mode: (v) => ['instagram', 'youtube', 'tiktok', 'twitter'].includes(v),
     format: (v) => ['mp4', 'mp3'].includes(v),
-    quality_instagram: (v) => ['low', 'medium', 'max'].includes(v),
-    quality_youtube: (v) => ['360', '720', 'max'].includes(v),
-    quality_tiktok: (v) => ['low', 'medium', 'max'].includes(v),
-    quality_twitter: (v) => ['low', 'medium', 'max'].includes(v),
+    quality_instagram: (v) => QUALITY_STEPS.includes(v),
+    quality_youtube: (v) => QUALITY_STEPS.includes(v),
+    quality_tiktok: (v) => QUALITY_STEPS.includes(v),
+    quality_twitter: (v) => QUALITY_STEPS.includes(v),
     h264_compat: (v) => typeof v === 'boolean',
     skip_existing: (v) => typeof v === 'boolean',
     concurrency: (v) => Number.isInteger(v) && v >= 1 && v <= 4,
@@ -895,6 +904,7 @@ export function createMock({ params, emit }) {
         .filter((j) => j.status !== 'error' && j.status !== 'canceled')
         .map((j) => `${j.platform}:${j.shortcode}`));
       const seen = new Set();
+      const fresh = [];
       for (const it of res.items) {
         if (!it.clean || it.error) {
           skipped.push({ input: it.original, reason: 'invalid' });
@@ -906,8 +916,14 @@ export function createMock({ params, emit }) {
           continue;
         }
         seen.add(key);
-        added.push(newJob(it.clean, it.shortcode, it.platform, it.kind, { format: fmt }));
+        fresh.push(it);
       }
+      // The batch is added in reverse with rising created_at, so its first link is the newest job:
+      // on top of the newest-first list, and the first to start and to get its preview.
+      const t0 = now();
+      fresh.slice().reverse().forEach((it, i) => {
+        added.push(newJob(it.clean, it.shortcode, it.platform, it.kind, { format: fmt, created_at: t0 + i * 0.001 }));
+      });
       await sleep(180);
       added.forEach((j) => emitJob(j));
       setTimeout(pump, 50);
@@ -1036,11 +1052,6 @@ export function createMock({ params, emit }) {
       return true;
     },
     async window_minimize() { toast('info', '(demo) The window would minimize'); return null; },
-    async window_toggle_maximize() {
-      maximized = !maximized;
-      emit('window', { maximized, focused: true });
-      return maximized;
-    },
     async window_close() { toast('warning', '(demo) The app would close here'); return null; },
 
     // Test hook for the verification (not part of the bridge): put text into the mock clipboard.

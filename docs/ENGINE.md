@@ -15,11 +15,12 @@ runtime; since 2.1.0 the updater installs deno (2.9.7 on 2026-10-20) and yt-dlp 
 | `auth.py` | Netscape cookies.txt writer/reader, `read_auth_status`, cookies import validation, sidecar `auth/auth.json` (`source`, `saved_at`, `invalid`). Instagram only. |
 | `updater.py` | Engine bootstrap / update (`Updater`), `Net` (urllib with UA, timeouts, retries), SHA-256 verification. |
 | `linkclean.py` | Link extraction from free text and canonicalisation for Instagram, YouTube, TikTok and X (`clean_text(text, platform)`, `clean_link`); rules in its docstring. |
-| `downloader.py` | `ProcessRunner` (hidden subprocess, Job Object tree kill), `BinaryGate`, progress parsing, error classification per platform, format selection, auth ladder per platform, `Downloader` (job table, download workers, preview worker, history). |
+| `downloader.py` | `ProcessRunner` (hidden subprocess, Job Object tree kill), `BinaryGate`, progress parsing, error classification per platform, format selection, auth ladder per platform, `Downloader` (job table, download workers, preview worker pool, history). |
 | `engine.py` | `Engine` facade of ARCHITECTURE section 6 (integrator); `logs/app.log` rotating handler on the `mediasaver` logger. |
 | `cli.py` | Headless harness: `python -m app.core.cli` (§7). |
 
-`Downloader` public surface used by `engine.py`: `add(url, shortcode, platform, kind, fmt)`, `active_keys()`
+`Downloader` public surface used by `engine.py`: `add(url, shortcode, platform, kind, fmt)`,
+`add_batch([(url, shortcode, platform, kind, fmt), ...])` (one pasted batch, paste order in and out, §3), `active_keys()`
 (`"<platform>:<shortcode>"` of queued / running jobs), `set_format(job_id, fmt)` (only while `queued`, else `None`),
 `clear_finished(platform=None)`, plus `start`, `shutdown`, `set_concurrency`, `jobs`, `get`, `cancel`, `retry`,
 `remove`, `job_file`, `mark_waiting`, `load_history`, `save_history`.
@@ -71,9 +72,9 @@ runtime; since 2.1.0 the updater installs deno (2.9.7 on 2026-10-20) and yt-dlp 
 `auto_update=false` skips step 3–6 updates but still installs missing binaries. `update_engine()` and a change of
 `update_channel` run a forced pass. A pass requested while one runs queues one more forced pass.
 
-Gate: jobs and the preview worker hold `BinaryGate` shared while a yt-dlp / gallery-dl subprocess runs; replacing a
+Gate: jobs and the preview workers hold `BinaryGate` shared while a yt-dlp / gallery-dl subprocess runs; replacing a
 binary takes it exclusively (waits up to 300 s for running subprocesses, blocks new ones). `Updater.usable()` is
-false while checking or replacing, so queued jobs wait ("Waiting for engine update") and the preview worker idles.
+false while checking or replacing, so queued jobs wait ("Waiting for engine update") and the preview workers idle.
 
 Self-heal: an `extractor` error on a yt-dlp rung calls `Updater.self_heal()` — one forced yt-dlp pass per app
 session; when it ran, the same rung is retried once. Later jobs skip the retry and go down the ladder.
@@ -92,6 +93,22 @@ Job fields added in 2.0: `platform` (`instagram` | `youtube`; 2.2 adds `tiktok` 
 (`mp4` | `mp3`, changeable with `set_format` only while `queued`; a worker that takes the job sets `probing` under
 the lock first, so the format is frozen from then on), `previewed`.
 
+Queue order (ARCHITECTURE 5.2). `Downloader._order` is oldest first; `jobs()` returns it reversed and the UI
+sorts by `created_at` descending, so the top of the list is the last entry of `_order`.
+- `Engine.enqueue` de-duplicates in paste order, then hands the batch to `Downloader.add_batch` in one call. The
+  batch is added in reverse under one lock hold, so the first pasted link gets the newest position and the greatest
+  `created_at`; `added` of the `EnqueueResult` stays in paste order; the `job` events go out oldest first.
+- `created_at` is strictly increasing per added job: `max(time.time(), previous + 0.001)` (`CREATED_STEP`; the
+  previous value includes the jobs restored from history), so equal clock readings never let the UI order and the
+  engine order disagree.
+- A download worker (`_next_job` -> `_take_top_queued`) starts the queued job shown topmost (the last `queued` id
+  in `_order`), then the next one below it. Net effect: a pasted batch reads top to bottom in paste order and runs
+  top to bottom; a link pasted later appears above the older queued ones and starts next.
+- Retry: the job is queued again and moved to the end of `_order` (top of `jobs()`, so it starts next); its
+  `created_at` is unchanged, so a running UI keeps the card where it was and shows it on top only after a full
+  reload (`get_state`). Unchanged since 2.0.
+- The preview workers (§3.1) take queued jobs in the same top-first order.
+
 Common yt-dlp prefix (`Y`):
 
 ```
@@ -101,22 +118,34 @@ yt-dlp.exe --no-config --encoding utf-8 --color never --socket-timeout 20 --retr
            [--cookies cache\jobs\<id>\cookies.txt | --cookies-from-browser <browser>]
 ```
 
-### 3.1 Preview worker (ARCHITECTURE 5.4)
+### 3.1 Preview workers (ARCHITECTURE 5.4)
 
-One daemon thread `ms-preview`, started by `Downloader.start()`:
+A pool of `Downloader.PREVIEW_WORKERS` (3) daemon threads `ms-preview-0..2`, started by `Downloader.start()`, so
+the previews of a pasted batch arrive together instead of one `yt-dlp -J` after another:
 
-1. Picks the oldest job with `status == "queued"` and `previewed == False`; waits while `usable()` is false or
-   the gate is held exclusively (updater replacing binaries). One job, one subprocess at a time.
+1. Each worker picks the queued job without a preview that is shown topmost (`status == "queued"`,
+   `previewed == False`, the same top-first order as the download start, §3) and that no other worker holds
+   (`Downloader._previews`: job id -> cancel event + `running` flag); waits while `usable()` is false or the gate
+   is held exclusively (updater replacing binaries). At most three fetches run at once, one job per worker.
 2. `Y -J <url>` anonymous (never `--cookies` / `--cookies-from-browser`), timeout 60 s, cwd `cache/jobs`, under
-   the shared gate, with its own cancel event.
-3. Success: info json (carousel -> first video entry) written to `cache/jobs/<id>/preview.json`, `preview_at`
-   recorded; `title`, `author`, `duration_s` set (event `job`), then the thumbnail (§3.2 step 2, event `job`),
-   then `previewed = true` (event `job`) and a history save.
+   the shared gate, with its own cancel event. `running` turns true once the fetch holds the gate and the job is
+   still queued, right before the subprocess starts.
+3. Success while the job is queued: info json (carousel -> first video entry) written to
+   `cache/jobs/<id>/preview.json`, `preview_at` recorded; empty `title`, `author`, `duration_s` filled (event
+   `job`), then the thumbnail (§3.2 step 2, event `job`), then `previewed = true` (event `job`) and a history save.
 4. Failure, timeout, unusable json: `previewed = true`, nothing else, INFO line in `logs/app.log`
    ("preview of job <id>: failed after 1.2 s (not_found)"). No toast, no error on the job.
-5. The job leaves `queued` while its preview runs: a download worker taking it, `cancel`, `remove` and `shutdown`
-   set the preview's cancel event; `ProcessRunner` kills the subprocess tree; no field changes. The download worker
-   never waits for a preview: it probes by itself.
+5. `cancel`, `remove` and `shutdown` set the preview's cancel event; `ProcessRunner` kills the subprocess tree; no
+   field changes. `shutdown` stops every fetch in flight and joins the pool with the download workers.
+6. A download worker that takes the job never waits for its preview: it probes by itself (§3.2 step 1). A preview
+   that has not started its subprocess yet (`running` false) is dropped; one whose subprocess runs is let finish.
+   Its result then fills only the fields that are still empty (`_fill_meta(overwrite=False)`) and makes the
+   thumbnail when there is none; no `preview.json` is used (the download already probes). Rule for
+   `title` / `author` / `duration_s` / `thumbnail`: whichever answer arrives first sets them; a later preview never
+   replaces them; the download's probe replaces them only with non-empty values; an empty value never replaces a
+   field.
+7. `previewed`: false while a fetch is pending, true when it finished or gave up (and at the latest when the
+   download's probe answered, or the job ended).
 
 Measured: `yt-dlp -J` of a YouTube video 2.1–2.3 s; preview including the thumbnail 2.5 s (Shorts A9Yn8Ad_cH8).
 
@@ -128,8 +157,11 @@ Measured: `yt-dlp -J` of a YouTube video 2.1–2.3 s; preview including the thum
    playlist: the first entry with video formats is used). `live_status` `is_live` / `is_upcoming` / `post_live`
    -> `not_found` "Live streams and premieres are not supported.". Meta: Instagram author = `channel`
    (username), title = first caption line; YouTube author = `channel` (channel name), title = `title`.
+   The non-empty values replace the job's fields (an empty one keeps what a preview set, §3.1 step 6);
    `previewed` becomes true here at the latest.
-2. Thumbnail (only when the job has none yet): `info.thumbnail` fetched with urllib (browser UA) (Instagram jpg,
+2. Thumbnail (only when the job has none yet), right after the probe and before the download starts; one fetch per
+   job at a time (`Job.thumb_lock`: when a preview is making it, the download waits for that one and does not fetch
+   again): `info.thumbnail` fetched with urllib (browser UA) (Instagram jpg,
    YouTube `vi_webp/<id>/maxresdefault.webp` or `vi/<id>/hq720_2.jpg?...` for Shorts), then
    `ffmpeg -hide_banner -nostdin -y -loglevel error -i thumb_src -vf "scale='min(480,iw)':-2" -frames:v 1 -q:v 4 -f image2 -c:v mjpeg cache\thumbs\<key>.jpg`
    (`<key>` = shortcode for Instagram, `youtube_<id>` for YouTube), sent as `data:image/jpeg;base64,…`
@@ -153,18 +185,23 @@ Measured: `yt-dlp -J` of a YouTube video 2.1–2.3 s; preview including the thum
    or the chosen audio format id.
 5. Download, mp3 (ffmpeg checked first: missing -> `ffmpeg_missing` before any download subprocess):
    ```
-   Y --load-info-json info.json -f "ba/b" -S channels:2 -x --audio-format mp3 --audio-quality 0 --ffmpeg-location <ffmpeg.exe>
-     -o cache\jobs\<id>\media.%(ext)s --no-part --force-overwrites <same progress / print arguments>
+   Y --load-info-json info.json -f "ba/b" -S channels:2 -x --audio-format mp3 --audio-quality <128K|192K|256K|320K>
+     --ffmpeg-location <ffmpeg.exe> -o cache\jobs\<id>\media.%(ext)s --no-part --force-overwrites
+     <same progress / print arguments>
    ```
+   `--audio-quality` is the bitrate of the job's platform quality setting, read when the job starts (§4.5: low 128K,
+   medium 192K, high 256K, max 320K); a value with a `K` suffix is a bitrate for yt-dlp (`0`-`10` would be the VBR
+   scale), so ffmpeg encodes libmp3lame at that constant bitrate.
    Stages: "Downloading audio", then the `ExtractAudio` postprocessor lines (`[[IDLPP]]{"s":"started",
    "pp":"ExtractAudio"}` / `finished`, confirmed on this nightly) -> "Converting to MP3", then "Saving file". No
-   merge, no H.264 pass; `quality_instagram`, `quality_youtube` and `h264_compat` are ignored. `-S channels:2` puts
+   merge, no H.264 pass, no resolution cap; `h264_compat` is ignored. `-S channels:2` puts
    stereo / mono tracks before the 5.1 ones YouTube lists with deno (yt-dlp's default order ranks more channels
    higher and would downmix the 6-channel source into the MP3). Final fields: `width/height/fps/vcodec` null,
    `acodec` "mp3", `duration_s` from ffprobe, `filesize`. A job whose info json lists only formats with
    `acodec == "none"` fails early with `not_found` "This video has no sound, so there is nothing to save as MP3."
-   (also when ffmpeg reports "unable to obtain file audio codec"). Output: libmp3lame VBR q0, ~240 kbit/s; 48 kHz
-   from YouTube (opus 251 is yt-dlp's `ba`), 44.1 kHz from Instagram (HE-AAC).
+   (also when ffmpeg reports "unable to obtain file audio codec"). Output: libmp3lame at the ladder bitrate; 48 kHz
+   from YouTube (opus 251 is yt-dlp's `ba`), 44.1 kHz from Instagram (HE-AAC). Versions up to 3.0.0 used
+   `--audio-quality 0` (VBR q0, ~240 kbit/s measured) for every job.
 6. H.264 pass (mp4 only, when `h264_compat` and ffprobe says the merged video is not h264):
    ```
    ffmpeg -hide_banner -nostdin -y -loglevel error -i media.mp4 -map 0:v:0 -map 0:a:0? -c:v libx264 -crf 16
@@ -186,7 +223,7 @@ gallery-dl.exe --config-ignore --cookies <jar> -o videos=true -D cache\jobs\<id>
 ```
 gallery-dl downloads the progressive `video_url` (≤ 720p baseline H.264, see §4), so it is a last resort; its
 first mp4 then goes through steps 6–7. mp3 jobs on this rung: `ffmpeg … -i <mp4> -vn -map 0:a:0 -c:a libmp3lame
--q:a 0 media.mp3`. No progress output (progress jumps).
+-b:a <128k|192k|256k|320k> media.mp3` (the same ladder bitrate as step 5). No progress output (progress jumps).
 
 Overall progress weights (normalised): mp4 — probe 0.06, video 0.62 (0.72 without audio), audio 0.10, merge
 0.04, transcode 0.30 (only when needed), finalize 0.02; mp3 — probe 0.06, audio 0.72, convert 0.20, finalize
@@ -274,14 +311,26 @@ videos are gone, not a bug of ours. A post with several videos comes back as a p
   `vcodec == "none"` and `acodec` not null / "none".
 - "max": highest pixel area, then fps, then direct https over HLS (HLS peak `tbr` is not comparable and fragment
   downloads are slower), then video-only over muxed, then bitrate (`vbr`/`tbr`).
-- Quality is per platform: a job reads the setting of its own platform (`job.platform`) when it starts; mp3 reads
-  neither. `select_formats(info, platform, quality, h264_compat)`, caps in `QUALITY_CAPS`:
-  Instagram `quality_instagram`, TikTok `quality_tiktok`, X `quality_twitter`: "low" = short side ≤ 480, "medium" =
-  ≤ 720, "max" = best available;
-  YouTube `quality_youtube`: "360" = short side ≤ 360, "720" = ≤ 720, "max" = best available (1080p, 1440p, 2160p:
-  whatever the video has). A capped choice is the same ranking as "max" limited to short side ≤ cap × 1.02 (keeps
-  716x1274 for "medium" and 1088x1936 where a cap is near it; vertical Shorts are capped by their width); when
-  nothing fits, the smallest available video.
+- Quality is per platform: a job reads the setting of its own platform (`job.platform`: `quality_instagram`,
+  `quality_youtube`, `quality_tiktok`, `quality_twitter`) when it starts, for mp4 and mp3 alike. All four settings
+  share one four-step ladder (`QUALITY_CAPS` and `MP3_BITRATES` in `downloader.py`, `QUALITIES` in `settings.py`):
+
+  | Value | mp4: short side | mp3: bitrate | yt-dlp / ffmpeg arguments |
+  |---|---|---|---|
+  | `low` | ≤ 480 | 128 kbit/s | mp4 `-f <ids>` from `select_formats` (fallback `-S res:480,…`); mp3 `--audio-quality 128K` (gallery-dl rung: ffmpeg `-b:a 128k`) |
+  | `medium` | ≤ 720 | 192 kbit/s | mp4 cap 720 (fallback `-S res:720,…`); mp3 `--audio-quality 192K` / `-b:a 192k` |
+  | `high` | ≤ 1080 | 256 kbit/s | mp4 cap 1080 (fallback `-S res:1080,…`); mp3 `--audio-quality 256K` / `-b:a 256k` |
+  | `max` (default) | best available (YouTube up to 2160p, Instagram / TikTok / X up to what the post has, 1080p on the probed posts) | 320 kbit/s | mp4 no cap (fallback `-S res,…`); mp3 `--audio-quality 320K` / `-b:a 320k` |
+
+  `select_formats(info, platform, quality, h264_compat)`: a capped choice is the same ranking as "max" limited to
+  short side ≤ cap × 1.02 (`CAP_TOLERANCE`; keeps 716x1274 for "medium" and 1088x1936 for "high"; vertical Shorts
+  are capped by their width); when nothing fits, the smallest available video. An unknown value behaves as "max" (validation keeps it out).
+- Legacy values (versions before the ladder; YouTube offered "360" / "720", the other platforms "low" / "medium" /
+  "max"): a stored `settings.json` is normalised on load by `settings.load_quality`: "360" -> "low", "720" ->
+  "medium" (also the numeric forms 360 / 720), "low" / "medium" / "high" / "max" unchanged, any other stored value
+  -> "high"; the file itself is rewritten only by the next save. A patch from the UI or the CLI stays strict:
+  "360", "720", a number or any other value outside the ladder is refused with "Invalid value for 'YouTube
+  quality': …".
 - `h264_compat`: an AVC format with the same area (±2 %) and fps (±1) wins over the non-AVC best (YouTube 1080p:
   299 / 137 instead of VP9 / AV1); otherwise the best stays and the H.264 pass runs (YouTube 1440p / 2160p, current
   Instagram reels). A lower-resolution AVC is never preferred (quality first).
@@ -292,8 +341,7 @@ videos are gone, not a bug of ours. A post with several videos comes back as a p
 - Resulting `-f`: `<video_id>+<audio_id>/<video_id>/bv*+ba/b` (fallbacks only matter when the chosen ids vanish).
   When the info json has no usable video metadata: `-f "bv*+ba/b" -S "res,fps,br[,vcodec:avc,acodec:aac]"`
   (`res:<cap>` with the platform cap for capped qualities, e.g. `res:480` for Instagram "low").
-- Measured results (taken with the former 1080 cap, which is no longer offered; the AVC picks below are now
-  reached with the closest caps: "720" or "max" on a video that tops out at 1080p): BBB -> 299+140, 1920x1080 60 fps h264/aac, 255.9 MB, no transcode; Recap -> 137+140, 1920x1080 25 fps;
+- Measured results (taken with a 1080 cap, which "high" is again): BBB -> 299+140, 1920x1080 60 fps h264/aac, 255.9 MB, no transcode; Recap -> 137+140, 1920x1080 25 fps;
   Shorts -> 137+140, 1080x1920 24 fps, 11.4 MB; YouTube "max" on a 2160p Shorts without
   `h264_compat` -> 313+251, 2160x3840 VP9 / opus, 72.7 MB; Instagram DQCkNLtgqEe "max" -> VP9 1080x1920 ->
   H.264 pass, 25.3 MB.
@@ -400,14 +448,20 @@ Real samples (yt-dlp nightly 2026.10.10, in `tests/test_core_errors.py` and `tes
   `/p/` URLs else "reel", `format` "mp4". Unknown values in version 2 entries fall back the same way (YouTube
   kind from the URL: `/shorts/` -> "shorts", else "video"; TikTok `/video/` -> "video", else "share"; X always
   "post"). An unknown platform falls back to Instagram. The next save writes version 2.
-- Settings: unknown keys ignored, a bad value on load falls back to its default, a broken file gives defaults.
+- Settings: unknown keys ignored, a bad value on load falls back to its default, a broken file gives defaults;
+  the four quality keys are the exception: a stored value is mapped to the ladder (§4.5, legacy values), never
+  reset to the default.
 
 ## 7. How to test
 
 Unit tests (no network): `python -m unittest discover -s tests` with `MEDIA_SAVER_HOME` set to a scratch folder.
 Core files: `test_linkclean` (Instagram table, YouTube table, extraction, mixed text with platform filter),
-`test_core_formats` (mp3 pipeline, YouTube mp4, format selection, per-platform quality settings, `set_format`, `active_keys`, `clear_finished`,
-history v2), `test_core_preview` (preview fetch / reuse / failure / timeout / cancel / remove / gate / order),
+`test_core_formats` (mp3 pipeline, YouTube mp4, format selection, the quality ladder for mp4 and the mp3 bitrate,
+per-platform quality settings, `set_format`, `active_keys`, `clear_finished`, history v2), `test_core_preview`
+(preview fetch / reuse / failure / timeout / cancel / remove / gate, the pool of three, top-first order, a download
+that starts while a preview runs, no field emptied or replaced by a late answer), `test_core_settings` (ladder
+values, legacy mapping on load), `test_core_engine` (queue order: paste order top to bottom, start order, later
+links first, strictly increasing `created_at`, retry),
 `test_core_youtube` (YouTube error samples, ladder, `can_login`, platform texts), `test_core_ladder` (Instagram
 ladder + full pipeline with a fake runner), `test_core_history`, `test_core_errors`, `test_core_progress`,
 `test_core_names`, `test_core_auth`, `test_core_updater` (install / up to date / 30-day refresh / offline / bad
@@ -419,15 +473,17 @@ Real network (never the user's folders; cmd syntax):
 set MEDIA_SAVER_HOME=%TEMP%\ms_engine_home
 python -m app.core.cli --update-only
 python -m app.core.cli --out %TEMP%\ms_engine_out --format mp4 https://www.instagram.com/reel/DQCkNLtgqEe
-python -m app.core.cli --out %TEMP%\ms_engine_out --set quality_youtube=720 --set concurrency=1 --platform youtube --format mp4 "https://www.youtube.com/watch?v=sO_lhW8av3U&list=PL1" "https://youtube.com/shorts/A9Yn8Ad_cH8?feature=share"
+python -m app.core.cli --out %TEMP%\ms_engine_out --set quality_youtube=medium --set concurrency=1 --platform youtube --format mp4 "https://www.youtube.com/watch?v=sO_lhW8av3U&list=PL1" "https://youtube.com/shorts/A9Yn8Ad_cH8?feature=share"
 python -m app.core.cli --out %TEMP%\ms_engine_out --format mp3 https://www.youtube.com/watch?v=aqz-KE-bpKQ https://www.instagram.com/reel/DQCkNLtgqEe
-python -m app.core.cli --out %TEMP%\ms_engine_out --set quality_youtube=360 --platform youtube https://www.youtube.com/watch?v=aqz-KE-bpKQ
+python -m app.core.cli --out %TEMP%\ms_engine_out --set quality_youtube=low --platform youtube https://www.youtube.com/watch?v=aqz-KE-bpKQ
+python -m app.core.cli --out %TEMP%\ms_engine_out --set quality_youtube=high --format mp3 --platform youtube https://www.youtube.com/watch?v=aqz-KE-bpKQ
 python -m app.core.cli --out %TEMP%\ms_engine_out2 --set quality_youtube=max --set h264_compat=false --platform youtube https://www.youtube.com/shorts/A9Yn8Ad_cH8
 set MEDIA_SAVER_NO_SYSTEM_FFMPEG=1  (forces the bundled ffmpeg download path)
 ```
 `--platform` accepts only links of that platform (the others are printed as `skipped invalid`); without it both
 platforms are accepted. `--format` sets the format of the queued links (default: the `format` setting). `--set`
-values are JSON when they parse (`quality_youtube=720` arrives as the number 720, which the YouTube quality setting accepts).
+values are JSON when they parse (`concurrency=1` arrives as the number 1; `quality_youtube=medium` stays a string;
+the retired `quality_youtube=720` arrives as the number 720 and is refused like any value outside the ladder).
 With `--set concurrency=1` and several links, the CLI shows the preview of the waiting jobs
 (`preview: 'title' by 'author', 43 s, thumb`). Exit code 0 = all jobs done, 1 = some failed, 2 = engine not
 usable. `--json` prints raw events. The run never starts the app self-update check (`app_updates=False`), which
@@ -456,7 +512,7 @@ YouTube:
 - The bot check ("Sign in to confirm you’re not a bot") did not appear on this machine; when it does, the job
   ends with `login_required` and the browser-cookies hint, and with `browser_cookies` set the browser rung runs.
 - Shorts at `quality_youtube` "max" are 2160x3840 VP9 / AV1: with `h264_compat` they go through a 4K H.264 pass
-  (slow); "720" gives AVC 136 without a pass (there is no 1080p cap any more).
+  (slow); "high" gives AVC 137 (1080x1920) and "medium" AVC 136 (720x1280), both without a pass.
 - `--no-playlist` is always passed; canonical URLs never carry `list=` anyway.
 - The thumbnail of a regular video is `maxresdefault.webp` (converted by ffmpeg), of a Shorts video a `hq720` jpg.
 

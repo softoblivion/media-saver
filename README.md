@@ -69,9 +69,9 @@ and on up-to-date Windows 10). No installer, no admin rights.
 
 | | |
 |---|---|
-| **Four platforms** | Instagram Reels and video posts; YouTube videos and Shorts; TikTok videos (full and short `vm.tiktok.com` links); X (Twitter) posts with video. A mode switch in the title bar; each mode keeps its own queue view and its own quality setting. |
-| **MP4 or MP3** | A global default and a per-item override on queued cards. MP4 picks the highest resolution, then frame rate, then bitrate and merges video and audio; MP3 extracts the best audio track at the best available bitrate. |
-| **Quality per platform** | Instagram, TikTok and X: Low (≤ 480p), Medium (≤ 720p), Max (up to 1080p). YouTube: 360p, 720p, Max (up to 4K). Chosen in the main window, right above Download. |
+| **Four platforms** | Instagram Reels and video posts; YouTube videos and Shorts; TikTok videos (full and short `vm.tiktok.com` links); X (Twitter) posts with video. A mode switch with one icon per service, centred in the title bar; each mode keeps its own queue view and its own quality setting. |
+| **MP4 or MP3** | A global default and a per-item override on queued cards. MP4 picks the highest resolution within the quality step, then frame rate, then bitrate and merges video and audio; MP3 converts the best audio track at the bitrate of the quality step. |
+| **Quality per platform** | Four steps for every platform: Low, Medium, High, Max. MP4: ≤ 480p, ≤ 720p, ≤ 1080p, best (YouTube up to 4K, the others up to 1080p). MP3: 128, 192, 256, 320 kbps. Chosen in the main window, right above Download. |
 | **Editor-ready video** | Optional H.264 mode: prefers an AVC stream at the top resolution; when only VP9 / AV1 / HEVC exists there (YouTube above 1080p, current Instagram reels, TikTok 1080p), re-encodes with x264 CRF 16 so the file opens in Premiere Pro and After Effects without conversion. |
 | **Batch input** | Accepts messages, lists and glued-together links; extracts, cleans and de-duplicates them before queuing. Drag and drop of text and `.txt` files, `Ctrl+V` anywhere in the window. |
 | **Previews** | Thumbnail, title, author and duration appear on a queued card before the download starts. |
@@ -115,7 +115,7 @@ Without network access the app keeps working with the binaries it already has.
    platform is shown with a **Switch** action.
 3. Check the cleaned preview: valid, invalid and duplicate links are counted separately. Pick **MP4** or **MP3**
    and the quality for the current platform.
-4. Press **Download** (`Ctrl+Enter`). Each card shows a preview as soon as the site answers, then progress, speed
+4. Press **Download**. Each card shows a preview as soon as the site answers, then progress, speed
    and ETA. A queued card can still switch between MP4 and MP3.
 5. Finished cards open the file or reveal it in Explorer.
 
@@ -126,7 +126,6 @@ members-only, sensitive content) can use the cookies of a browser chosen in Sett
 | Shortcut | Action |
 |---|---|
 | `Ctrl+V` | Paste into the input panel from anywhere |
-| `Ctrl+Enter` | Start downloading the cleaned links |
 | `Alt+1` … `Alt+4` | Instagram / YouTube / TikTok / X mode |
 | `←` `→` | Move a segmented control (mode, format, quality) |
 | `Esc` | Close the settings sheet or a popover |
@@ -139,10 +138,10 @@ members-only, sensitive content) can use the cookies of a browser chosen in Sett
 | `filename_template` | `{author}_{shortcode}` | Tokens `{author}` `{shortcode}` `{date}` `{title}`; `{shortcode}` (the video id) is required |
 | `mode` | `instagram` | `instagram`, `youtube`, `tiktok` or `twitter`: the platform shown in the window |
 | `format` | `mp4` | Default output format for new jobs, `mp4` or `mp3` |
-| `quality_instagram` | `max` | `low` (short side ≤ 480), `medium` (≤ 720) or `max` (MP4 only) |
-| `quality_youtube` | `max` | `360`, `720` or `max` (best available, up to 2160p; MP4 only) |
-| `quality_tiktok` | `max` | `low` (short side ≤ 480), `medium` (≤ 720) or `max` (MP4 only) |
-| `quality_twitter` | `max` | `low` (short side ≤ 480), `medium` (≤ 720) or `max` (MP4 only) |
+| `quality_instagram` | `max` | `low`, `medium`, `high` or `max`. MP4: short side ≤ 480, ≤ 720, ≤ 1080 or the best available (up to 1080p); MP3: 128, 192, 256 or 320 kbps |
+| `quality_youtube` | `max` | The same four steps; MP4 `max` is the best available, up to 2160p |
+| `quality_tiktok` | `max` | The same four steps; MP4 `max` up to 1080p |
+| `quality_twitter` | `max` | The same four steps; MP4 `max` up to 1080p |
 | `h264_compat` | `true` | Guarantee H.264 / AAC output for video editors (MP4 only) |
 | `skip_existing` | `true` | Mark a job done when the target file already exists |
 | `concurrency` | `2` | Parallel downloads, 1–4, shared by both modes |
@@ -215,7 +214,7 @@ GitHub and Codeberg (engine and app updates).
 - **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
 - **The app:** checked on every launch and then every 5 minutes while it runs; a failed check is retried later with
   a growing wait of up to an hour, and nothing is checked without a network connection. **Check for updates** in the
-  popover of the version pill next to the engine chip or in Settings > Updates checks at once. **Download updates
+  popover of the version pill next to the app name or in Settings > Updates checks at once. **Download updates
   automatically** (`auto_download_updates`, on by default) fetches a new version in the background and a notice
   offers **Restart**; installing still needs **Restart to update**, the app never restarts by itself. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
   against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: the downloaded exe waits
@@ -230,7 +229,7 @@ GitHub and Codeberg (engine and app updates).
 ## FAQ
 
 **A 4K YouTube video takes minutes and the file is huge.** With *H.264 for editing* on, VP9 / AV1 sources above
-1080p are re-encoded at CRF 16 for editors. Pick **720p** for a quick AVC file, or switch H.264 off to keep the
+1080p are re-encoded at CRF 16 for editors. Pick **High** (≤ 1080p) for a quick AVC file, or switch H.264 off to keep the
 original VP9 / AV1 stream.
 
 **Instagram says it needs a sign-in.** Some reels are served only to accounts. Press **Sign in to Instagram** on the
@@ -290,7 +289,7 @@ media-saver/
 │   ├── main.py          entry point: windows, single instance, engine lifecycle
 │   ├── bridge.py        JS ↔ Python API and event pump
 │   ├── login.py         Instagram sign-in window and cookie capture
-│   ├── winutil.py       clipboard, Explorer, DWM, frameless resize
+│   ├── winutil.py       clipboard, Explorer, DWM, fixed-size frameless window
 │   └── fake_engine.py   simulated engine for UI work
 ├── ui/                  HTML / CSS / JS interface, Liquid Glass material, embedded fonts, mock API
 ├── tests/               unittest suite

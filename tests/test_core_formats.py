@@ -37,7 +37,7 @@ class Mp3PipelineTest(CoreTestBase, unittest.TestCase):
         self.assertEqual(call[call.index("-f") + 1], "ba/b")
         self.assertEqual(call[call.index("-S") + 1], "channels:2")  # stereo before the 5.1 tracks
         self.assertEqual(call[call.index("--audio-format") + 1], "mp3")
-        self.assertEqual(call[call.index("--audio-quality") + 1], "0")
+        self.assertEqual(call[call.index("--audio-quality") + 1], "320K")  # quality_youtube "max"
         self.assertNotIn("--merge-output-format", call)
         self.assertFalse(any("libx264" in c for c in runner.calls))  # no H.264 pass for audio
         texts = [p["stage_text"] for p in self.job_events(job.id)]
@@ -90,7 +90,7 @@ class Mp3PipelineTest(CoreTestBase, unittest.TestCase):
 class YouTubeMp4Test(CoreTestBase, unittest.TestCase):
     def test_mp4_with_avc_at_720(self):
         runner = ScriptedRunner(YT_INFO)
-        dl = self.make(runner, quality_youtube="720", h264_compat=True)
+        dl = self.make(runner, quality_youtube="medium", h264_compat=True)
         job = dl.get(dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "video", "mp4")["id"])
         dl._run_job(job)
         self.assertEqual(job.status, "done", job.error)
@@ -126,24 +126,42 @@ class YouTubeFormatSelectionTest(unittest.TestCase):
         self.assertTrue(c.needs_transcode)
 
     def test_caps_prefer_direct_avc(self):
-        c = select_formats(YT_INFO, "youtube", "720", True)
+        c = select_formats(YT_INFO, "youtube", "medium", True)
         self.assertEqual((c.video["format_id"], c.audio["format_id"], c.needs_transcode), ("298", "140", False))
-        self.assertEqual(select_formats(YT_INFO, "youtube", "720", False).video["format_id"], "298")
+        self.assertEqual(select_formats(YT_INFO, "youtube", "medium", False).video["format_id"], "298")
+        c = select_formats(YT_INFO, "youtube", "high", True)  # 1080p60: direct AVC 299 over HLS 312 and VP9 / AV1
+        self.assertEqual((c.video["format_id"], c.audio["format_id"], c.needs_transcode), ("299", "140", False))
         upto_1080 = dict(YT_INFO, formats=[f for f in YT_INFO["formats"] if (f.get("height") or 0) <= 1080])
         c = select_formats(upto_1080, "youtube", "max", True)
         self.assertEqual((c.video["format_id"], c.audio["format_id"], c.needs_transcode), ("299", "140", False))
 
     def test_youtube_qualities(self):
-        c = select_formats(YT_INFO, "youtube", "360", True)
-        self.assertEqual((c.video["format_id"], c.video["height"]), ("18", 360))  # muxed 360p keeps its own audio
-        self.assertIsNone(c.audio)
-        self.assertEqual(select_formats(YT_INFO, "youtube", "720", True).video["height"], 720)
+        c = select_formats(YT_INFO, "youtube", "low", True)
+        self.assertEqual((c.video["format_id"], c.video["height"]), ("18", 360))  # nothing at 480: muxed 360p
+        self.assertIsNone(c.audio)                                               # keeps its own audio
+        self.assertEqual(select_formats(YT_INFO, "youtube", "medium", True).video["height"], 720)
+        self.assertEqual(select_formats(YT_INFO, "youtube", "high", False).video["height"], 1080)
         c = select_formats(YT_INFO, "youtube", "max", False)
         self.assertEqual((c.video["height"], c.video["width"]), (2160, 3840))
 
-    def test_youtube_360_falls_back_to_the_smallest_when_nothing_fits(self):
+    def test_low_falls_back_to_the_smallest_when_nothing_fits(self):
         info = {"formats": [f for f in YT_INFO["formats"] if f["format_id"] in ("298", "299", "140")]}
-        self.assertEqual(select_formats(info, "youtube", "360", True).video["format_id"], "298")
+        self.assertEqual(select_formats(info, "youtube", "low", True).video["format_id"], "298")
+
+    def test_retired_youtube_values_behave_as_max(self):
+        # "360" / "720" are no longer ladder values (a stored file maps them on load); unknown means "max"
+        for value in ("360", "720"):
+            with self.subTest(value=value):
+                self.assertEqual(select_formats(YT_INFO, "youtube", value, False).video["height"], 2160)
+
+    def test_same_ladder_on_every_platform(self):
+        from app.core.downloader import MP3_BITRATES, QUALITY_CAPS, mp3_bitrate, quality_cap
+        for platform in ("instagram", "youtube", "tiktok", "twitter"):
+            with self.subTest(platform=platform):
+                self.assertEqual(QUALITY_CAPS[platform], {"low": 480, "medium": 720, "high": 1080, "max": None})
+                self.assertEqual(quality_cap(platform, "high"), 1080)
+        self.assertEqual(MP3_BITRATES, {"low": 128, "medium": 192, "high": 256, "max": 320})
+        self.assertEqual(mp3_bitrate("unknown"), 320)
 
     def test_1440_top_is_transcoded(self):
         info = dict(YT_INFO, formats=[f for f in YT_INFO["formats"] if (f.get("height") or 0) <= 1440])
@@ -160,7 +178,8 @@ class YouTubeFormatSelectionTest(unittest.TestCase):
             {"format_id": "251", "vcodec": "none", "acodec": "opus", "abr": 120, "protocol": "https"},
             {"format_id": "140", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 129, "protocol": "https"}]}
         self.assertEqual(select_formats(info, "youtube", "max", True).video["format_id"], "137")
-        self.assertEqual(select_formats(info, "youtube", "720", True).video["format_id"], "136")
+        self.assertEqual(select_formats(info, "youtube", "high", True).video["format_id"], "137")
+        self.assertEqual(select_formats(info, "youtube", "medium", True).video["format_id"], "136")
 
     def test_muxed_only_keeps_its_own_audio(self):
         info = {"formats": [f for f in YT_INFO["formats"] if f["format_id"] in ("18", "140", "sb0")]}
@@ -199,18 +218,22 @@ class YouTubeFormatSelectionTest(unittest.TestCase):
         info = {"formats": [{"format_id": "sb0", "ext": "mhtml", "vcodec": "none", "acodec": "none",
                              "width": 320, "height": 180, "format_note": "storyboard"},
                             {"format_id": "x", "vcodec": None, "acodec": None}]}
-        c = select_formats(info, "youtube", "720", True)
+        c = select_formats(info, "youtube", "medium", True)
         self.assertEqual(c.spec, "bv*+ba/b")
         self.assertIn("res:720", c.sort_args[1])
+        self.assertIn("res:1080", select_formats(info, "tiktok", "high", False).sort_args[1])
 
 
 IG_LADDER_INFO = dict(IG_INFO, formats=IG_INFO["formats"] + [
-    {"format_id": "dash-480", "vcodec": "vp09.00.30.08", "acodec": "none", "width": 480, "height": 854, "tbr": 800}])
+    {"format_id": "dash-480", "vcodec": "vp09.00.30.08", "acodec": "none", "width": 480, "height": 854, "tbr": 800},
+    {"format_id": "dash-1440", "vcodec": "vp09.00.50.08", "acodec": "none", "width": 1440, "height": 2560,
+     "tbr": 4000}])
 
 
 class InstagramQualityTest(unittest.TestCase):
-    def test_low_medium_max(self):
-        for quality, expected in (("low", "dash-480"), ("medium", "dash-720"), ("max", "dash-1080")):
+    def test_low_medium_high_max(self):
+        for quality, expected in (("low", "dash-480"), ("medium", "dash-720"), ("high", "dash-1080"),
+                                  ("max", "dash-1440")):
             with self.subTest(quality=quality):
                 c = select_formats(IG_LADDER_INFO, "instagram", quality, False)
                 self.assertEqual(c.video["format_id"], expected)
@@ -220,9 +243,9 @@ class InstagramQualityTest(unittest.TestCase):
         info = dict(IG_INFO, formats=[f for f in IG_INFO["formats"] if f["format_id"] != "dash-720"])
         self.assertEqual(select_formats(info, "instagram", "low", False).video["format_id"], "dash-1080")
 
-    def test_youtube_values_mean_nothing_on_instagram(self):
-        # an unknown value for the platform behaves as "max" (settings validation keeps this from happening)
-        self.assertEqual(select_formats(IG_LADDER_INFO, "instagram", "360", False).video["format_id"], "dash-1080")
+    def test_unknown_value_behaves_as_max(self):
+        # settings validation and the load mapping keep this from happening
+        self.assertEqual(select_formats(IG_LADDER_INFO, "instagram", "360", False).video["format_id"], "dash-1440")
 
 
 class PlatformQualityTest(CoreTestBase, unittest.TestCase):
@@ -245,16 +268,22 @@ class PlatformQualityTest(CoreTestBase, unittest.TestCase):
                      quality_instagram="low", quality_youtube="max")
         self.assertEqual(self.video_id(runner), "dash-480")
 
+    def test_instagram_job_high(self):
+        runner = ScriptedRunner(IG_LADDER_INFO)
+        self.run_job(runner, IG_URL, "DQCkNLtgqEe", "instagram", "reel", h264_compat=False,
+                     quality_instagram="high", quality_youtube="low")
+        self.assertEqual(self.video_id(runner), "dash-1080")
+
     def test_instagram_job_ignores_quality_youtube(self):
         runner = ScriptedRunner(IG_LADDER_INFO)
         self.run_job(runner, IG_URL, "DQCkNLtgqEe", "instagram", "reel", h264_compat=False,
-                     quality_instagram="max", quality_youtube="360")
-        self.assertEqual(self.video_id(runner), "dash-1080")
+                     quality_instagram="max", quality_youtube="low")
+        self.assertEqual(self.video_id(runner), "dash-1440")
 
     def test_youtube_job_uses_quality_youtube(self):
         runner = ScriptedRunner(YT_INFO)
         self.run_job(runner, YT_URL, "aqz-KE-bpKQ", "youtube", "video", h264_compat=False,
-                     quality_instagram="low", quality_youtube="720")
+                     quality_instagram="low", quality_youtube="medium")
         self.assertEqual(self.video_id(runner), "298")  # AVC 720p60 (same area and fps as VP9 302; bitrate wins)
 
     def test_youtube_job_ignores_quality_instagram(self):
@@ -267,20 +296,48 @@ class PlatformQualityTest(CoreTestBase, unittest.TestCase):
         runner = ScriptedRunner(YT_INFO)
         dl = self.make(runner, h264_compat=False, quality_youtube="max")
         job = dl.get(dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "video", "mp4")["id"])
-        self.settings["quality_youtube"] = "360"  # changed while queued: the job starts with the new value
+        self.settings["quality_youtube"] = "low"  # changed while queued: the job starts with the new value
         dl._run_job(job)
         self.assertEqual(self.video_id(runner), "18")
 
-    def test_mp3_ignores_both_settings(self):
-        for platform, url, code, kind, info in (("youtube", YT_URL, "aqz-KE-bpKQ", "video", YT_INFO),
-                                                ("instagram", IG_URL, "DQCkNLtgqEe", "reel", IG_LADDER_INFO)):
-            with self.subTest(platform=platform):
-                runner = ScriptedRunner(info)
-                self.run_job(runner, url, code, platform, kind, fmt="mp3", quality_instagram="low",
-                             quality_youtube="360")
-                call = runner.ytdlp_calls("--load-info-json")[0]
-                self.assertEqual(call[call.index("-f") + 1], "ba/b")
-                self.assertEqual(call[call.index("-S") + 1], "channels:2")  # no resolution cap in the sort
+    def test_mp3_bitrate_follows_the_platform_setting(self):
+        cases = (("youtube", YT_URL, "aqz-KE-bpKQ", "video", YT_INFO, "quality_youtube"),
+                 ("instagram", IG_URL, "DQCkNLtgqEe", "reel", IG_LADDER_INFO, "quality_instagram"))
+        for platform, url, code, kind, info, key in cases:
+            for quality, expected in (("low", "128K"), ("medium", "192K"), ("high", "256K"), ("max", "320K")):
+                with self.subTest(platform=platform, quality=quality):
+                    self.events.clear()
+                    other = "quality_instagram" if key == "quality_youtube" else "quality_youtube"
+                    runner = ScriptedRunner(info)
+                    job = self.run_job(runner, url, code, platform, kind, fmt="mp3", **{key: quality, other: "low"})
+                    call = runner.ytdlp_calls("--load-info-json")[0]
+                    self.assertEqual(call[call.index("-f") + 1], "ba/b")
+                    self.assertEqual(call[call.index("-S") + 1], "channels:2")  # no resolution cap in the sort
+                    self.assertEqual(call[call.index("--audio-quality") + 1], expected)
+                    os.remove(job.filepath)  # the next subtest writes the same name
+
+    def test_mp3_bitrate_is_read_at_job_start(self):
+        runner = ScriptedRunner(YT_INFO)
+        dl = self.make(runner, quality_youtube="max")
+        job = dl.get(dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "video", "mp3")["id"])
+        self.settings["quality_youtube"] = "medium"
+        dl._run_job(job)
+        call = runner.ytdlp_calls("--load-info-json")[0]
+        self.assertEqual(call[call.index("--audio-quality") + 1], "192K")
+
+    def test_extract_mp3_uses_the_bitrate(self):
+        from app.core.downloader import ProgressModel, mp3_stage_weights
+        runner = ScriptedRunner(IG_INFO)
+        dl = self.make(runner)
+        job = dl.get(dl.add(IG_URL, "DQCkNLtgqEe", "instagram", "reel", "mp3")["id"])
+        src = os.path.join(self.paths.job_cache(job.id), "video.mp4")
+        with open(src, "wb") as fh:
+            fh.write(b"MP4")
+        dl._extract_mp3(job, src, ProgressModel(mp3_stage_weights()), [], 256)
+        ffmpeg = [c for c in runner.calls if os.path.basename(c[0]).startswith("ffmpeg")][-1]
+        self.assertEqual(ffmpeg[ffmpeg.index("-b:a") + 1], "256k")
+        self.assertEqual(ffmpeg[ffmpeg.index("-c:a") + 1], "libmp3lame")
+        self.assertNotIn("-q:a", ffmpeg)
 
 
 class JobTableTest(CoreTestBase, unittest.TestCase):

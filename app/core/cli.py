@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="output format of the queued links (default: the format setting)")
     ap.add_argument("--force-update", action="store_true", help="force the update pass")
     ap.add_argument("--set", action="append", default=[], metavar="KEY=JSON",
-                    help='settings patch, e.g. --set quality_youtube=720 --set h264_compat=false')
+                    help='settings patch, e.g. --set quality_youtube=medium --set h264_compat=false')
     ap.add_argument("--timeout", type=float, default=1800.0)
     ap.add_argument("--json", action="store_true", help="print raw JSON events")
     ap.add_argument("links", nargs="*")

@@ -1,7 +1,9 @@
-"""Windows helpers used by the shell: clipboard, Explorer, single instance, DWM, message box.
+"""Windows helpers used by the shell: clipboard, Explorer, single instance, message box, and the fixed-size frameless
+window (size lock, no maximize, DWM corners and border colour).
 
 Everything here is ctypes / stdlib only and degrades to a harmless no-op on non-Windows hosts, so the module can be
-imported by the unit tests on any machine.
+imported by the unit tests on any machine. The size choice (`pick_window_size`, `centered_rect`) is pure and tested
+without a window.
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ import subprocess
 import sys
 import time
 from ctypes import wintypes
+from typing import Callable, Optional, Sequence
 from urllib.parse import urlparse
 
 log = logging.getLogger("mediasaver.winutil")
@@ -26,6 +29,7 @@ ERROR_ALREADY_EXISTS = 183
 
 DWMWA_WINDOW_CORNER_PREFERENCE = 33
 DWMWCP_ROUND = 2
+DWMWA_BORDER_COLOR = 34
 
 SW_RESTORE = 9
 SW_SHOW = 5
@@ -237,40 +241,76 @@ def set_rounded_corners(hwnd: int) -> bool:
     return hr == 0
 
 
-def dwm_set_int(hwnd: int, attribute: int, value: int) -> bool:
+def colorref(hex_color: str) -> int:
+    """'#rrggbb' -> COLORREF 0x00BBGGRR."""
+    text = hex_color.lstrip("#")
+    if len(text) != 6:
+        raise ValueError(f"not a #rrggbb colour: {hex_color!r}")
+    r, g, b = int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
+    return (b << 16) | (g << 8) | r
+
+
+def set_border_color(hwnd: int, hex_color: str) -> bool:
+    """Windows 11 window border colour (DWMWA_BORDER_COLOR); the page background hides the light frame line.
+    Harmless (returns False) before Windows 11 build 22000."""
     if not IS_WINDOWS or not hwnd:
         return False
-    v = ctypes.c_int(value)
-    return _dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(v), ctypes.sizeof(v)) == 0
+    value = wintypes.DWORD(colorref(hex_color))
+    hr = _dwmapi.DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, ctypes.byref(value), ctypes.sizeof(value))
+    return hr == 0
 
 
-# --- frameless window: edge resizing -----------------------------------------------------------------------------
+# --- window size (pure) ------------------------------------------------------------------------------------------
+
+def pick_window_size(ladder: Sequence[tuple[int, int]], work: Optional[tuple[int, int]]) -> tuple[int, int]:
+    """The largest size of `ladder` (largest first, logical px) that fits the work area `work` (logical px); the
+    smallest step when none fits, the first one when the work area is unknown."""
+    if not ladder:
+        raise ValueError("empty size ladder")
+    if work is None:
+        return ladder[0]
+    for width, height in ladder:
+        if width <= work[0] and height <= work[1]:
+            return width, height
+    return ladder[-1]
+
+
+def centered_rect(size: tuple[int, int], work: Optional[tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    """(x, y, w, h) of a window of `size` centred on the work area (left, top, right, bottom), kept inside it when
+    it fits; (0, 0, w, h) when the work area is unknown. Physical px."""
+    w, h = size
+    if work is None:
+        return 0, 0, w, h
+    x = work[0] + ((work[2] - work[0]) - w) // 2
+    y = work[1] + ((work[3] - work[1]) - h) // 2
+    return max(work[0], x), max(work[1], y), w, h
+
+
+# --- fixed-size frameless window ---------------------------------------------------------------------------------
 #
-# A frameless pywebview window (WinForms FormBorderStyle.None) has no sizing border, so it cannot be resized from its
-# edges. `FramelessResizeHook` gives the form back WS_THICKFRAME (the system then draws its usual invisible resize
-# border and handles hit-testing, DWM shadow and Aero snap) and makes WM_NCCALCSIZE keep the whole window rect as
-# client area except for that border, i.e. no title bar and no visible chrome appear.
-#
-# WinForms does not know about that border: for a borderless form it stores the client size and re-applies it as
-# the window size when the form comes back from the minimized or the maximized state, so the window would lose the
-# border width on every restore. The hook therefore remembers the last normal window size (WM_WINDOWPOSCHANGED)
-# and, when a size change proposes exactly that size minus the border (WM_WINDOWPOSCHANGING), restores the
-# remembered size instead (`corrected_window_size`, pure and unit-tested).
+# A frameless, non-resizable pywebview form (WinForms FormBorderStyle.None) has no sizing border, but a script or the
+# shell can still resize or maximize it: the style keeps the WS_MAXIMIZEBOX bit, WM_SYSCOMMAND SC_MAXIMIZE and
+# ShowWindow(SW_MAXIMIZE) both fill the work area, and SetWindowPos accepts any size (measured with pywebview 6.2.1).
+# `FixedSizeHook` subclasses the window procedure: every size proposal of the restored or maximized window is
+# replaced by the fixed size, SC_MAXIMIZE is swallowed, a maximized state that still arrives (ShowWindow(SW_MAXIMIZE)
+# from outside) is undone with SC_RESTORE, WS_MAXIMIZEBOX / WS_THICKFRAME are cleared and WS_MINIMIZEBOX is set
+# (taskbar click and Win+Down minimize). Minimizing and restoring keep the size without help: without WS_THICKFRAME
+# the window size equals the client size, so WinForms re-applies the right size.
 
 GWL_STYLE = -16
 GWLP_WNDPROC = -4
 WS_THICKFRAME = 0x00040000
 WS_MINIMIZEBOX = 0x00020000
 WS_MAXIMIZEBOX = 0x00010000
-WS_CAPTION = 0x00C00000
-WM_NCCALCSIZE = 0x0083
-WM_NCDESTROY = 0x0082
 WM_WINDOWPOSCHANGING = 0x0046
-WM_WINDOWPOSCHANGED = 0x0047
-WM_ENTERSIZEMOVE = 0x0231
-WM_EXITSIZEMOVE = 0x0232
+WM_SYSCOMMAND = 0x0112
+WM_SIZE = 0x0005
+WM_NCDESTROY = 0x0082
+SIZE_MAXIMIZED = 2
+SC_MAXIMIZE = 0xF030
+SC_RESTORE = 0xF120
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOZORDER, SWP_NOACTIVATE, SWP_FRAMECHANGED = 0x1, 0x2, 0x4, 0x10, 0x20
-SW_SHOWMAXIMIZED = 3
+MONITOR_DEFAULTTONEAREST = 2
 MINIMIZED_POSITION = -32000  # x / y of a minimized top-level window
 
 if IS_WINDOWS:
@@ -280,73 +320,34 @@ if IS_WINDOWS:
     _user32.SetWindowLongPtrW.restype = ctypes.c_void_p
     _user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
     _user32.GetWindowLongPtrW.restype = ctypes.c_void_p
-    _user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    _user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.WPARAM,
+                                        wintypes.LPARAM]
     _user32.CallWindowProcW.restype = LRESULT
-    _user32.SetWindowPos.argtypes = [
-        wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT,
-    ]
-    _user32.IsZoomed.argtypes = [wintypes.HWND]
+    _user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, wintypes.UINT]
     _user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
     _user32.MonitorFromWindow.restype = wintypes.HANDLE
     _user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
     _user32.GetDpiForWindow.argtypes = [wintypes.HWND]
-    _user32.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, wintypes.UINT]
-
-
-class _NCCALCSIZE_PARAMS(ctypes.Structure):
-    _fields_ = [("rgrc", wintypes.RECT * 3), ("lppos", ctypes.c_void_p)]
-
-
-class _MINMAXINFO(ctypes.Structure):
-    _fields_ = [
-        ("ptReserved", wintypes.POINT),
-        ("ptMaxSize", wintypes.POINT),
-        ("ptMaxPosition", wintypes.POINT),
-        ("ptMinTrackSize", wintypes.POINT),
-        ("ptMaxTrackSize", wintypes.POINT),
-    ]
+    _user32.GetDpiForWindow.restype = wintypes.UINT
+    _user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 
 
 class _MONITORINFO(ctypes.Structure):
-    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+    _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT), ("rcWork", wintypes.RECT),
+                ("dwFlags", wintypes.DWORD)]
 
 
 class _WINDOWPOS(ctypes.Structure):
-    _fields_ = [
-        ("hwnd", wintypes.HWND),
-        ("hwndInsertAfter", wintypes.HWND),
-        ("x", ctypes.c_int),
-        ("y", ctypes.c_int),
-        ("cx", ctypes.c_int),
-        ("cy", ctypes.c_int),
-        ("flags", wintypes.UINT),
-    ]
+    _fields_ = [("hwnd", wintypes.HWND), ("hwndInsertAfter", wintypes.HWND), ("x", ctypes.c_int),
+                ("y", ctypes.c_int), ("cx", ctypes.c_int), ("cy", ctypes.c_int), ("flags", wintypes.UINT)]
 
 
-WM_GETMINMAXINFO = 0x0024
-SM_CXSIZEFRAME, SM_CXPADDEDBORDER = 32, 92
-
-
-def corrected_window_size(proposed: tuple[int, int], normal: tuple[int, int] | None,
-                          nc: tuple[int, int]) -> tuple[int, int]:
-    """Window size (width, height) a WM_WINDOWPOSCHANGING should apply.
-
-    `proposed` is the size in the message, `normal` the last window size recorded while the window was neither
-    minimized nor maximized (None before the first record), `nc` the window size minus the client size (the invisible
-    resize border). When `proposed` is exactly `normal` minus the border, WinForms is re-applying the client size it
-    stored for the borderless form as the window size (restore after minimize or maximize), and `normal` is returned
-    so the window keeps its size. Any other size is the system's or the user's choice and is returned unchanged.
-    """
-    if normal is None:
-        return proposed
-    if tuple(proposed) == (normal[0] - nc[0], normal[1] - nc[1]):
-        return normal[0], normal[1]
-    return proposed
-
-
-def _monitor_work_area(hwnd):
-    """(left, top, right, bottom) of the work area of the monitor the window is on, or None."""
-    monitor = _user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
+def monitor_work_area(hwnd) -> Optional[tuple[int, int, int, int]]:
+    """(left, top, right, bottom) of the work area of the monitor the window is on (physical px), or None."""
+    if not IS_WINDOWS or not hwnd:
+        return None
+    monitor = _user32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
     if not monitor:
         return None
     info = _MONITORINFO()
@@ -357,144 +358,78 @@ def _monitor_work_area(hwnd):
     return w.left, w.top, w.right, w.bottom
 
 
-def _fit_maximized_to_work_area(hwnd, lparam) -> None:
-    """Maximize to the monitor work area (not over the taskbar): WinForms uses the whole monitor for borderless forms."""
-    monitor = _user32.MonitorFromWindow(hwnd, 2)  # MONITOR_DEFAULTTONEAREST
-    if not monitor:
-        return
-    info = _MONITORINFO()
-    info.cbSize = ctypes.sizeof(_MONITORINFO)
-    if not _user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
-        return
-    dpi = _user32.GetDpiForWindow(hwnd) or 96
-    border = _user32.GetSystemMetricsForDpi(SM_CXSIZEFRAME, dpi) + _user32.GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi)
-    mmi = ctypes.cast(lparam, ctypes.POINTER(_MINMAXINFO)).contents
-    work, mon = info.rcWork, info.rcMonitor
-    mmi.ptMaxPosition.x = work.left - mon.left - border
-    mmi.ptMaxPosition.y = work.top - mon.top - border
-    mmi.ptMaxSize.x = (work.right - work.left) + 2 * border
-    mmi.ptMaxSize.y = (work.bottom - work.top) + 2 * border
+def window_scale(hwnd) -> float:
+    """DPI scale of the window (1.0 at 96 dpi)."""
+    if not IS_WINDOWS or not hwnd:
+        return 1.0
+    try:
+        return (_user32.GetDpiForWindow(hwnd) or 96) / 96.0
+    except (AttributeError, OSError):
+        return 1.0
 
 
-class FramelessResizeHook:
-    """Subclass of the form's window procedure; keep the instance alive as long as the window exists."""
+class FixedSizeHook:
+    """Window-procedure subclass that holds the window at one physical size; keep the instance alive as long as
+    the window exists."""
 
-    def __init__(self, hwnd: int, min_client_size: tuple[int, int] = (0, 0)) -> None:
+    def __init__(self, hwnd: int) -> None:
         self.hwnd = hwnd
-        self.min_client_size = min_client_size  # logical pixels
-        self._prev = None
+        self.size: Optional[tuple[int, int]] = None  # physical px; None = not locked yet
+        self._prev_proc = None
         self._proc = None
-        self._nc = (0, 0)  # window rect minus client rect (width, height) while not maximized
-        self._normal_size: tuple[int, int] | None = None  # last window size while neither minimized nor maximized
-        self._sizing = False  # inside an interactive move / size loop (WM_ENTERSIZEMOVE .. WM_EXITSIZEMOVE)
         self.installed = False
 
     def install(self) -> bool:
         if not IS_WINDOWS or not self.hwnd or self.installed:
             return self.installed
         style = _user32.GetWindowLongPtrW(self.hwnd, GWL_STYLE) or 0
-        _user32.SetWindowLongPtrW(self.hwnd, GWL_STYLE, style | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX)
+        style = (style | WS_MINIMIZEBOX) & ~(WS_MAXIMIZEBOX | WS_THICKFRAME)
+        _user32.SetWindowLongPtrW(self.hwnd, GWL_STYLE, style)
         self._proc = _WNDPROC(self._wnd_proc)
-        self._prev = _user32.SetWindowLongPtrW(self.hwnd, GWLP_WNDPROC, ctypes.cast(self._proc, ctypes.c_void_p).value)
-        flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED
-        _user32.SetWindowPos(self.hwnd, None, 0, 0, 0, 0, flags)
-        self._nc = self._measure_nc()
-        self.installed = bool(self._prev)
+        self._prev_proc = _user32.SetWindowLongPtrW(self.hwnd, GWLP_WNDPROC,
+                                                    ctypes.cast(self._proc, ctypes.c_void_p).value)
+        _user32.SetWindowPos(self.hwnd, None, 0, 0, 0, 0,
+                             SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED)
+        self.installed = bool(self._prev_proc)
         return self.installed
 
-    def _measure_nc(self) -> tuple[int, int]:
-        outer, inner = wintypes.RECT(), wintypes.RECT()
-        _user32.GetWindowRect(self.hwnd, ctypes.byref(outer))
-        _user32.GetClientRect(self.hwnd, ctypes.byref(inner))
-        return (outer.right - outer.left) - (inner.right - inner.left), (outer.bottom - outer.top) - (inner.bottom - inner.top)
-
-    def set_client_size(self, width: int, height: int, apply=None) -> None:
-        """Resize so the page viewport is width x height logical pixels, keeping the window centre.
-
-        `apply(x, y, w, h)` performs the move (pass the form's SetBounds so WinForms remembers the size it restores to
-        after maximize); the default is a plain SetWindowPos.
-        """
-        if not self.installed:
-            return
-        scale = (_user32.GetDpiForWindow(self.hwnd) or 96) / 96
-        rect = wintypes.RECT()
-        _user32.GetWindowRect(self.hwnd, ctypes.byref(rect))
-        new_w, new_h = round(width * scale) + self._nc[0], round(height * scale) + self._nc[1]
-        x = rect.left + ((rect.right - rect.left) - new_w) // 2
-        y = rect.top + ((rect.bottom - rect.top) - new_h) // 2
-        work = _monitor_work_area(self.hwnd)
+    def fit_size(self, ladder: Sequence[tuple[int, int]]) -> tuple[int, int]:
+        """Logical size from `ladder` for the work area of the window's monitor at the window's DPI."""
+        scale = window_scale(self.hwnd)
+        work = monitor_work_area(self.hwnd)
+        work_logical = None
         if work is not None:
-            x = max(work[0], min(x, work[2] - new_w))
-            y = max(work[1], min(y, work[3] - new_h))
+            work_logical = (int((work[2] - work[0]) / scale), int((work[3] - work[1]) / scale))
+        return pick_window_size(ladder, work_logical)
+
+    def lock(self, width: int, height: int,
+             apply: Optional[Callable[[int, int, int, int], None]] = None) -> tuple[int, int, int, int]:
+        """Fix the window at `width` x `height` logical px, centred on the work area. `apply(x, y, w, h)` performs
+        the move (pass the form's SetBounds so WinForms keeps its own bounds in sync); the default is SetWindowPos.
+        Returns the physical rect (x, y, w, h)."""
+        scale = window_scale(self.hwnd)
+        self.size = (int(round(width * scale)), int(round(height * scale)))
+        x, y, w, h = centered_rect(self.size, monitor_work_area(self.hwnd))
         if apply is not None:
-            apply(x, y, new_w, new_h)
-        else:
-            _user32.SetWindowPos(self.hwnd, None, x, y, new_w, new_h, SWP_NOZORDER | SWP_NOACTIVATE)
-
-    def _apply_min_track(self, lparam) -> None:
-        min_w, min_h = self.min_client_size
-        if not (min_w and min_h):
-            return
-        scale = (_user32.GetDpiForWindow(self.hwnd) or 96) / 96
-        mmi = ctypes.cast(lparam, ctypes.POINTER(_MINMAXINFO)).contents
-        mmi.ptMinTrackSize.x = round(min_w * scale) + self._nc[0]
-        mmi.ptMinTrackSize.y = round(min_h * scale) + self._nc[1]
-
-    def _on_pos_changing(self, lparam) -> None:
-        """Undo the border loss WinForms proposes when the window comes back from minimized / maximized."""
-        pos = ctypes.cast(lparam, ctypes.POINTER(_WINDOWPOS)).contents
-        if pos.flags & SWP_NOSIZE or self._sizing or pos.x <= MINIMIZED_POSITION or pos.y <= MINIMIZED_POSITION:
-            return
-        pos.cx, pos.cy = corrected_window_size((pos.cx, pos.cy), self._normal_size, self._nc)
-
-    def _on_pos_changed(self, hwnd, lparam) -> None:
-        """Remember the window size while it is in the normal state (the size a restore must come back to)."""
-        pos = ctypes.cast(lparam, ctypes.POINTER(_WINDOWPOS)).contents
-        if pos.flags & SWP_NOSIZE or pos.x <= MINIMIZED_POSITION or pos.y <= MINIMIZED_POSITION:
-            return
-        if _user32.IsIconic(hwnd) or _user32.IsZoomed(hwnd):
-            return
-        if pos.cx > self._nc[0] and pos.cy > self._nc[1]:
-            self._normal_size = (pos.cx, pos.cy)
+            apply(x, y, w, h)
+        elif IS_WINDOWS and self.hwnd:
+            _user32.SetWindowPos(self.hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE)
+        return x, y, w, h
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
-        if msg == WM_WINDOWPOSCHANGING:
-            try:
-                self._on_pos_changing(lparam)
-            except Exception:  # noqa: BLE001 - never let a callback exception escape into the message loop
-                log.debug("restore size correction failed", exc_info=True)
-            return _user32.CallWindowProcW(self._prev, hwnd, msg, wparam, lparam)
-        if msg == WM_WINDOWPOSCHANGED:
-            try:
-                self._on_pos_changed(hwnd, lparam)
-            except Exception:  # noqa: BLE001
-                log.debug("normal size tracking failed", exc_info=True)
-            return _user32.CallWindowProcW(self._prev, hwnd, msg, wparam, lparam)
-        if msg == WM_ENTERSIZEMOVE:
-            self._sizing = True
-        elif msg == WM_EXITSIZEMOVE:
-            self._sizing = False
-        if msg == WM_NCCALCSIZE and wparam:
-            params = ctypes.cast(lparam, ctypes.POINTER(_NCCALCSIZE_PARAMS)).contents
-            original_top = params.rgrc[0].top
-            result = _user32.CallWindowProcW(self._prev, hwnd, msg, wparam, lparam)
-            if _user32.IsZoomed(hwnd):
-                work = _monitor_work_area(hwnd)
-                if work is not None:  # client area = exactly the work area, whatever the frame metrics are
-                    params.rgrc[0].left, params.rgrc[0].top, params.rgrc[0].right, params.rgrc[0].bottom = work
-            else:
-                params.rgrc[0].top = original_top  # no title-bar band: the page owns the top edge
-            return result
-        if msg == WM_GETMINMAXINFO:
-            result = _user32.CallWindowProcW(self._prev, hwnd, msg, wparam, lparam)
-            try:
-                _fit_maximized_to_work_area(hwnd, lparam)
-                self._apply_min_track(lparam)
-            except Exception:  # noqa: BLE001 - never let a callback exception escape into the message loop
-                log.debug("work-area fit failed", exc_info=True)
-            return result
-        if msg == WM_NCDESTROY:
-            result = _user32.CallWindowProcW(self._prev, hwnd, msg, wparam, lparam)
-            self.installed = False
-            return result
-        return _user32.CallWindowProcW(self._prev, hwnd, msg, wparam, lparam)
+        try:
+            if msg == WM_WINDOWPOSCHANGING and self.size is not None:
+                pos = ctypes.cast(lparam, ctypes.POINTER(_WINDOWPOS)).contents
+                if not (pos.flags & SWP_NOSIZE) and pos.x > MINIMIZED_POSITION and not _user32.IsIconic(hwnd):
+                    pos.cx, pos.cy = self.size
+            elif msg == WM_SYSCOMMAND and (int(wparam) & 0xFFF0) == SC_MAXIMIZE:
+                return 0  # system menu, keyboard
+            elif msg == WM_SIZE and int(wparam) == SIZE_MAXIMIZED:
+                _user32.PostMessageW(hwnd, WM_SYSCOMMAND, SC_RESTORE, 0)
+            elif msg == WM_NCDESTROY:
+                result = _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+                self.installed = False
+                return result
+        except Exception:  # noqa: BLE001 - never let a callback exception escape into the message loop
+            log.debug("window procedure hook failed for message 0x%04x", msg, exc_info=True)
+        return _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)

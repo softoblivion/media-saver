@@ -1,18 +1,25 @@
-// Update control: the version pill (title bar) with its popover, the update toasts and the
-// "Updates" rows of a settings sheet. It renders an UpdateStatus and talks to the app only through
-// the bridge functions the app passes in (docs/LIQUID_UI.md, section 7, "Bridge contract"):
+// Update control: the version pill (title bar) with its popover, the update sheet, the update
+// toasts and the "Updates" rows of a settings sheet. It renders an UpdateStatus and talks to the
+// app only through the bridge functions the app passes in (the kit's documentation, "Bridge
+// contract of the update control"):
 //   methods  update_status(), check_updates(), download_update(), apply_update(), open_url(url),
 //            get_settings(), set_settings({auto_download_updates})
 //   event    update  (UpdateStatus)
 // The control never downloads or restarts on its own: the app's updater downloads by itself when
-// auto_download_updates is on; the user starts every other step. The first `available` of a
-// version raises one toast (not with automatic download), `ready` one sticky toast with "Restart".
-// The app's updater checks on launch and then every five minutes on its own; the page has no
-// interval control.
+// auto_download_updates is on; the user starts every other step. The app's updater checks on
+// launch and then every five minutes on its own; the page has no interval control.
 //
-// Stages: idle / up_to_date -> "Check for updates"; checking -> indeterminate bar; available ->
-// latest version, size, date, release notes, "Download"; downloading -> determinate bar; ready ->
-// "Restart to update" (apply_update); error -> the message and "Try again".
+// The update sheet (the notice template of the workspace): the first time in a run that a newer
+// version is reported (available, or downloading / ready for a version not announced yet), a modal
+// sheet opens at once with the new version, the installed version, size and date, the release
+// notes rendered from Markdown, and the buttons Install and Later. Install downloads when needed
+// and restarts as soon as the file is verified; Later closes the sheet and the sheet does not open
+// again for that version by itself (the pill opens it while a newer version is known). `ready` still
+// raises one sticky toast with "Restart" when the sheet is not open at that moment.
+//
+// Popover stages: idle / up_to_date -> "Check for updates"; checking -> indeterminate bar;
+// available -> latest version, size, date, release notes, "Download"; downloading -> determinate
+// bar; ready -> "Restart to update" (apply_update); error -> the message and "Try again".
 
 import { gel, Lens } from './glass.js';
 import { Overlay } from './overlay.js';
@@ -23,28 +30,32 @@ import { toast } from './toast.js';
 
 const IDLE = { stage: 'idle', current: '', latest: null, notes: null, size: null, published_at: null, progress: null, message: '', checked_at: null, can_apply: false };
 const CAN_CHECK = new Set(['idle', 'up_to_date', 'error']);
+const NEWER = new Set(['available', 'downloading', 'ready']);
+const SHEET_FIRST_DELAY_MS = 700; // a status known at mount opens the sheet after the page's entrance
 
 /**
  * Mount the update control.
  * @param {{
  *   pill: HTMLElement,            // <button> with .ver-dot and .ver-text children (created when missing)
  *   popoverHost: HTMLElement,     // the popover surface (class "popover"), positioned fixed by CSS
+ *   sheetHost?: HTMLElement,      // the update sheet surface (class "sheet"); created in <body> when missing
  *   call: (name:string, ...args) => Promise<any>,
  *   on: (event:string, fn:Function) => any,
  *   openUrl?: (url:string) => Promise<boolean>|boolean,   // default: call('open_url', url)
  *   options?: {
- *     product?: string,           // app name in the popover title, tooltips and toasts
+ *     product?: string,           // app name in the popover title, the sheet title, tooltips and toasts
  *     version?: string,           // shown until the first status arrives
  *     status?: object,            // initial UpdateStatus (e.g. State.update)
  *     settings?: object,          // initial settings; else get_settings() is called
  *     hasActiveWork?: () => boolean,
  *     restartWarning?: string,    // toast text when hasActiveWork() is true at restart
+ *     autoOpenSheet?: boolean,    // default true: the sheet opens by itself for a newly reported version
  *     onStatus?: (status) => void,
  *     onSettings?: (settings) => void,
  *   }
  * }} args
  */
-export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, openUrl } = {}) {
+export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, options = {}, openUrl } = {}) {
   if (!pill || !popoverHost || typeof call !== 'function' || typeof on !== 'function') {
     throw new Error('mountUpdateControl needs pill, popoverHost, call and on.');
   }
@@ -55,6 +66,7 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
     settings: null,
     hasActiveWork: () => false,
     restartWarning: 'Work in progress stops when the app restarts',
+    autoOpenSheet: true,
     onStatus: null,
     onSettings: null,
     ...options,
@@ -65,10 +77,39 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
   let u = { ...IDLE };
   let settings = o.settings ? { ...o.settings } : null;
   let lastBusy = null;
-  let availToasted = null;
   let readyToasted = null;
   let popKey = '';
+  let sheetKey = '';
+  let sheetShown = null;    // latest version the sheet announced by itself in this run
+  let sheetPending = false; // the sheet opens in a moment (status known at mount): no toast meanwhile
+  let installArmed = null;  // version whose Install was clicked: restart as soon as it is ready
+  let mounted = false;
   const blocks = new Set();   // mounted settings blocks
+
+  // ---- sheet ------------------------------------------------------------------------------------
+  let sheetEl = sheetHost;
+  if (!sheetEl) {
+    sheetEl = document.createElement('div');
+    document.body.append(sheetEl);
+  }
+  sheetEl.classList.add('sheet', 'upd-sheet');
+  sheetEl.setAttribute('role', 'dialog');
+  sheetEl.setAttribute('aria-modal', 'true');
+  if (!sheetEl.getAttribute('aria-label')) sheetEl.setAttribute('aria-label', `${product} update`);
+  let sheetContent = sheetEl.querySelector('.ov-content');
+  if (!sheetContent) {
+    sheetContent = document.createElement('div');
+    sheetContent.className = 'ov-content';
+    sheetEl.append(sheetContent);
+  }
+  const sheet = new Overlay(sheetEl, {
+    modal: true,
+    preset: 'sheet',
+    onClose: () => {
+      installArmed = null; // Later, Esc or a click outside: nothing restarts by itself afterwards
+    },
+  });
+  sheetEl.addEventListener('click', onPopClick);
 
   // ---- pill and popover ---------------------------------------------------------------------
   if (!pill.querySelector('.ver-text')) pill.innerHTML = '<span class="ver-dot" aria-hidden="true"></span><span class="ver-text"></span>';
@@ -96,6 +137,8 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
   gel(pill);
   pill.addEventListener('click', async () => {
     if (overlay.open) return overlay.close();
+    if (sheet.open) return sheet.close();
+    if (newerKnown()) return openSheet();
     renderPop();
     overlay.show(pill);
     try {
@@ -114,6 +157,7 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
       .catch(() => {});
   }
   render({ ...IDLE, current: o.version || '', ...(o.status || {}) });
+  mounted = true;
 
   // ---- actions --------------------------------------------------------------------------------
   function check() {
@@ -132,11 +176,30 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
     return go();
   }
 
-  /** Open the popover from elsewhere; optionally start a check. */
+  /** Open the update UI from elsewhere: the sheet while a newer version is known, else the popover
+   *  (optionally starting a check). */
   function openPopover({ check: doCheck = false } = {}) {
+    if (newerKnown()) return openSheet();
     renderPop();
     overlay.show(pill);
     if (doCheck && CAN_CHECK.has(u.stage)) check();
+  }
+
+  function newerKnown() {
+    return NEWER.has(u.stage) && !!u.latest && u.latest !== u.current;
+  }
+
+  /** Open the update sheet (from the pill, a toast or the app). */
+  function openSheet() {
+    if (!newerKnown()) return;
+    if (overlay.open) overlay.close();
+    renderSheet(true);
+    if (!sheet.open) sheet.show(pill);
+  }
+
+  function install() {
+    installArmed = u.latest;
+    return download();
   }
 
   /** One line of status, shared by the popover and the settings rows. */
@@ -168,11 +231,26 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
     }[u.stage] || 'Version and updates';
     pill.title = tip;
     pill.setAttribute('aria-label', tip);
-    if (u.stage === 'available' && u.latest && availToasted !== u.latest && !(settings && settings.auto_download_updates)) {
-      availToasted = u.latest;
-      toast('info', `${product} ${u.latest} is available`, { ms: 8000, action: { label: 'View', run: () => openPopover() } });
+    // Install was clicked and the file is verified: restart now (the restart warning still applies).
+    if (u.stage === 'ready' && u.latest && installArmed === u.latest) {
+      installArmed = null;
+      readyToasted = u.latest; // no toast for a restart the user asked for
+      restart();
     }
-    if (u.stage === 'ready' && u.latest && readyToasted !== u.latest) {
+    // The sheet announces a newly reported version once per run; the sticky toast covers the case
+    // that a background download finishes while the sheet is closed.
+    if (newerKnown() && sheetShown !== u.latest && o.autoOpenSheet) {
+      sheetShown = u.latest;
+      if (mounted) openSheet();
+      else {
+        sheetPending = true;
+        setTimeout(() => {
+          sheetPending = false;
+          if (sheetShown === u.latest && newerKnown()) openSheet();
+        }, SHEET_FIRST_DELAY_MS);
+      }
+    }
+    if (u.stage === 'ready' && u.latest && readyToasted !== u.latest && !sheet.open && !sheetPending) {
       readyToasted = u.latest;
       toast('success', `${product} ${u.latest} is ready`, {
         sticky: true,
@@ -180,8 +258,81 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
       });
     }
     if (overlay.open || prev.stage !== u.stage) renderPop();
+    if (sheet.open) {
+      if (newerKnown() || u.stage === 'error' || u.stage === 'checking') renderSheet(false);
+      else sheet.close(); // a re-check found nothing newer: the notice has nothing to show
+    }
     for (const b of blocks) b.renderStatus();
     o.onStatus && o.onStatus({ ...u });
+  }
+
+  /** The update sheet: title, installed / size / date line, release notes, progress, Later and Install. */
+  function renderSheet(full) {
+    const key = [u.stage, u.current, u.latest, u.size, u.published_at, !!u.notes, u.can_apply, u.message, u.progress == null].join('|');
+    if (!full && key === sheetKey) {
+      // Progress only: patch the bar and the percentages, keep the notes and their scroll position.
+      const bar = sheetContent.querySelector('.pop-progress');
+      if (bar) bar.style.setProperty('--p', String(u.progress ?? 0));
+      const pct = sheetContent.querySelector('.upd-pct');
+      if (pct && u.progress != null) {
+        pct.querySelector('b').textContent = `${Math.round(u.progress * 100)}%`;
+        pct.querySelector('span').textContent = u.size ? `${bytes(u.size * u.progress)} of ${bytes(u.size)}` : '';
+      }
+      const lbl = sheetContent.querySelector('[data-act="downloading"] span');
+      if (lbl && u.progress != null) lbl.textContent = `Downloading… ${Math.round(u.progress * 100)}%`;
+      return;
+    }
+    sheetKey = key;
+    const parts = [];
+    if (u.current) parts.push(`Installed v${u.current}`);
+    if (u.size) parts.push(bytes(u.size));
+    if (u.published_at) parts.push(shortDate(u.published_at));
+    const notes = u.notes
+      ? `<div class="upd-notes" tabindex="0" aria-label="Release notes">${renderMarkdown(u.notes)}</div>`
+      : '<p class="upd-none">No release notes for this version.</p>';
+    let progress = '';
+    if (u.stage === 'downloading') {
+      const p = u.progress;
+      progress = `<div class="pop-progress ${p == null ? 'is-indet' : ''}" style="--p:${p ?? 0}"><span></span></div>`;
+      progress += `<div class="upd-pct"><b>${p == null ? '' : `${Math.round(p * 100)}%`}</b><span>${escapeHtml(p != null && u.size ? `${bytes(u.size * p)} of ${bytes(u.size)}` : p == null ? 'Verifying…' : '')}</span></div>`;
+    }
+    const box = u.stage === 'error' && u.message ? `<p class="upd-msg" role="alert">${escapeHtml(u.message)}</p>` : '';
+    let action;
+    switch (u.stage) {
+      case 'available':
+        action = `<button type="button" class="btn btn-tinted ov-focus" data-act="install">${icon('down')}<span>Install</span></button>`;
+        break;
+      case 'downloading':
+        action = `<button type="button" class="btn ov-focus" data-act="downloading" disabled>${icon('down')}<span>${u.progress == null ? 'Downloading…' : `Downloading… ${Math.round(u.progress * 100)}%`}</span></button>`;
+        break;
+      case 'ready':
+        action = `<button type="button" class="btn btn-tinted ov-focus" data-act="apply" ${u.can_apply ? '' : `disabled title="${escapeHtml(u.message || 'Installs from the packaged app only')}"`}>${icon('refresh')}<span>Restart to update</span></button>`;
+        break;
+      case 'checking':
+        action = `<button type="button" class="btn ov-focus" disabled>${icon('refresh')}<span>Checking…</span></button>`;
+        break;
+      default:
+        action = `<button type="button" class="btn ov-focus" data-act="retry">${icon('retry')}<span>Try again</span></button>`;
+    }
+    sheetContent.innerHTML = `
+      <div class="sheet-head upd-sheet-head">
+        <div class="upd-sheet-title">
+          <h2>${escapeHtml(product)} ${escapeHtml(u.latest || '')}</h2>
+          <p class="upd-sub">${escapeHtml(parts.join(' · '))}</p>
+        </div>
+        <button type="button" class="icon-btn sheet-x" data-act="later" aria-label="Later">${icon('close')}</button>
+      </div>
+      <div class="sheet-scroll upd-sheet-scroll">${notes}</div>
+      <div class="upd-sheet-foot">
+        ${progress}
+        ${box}
+        <div class="upd-sheet-btns">
+          <button type="button" class="btn" data-act="later">Later</button>
+          ${action}
+        </div>
+      </div>`;
+    sheetEl.setAttribute('aria-busy', String(u.stage === 'downloading' || u.stage === 'checking'));
+    sheetContent.querySelectorAll('.btn, .icon-btn').forEach((b) => gel(b));
   }
 
   function renderPop() {
@@ -269,6 +420,10 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
         return check();
       case 'download':
         return download();
+      case 'install':
+        return install();
+      case 'later':
+        return sheet.close();
       case 'retry':
         if (lastBusy === 'downloading' && u.latest) return download();
         return check();
@@ -386,10 +541,15 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
 
   return {
     open: openPopover,
-    close: () => overlay.close(),
-    isOpen: () => overlay.open,
+    openSheet,
+    close: () => {
+      overlay.close();
+      sheet.close();
+    },
+    isOpen: () => overlay.open || sheet.open,
     check,
     download,
+    install,
     restart,
     status: () => ({ ...u }),
     statusLine,
@@ -398,6 +558,7 @@ export function mountUpdateControl({ pill, popoverHost, call, on, options = {}, 
     pill,
     pillLens,
     overlay,
+    sheet,
   };
 }
 
@@ -431,6 +592,13 @@ export function renderMarkdown(md) {
       flush();
       closeList();
       html += `<h4${m[1].length <= 2 ? ' class="h-top"' : ''}>${inline(m[2])}</h4>`;
+      continue;
+    }
+    if (/^ {0,3}([-*_])(\s*\1){2,}$/.test(line)) {
+      // A horizontal rule (the release notes template puts one under the summary).
+      flush();
+      closeList();
+      html += '<hr>';
       continue;
     }
     if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {

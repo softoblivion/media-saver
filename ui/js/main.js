@@ -4,7 +4,7 @@ import { connect, call, on, backendMode } from './api.js';
 import { initScene, setFocused, activity } from './scene.js';
 import { initLight, gel, Lens } from '../vendor/liquid_ui/js/glass.js';
 import { SPRINGS, springAnimate, reducedMotion } from '../vendor/liquid_ui/js/motion.js';
-import { icon, appGlyph } from './icons.js';
+import { icon, appGlyph, SERVICE_GLYPH } from './icons.js';
 import { nItems } from './format.js';
 import { initToasts, toast } from '../vendor/liquid_ui/js/toast.js';
 import { initEngine } from './engine.js';
@@ -41,9 +41,9 @@ function initTitlebar() {
   gear.innerHTML = icon('gear');
   new Lens(gear, 'pill');
   gel(gear);
+  // The window has a fixed size: only Minimize and Close (no maximize, no double-click on the drag area).
   const win = {
     'win-min': ['min', 'window_minimize'],
-    'win-max': ['max', 'window_toggle_maximize'],
     'win-close': ['close', 'window_close'],
   };
   for (const [id, [ic, method]] of Object.entries(win)) {
@@ -51,28 +51,32 @@ function initTitlebar() {
     b.innerHTML = icon(ic);
     b.addEventListener('click', async () => {
       try {
-        const r = await call(method);
-        if (method === 'window_toggle_maximize') setMaximized(!!r);
+        await call(method);
       } catch (err) {
         toast('error', err.message);
       }
     });
   }
-  // The frameless window has no native caption: double-click on the drag area toggles maximize.
-  document.querySelectorAll('.pywebview-drag-region').forEach((d) =>
-    d.addEventListener('dblclick', () => call('window_toggle_maximize').then((r) => setMaximized(!!r)).catch(() => {})));
 }
 
-/** Mode switch in the title bar: it scopes the whole window (composer and queue). */
+/** Mode switch in the title bar: it scopes the whole window (composer and queue). One service
+ *  glyph per option (js/icons.js `svc*`); the name stays in aria-label and the tooltip. */
 function initModeSwitch() {
   const seg = new Segmented({
     label: 'Mode',
-    cls: 'seg-tb',
-    options: PLATFORMS.map((p) => ({ value: p, label: PLATFORM_NAME[p], title: `${PLATFORM_NAME[p]} links and queue (Alt+${PLATFORMS.indexOf(p) + 1})` })),
+    cls: 'seg-tb seg-svc',
+    options: PLATFORMS.map((p) => ({ value: p, label: PLATFORM_NAME[p], title: `${PLATFORM_NAME[p]} (Alt+${PLATFORMS.indexOf(p) + 1})` })),
     value: getMode(),
     onChange: (v) => setMode(v),
   });
   seg.el.id = 'mode-switch';
+  // The kit escapes option labels as text: swap each label for its glyph after construction.
+  for (const b of seg.opts) {
+    b.setAttribute('aria-label', PLATFORM_NAME[b.dataset.v]);
+    b.innerHTML = icon(SERVICE_GLYPH[b.dataset.v]);
+  }
+  // The droplet is placed by the control's ResizeObserver, whose first callback runs once the
+  // switch is laid out in the title bar, so it measures the icon-sized options, not the text labels.
   document.getElementById('mode-slot').appendChild(seg.el);
   onPref('mode', (m) => seg.set(m));
   // Alt+1..Alt+4 switch modes from anywhere (in the order of PLATFORMS). e.code also catches layouts
@@ -85,13 +89,6 @@ function initModeSwitch() {
     e.preventDefault();
     setMode(PLATFORMS[i]);
   });
-}
-
-function setMaximized(m) {
-  document.documentElement.classList.toggle('is-maximized', m);
-  const b = document.getElementById('win-max');
-  b.innerHTML = icon(m ? 'restore' : 'max');
-  b.setAttribute('aria-label', m ? 'Restore' : 'Maximize');
 }
 
 function entrance() {
@@ -151,7 +148,6 @@ async function boot() {
   on('toast', (t) => t && toast(t.level || 'info', t.text));
   on('window', (w) => {
     if (!w) return;
-    setMaximized(!!w.maximized);
     setFocused(!!w.focused);
     if (w.focused) activity();
   });

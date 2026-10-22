@@ -309,7 +309,10 @@ function patch(el, j) {
   const platform = platformOf(j);
   const mp3 = j.format === 'mp3';
   // `previewed` false = the preview fetch is still pending; a missing field counts as finished.
-  const pending = j.status === 'queued' && j.previewed === false;
+  // The placeholder holds until the preview arrives, also for a job that already started (probing,
+  // or further) before its preview came back, as long as it has no title of its own yet: the card
+  // never shows the bare link in between.
+  const pending = j.previewed === false && (j.status === 'queued' || (ACTIVE.has(j.status) && !j.title));
   st.status = j.status;
   el.dataset.status = j.status;
   el.dataset.platform = platform;
@@ -396,7 +399,9 @@ function patch(el, j) {
   }
   let stage = j.stage_text || '';
   if (j.status === 'done') stage = j.already_existed ? 'Already downloaded' : 'Done';
-  if (pending && !stage) stage = 'Fetching preview';
+  // Before the transfer starts, a pending card says what it waits for (the core's "Queued" /
+  // "Fetching info" would read as idle); once bytes move, the real stage shows.
+  if (pending && (j.status === 'queued' || j.status === 'probing' || !stage)) stage = 'Fetching preview';
   set(el, '.jc-stage', stage);
   const meta = [];
   if (j.status === 'downloading' || j.status === 'processing') {
@@ -462,11 +467,13 @@ function upsert(j) {
 }
 
 function insertSorted(el, j) {
-  // Newest first. New jobs nearly always go to the top; find the first older card otherwise.
+  // Strictly newest first. A new job goes above every card that is not newer than it, so with an
+  // equal created_at the job that arrived last is on top (the core adds a pasted batch in reverse,
+  // so the batch's first link arrives last and ends on top).
   let before = null;
   for (const c of list.children) {
     const cj = jobs.get(c.dataset.id);
-    if (cj && cj.created_at < j.created_at) {
+    if (cj && cj.created_at <= j.created_at) {
       before = c;
       break;
     }

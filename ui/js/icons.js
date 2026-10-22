@@ -20,8 +20,6 @@ const P = {
   reveal: '<path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h3.6l2 2.2h7.4a2 2 0 0 1 2 2v2.3"/><path d="M3.5 7.5V17a2 2 0 0 0 2 2h5"/><circle cx="16.5" cy="16" r="3"/><path d="m18.7 18.2 2.3 2.3"/>',
   trash: '<path d="M4.5 7h15"/><path d="M9.5 7V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4V7"/><path d="m6.5 7 .8 11.4A1.8 1.8 0 0 0 9.1 20h5.8a1.8 1.8 0 0 0 1.8-1.6L17.5 7"/>',
   min: '<path d="M6 12h12"/>',
-  max: '<rect x="6" y="6" width="12" height="12" rx="2.4"/>',
-  restore: '<rect x="5.5" y="8.5" width="10" height="10" rx="2.2"/><path d="M9 5.5h7.3a2.2 2.2 0 0 1 2.2 2.2V15"/>',
   close: '<path d="M7 7l10 10M17 7 7 17"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
@@ -48,9 +46,19 @@ const P = {
   swap: '<path d="M4.5 8.5h13"/><path d="m14 5 3.5 3.5L14 12"/><path d="M19.5 15.5h-13"/><path d="m10 12-3.5 3.5L10 19"/>',
   folderEdit: '<path d="M20.5 10.6v-.9a2 2 0 0 0-2-2h-7.4l-2-2.2H5.5a2 2 0 0 0-2 2V17a2 2 0 0 0 2 2h5.3"/><path d="m14 20.5.6-2.7 4.9-4.9a1.5 1.5 0 0 1 2.1 2.1l-4.9 4.9Z"/>',
   app: '<path d="M12 3.5S6 10 6 14a6 6 0 0 0 12 0c0-4-6-10.5-6-10.5Z"/><path d="M12 10.5v6M9.5 14.5 12 17l2.5-2.5"/>',
+  // Service glyphs of the mode switch: simplified line drawings made for this app, not logos.
+  // Instagram: rounded square, lens, small dot. YouTube: wide rounded screen with a play triangle.
+  // TikTok: a musical note. X: a crossed letter with one heavy (outlined) stroke.
+  svcInstagram: '<rect x="4" y="4" width="16" height="16" rx="5"/><circle cx="12" cy="12" r="3.6"/><path d="M16.4 7.6h.01"/>',
+  svcYouTube: '<rect x="2.5" y="5.5" width="19" height="13" rx="5"/><path d="M10.2 9.4v5.2l4.4-2.6Z"/>',
+  svcTikTok: '<path d="M13.5 4v11.5"/><circle cx="10" cy="15.5" r="3.5"/><path d="M13.5 4.2c.5 2.5 2.4 4.2 5 4.4"/>',
+  svcX: '<path d="M5 4.5h3.4l10.6 15h-3.4Z"/><path d="M18.6 4.5 14.4 9.3M9.6 14.7 5.4 19.5"/>',
 };
 
 registerIcons(P, { filled: ['play'] });
+
+/** Glyph of each platform in the mode switch (`twitter` is shown as X). */
+export const SERVICE_GLYPH = { instagram: 'svcInstagram', youtube: 'svcYouTube', tiktok: 'svcTikTok', twitter: 'svcX' };
 
 // Kind glyph per platform: by platform first, because the kind `video` exists on YouTube (landscape)
 // and TikTok (vertical). Original line glyphs only; no platform logos or marks.

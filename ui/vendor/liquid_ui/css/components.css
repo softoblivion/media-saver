@@ -551,6 +551,7 @@
 }
 .upd-notes h4.h-top { font: var(--t-card); letter-spacing: var(--tr-card); text-transform: none; color: var(--ink-1); }
 .upd-notes p { margin: 4px 0; }
+.upd-notes hr { margin: 10px 0; border: 0; border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .upd-notes ul { margin: 4px 0; padding-left: 16px; }
 .upd-notes li { margin: 2px 0; }
 .upd-notes li::marker { color: var(--ink-4); }
@@ -567,6 +568,42 @@
   box-shadow: inset 0 0 0 0.5px rgba(255, 110, 140, 0.26);
   color: var(--rose-ink);
   user-select: text;
+}
+
+/* The update sheet (update.js): a centred modal sheet sized to its content, the notes scroll inside. */
+.upd-sheet {
+  top: 0;
+  bottom: 0;
+  margin: auto;
+  width: min(520px, calc(100vw - 28px));
+  height: fit-content;
+  max-height: calc(100vh - 2 * var(--titlebar-h));
+  border-radius: var(--r-28);
+}
+
+.upd-sheet-head { padding: 22px 16px 10px 26px; align-items: flex-start; }
+.upd-sheet-title { min-width: 0; }
+.upd-sheet-title h2 { font: var(--t-display); letter-spacing: var(--tr-display); }
+.upd-sub {
+  margin-top: 4px;
+  font: var(--t-callout);
+  letter-spacing: var(--tr-callout);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.upd-sheet-scroll { padding: 4px 20px 12px 26px; }
+.upd-sheet .upd-notes { max-height: none; margin: 0; }
+.upd-none { font: var(--t-callout); color: var(--ink-3); }
+
+.upd-sheet-foot { padding: 0 20px 20px 26px; }
+.upd-sheet-foot .pop-progress { margin: 0; }
+.upd-sheet-foot .upd-msg { margin: 0; }
+.upd-sheet-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
 }
 
 /* ---------------------------------------------------------------------------------------------
