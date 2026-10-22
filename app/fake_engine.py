@@ -12,6 +12,7 @@ seconds and "applies" it (the bridge then closes the window).
 from __future__ import annotations
 
 import base64
+import json
 import os
 import random
 import re
@@ -29,6 +30,7 @@ EmitFn = Callable[[str, dict], None]
 
 PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 FORMATS = ("mp4", "mp3")
+THEMES = ("dusk", "nova", "frost", "bloom")
 FAKE_UPDATE_ENV = "MEDIA_SAVER_FAKE_UPDATE"
 FAKE_UPDATE_NOTES = (
     "## Added\n- YouTube videos and Shorts\n- MP3 audio downloads\n- Preview of queued links\n\n"
@@ -184,7 +186,12 @@ class FakeEngine:
             "clipboard_watch": True,
             "open_folder_when_done": False,
             "sound_on_done": True,
+            "theme": "dusk",
         }
+        # The theme is the one setting the fake keeps between launches (the UI checks that a chosen
+        # theme survives a restart); everything else starts from the defaults above.
+        self._settings_file = self.paths.root / "settings.json"
+        self._load_theme()
         self._engine_status: dict[str, Any] = {
             "stage": "starting",
             "message": "Starting…",
@@ -527,6 +534,22 @@ class FakeEngine:
         with self._lock:
             return dict(self._settings)
 
+    def _load_theme(self) -> None:
+        try:
+            with open(self._settings_file, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError):
+            return
+        if isinstance(data, dict) and data.get("theme") in THEMES:
+            self._settings["theme"] = data["theme"]
+
+    def _save_theme(self) -> None:
+        try:
+            with open(self._settings_file, "w", encoding="utf-8") as fh:
+                json.dump({"theme": self._settings["theme"]}, fh)
+        except OSError:
+            pass
+
     def set_settings(self, patch: dict) -> dict:
         with self._lock:
             unknown = [k for k in patch if k not in self._settings]
@@ -546,11 +569,15 @@ class FakeEngine:
                 raise ValueError("Invalid mode.")
             if "format" in patch and patch["format"] not in FORMATS:
                 raise ValueError("Format must be mp4 or mp3.")
+            if "theme" in patch and patch["theme"] not in THEMES:
+                patch = dict(patch, theme="dusk")  # as the core: an unknown name becomes the default
             turned_on = patch.get("auto_download_updates") is True and not self._settings["auto_download_updates"]
             self._settings.update(patch)
             snapshot = dict(self._settings)
             if turned_on:
                 self._auto_download_for = None
+            if "theme" in patch:
+                self._save_theme()
         self._emit("settings", snapshot)
         if turned_on:
             self._maybe_auto_download()

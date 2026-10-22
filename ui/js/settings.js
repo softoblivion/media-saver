@@ -1,6 +1,6 @@
-// Settings sheet: every Settings field of BRIDGE_API with English labels, the Instagram block
-// (shown in Instagram mode only), engine versions, the Updates rows of the kit's update control
-// (js/update.js) and the About block. Grows out of the gear button; changes are saved immediately through set_settings and
+// Settings sheet: every Settings field of BRIDGE_API with English labels, the Appearance group
+// (the kit's theme row), the Instagram block (shown in Instagram mode only), engine versions, the
+// Updates rows of the kit's update control (js/update.js) and the About block. Grows out of the gear button; changes are saved immediately through set_settings and
 // reverted with a toast when the backend rejects them. `mode`, `format` and the `quality_<platform>`
 // keys are set from the main window (js/mode.js, js/quality.js), not here.
 
@@ -8,6 +8,7 @@ import { call, on } from './api.js';
 import { gel } from '../vendor/liquid_ui/js/glass.js';
 import { Overlay } from '../vendor/liquid_ui/js/overlay.js';
 import { Segmented, Switch, Stepper, Select } from '../vendor/liquid_ui/js/controls.js';
+import { applyTheme, mountThemeControl } from '../vendor/liquid_ui/js/theme.js';
 import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
 import { toast } from '../vendor/liquid_ui/js/toast.js';
@@ -104,6 +105,11 @@ function build() {
     </header>
     <div class="sheet-scroll">
       <section class="set-group">
+        <h3>Appearance</h3>
+        <div class="set-card" data-slot="appearance"></div>
+      </section>
+
+      <section class="set-group">
         <h3>Downloads</h3>
         <div class="set-card">
           <div class="set-row set-row-col">
@@ -172,6 +178,17 @@ function build() {
     </div>`;
 
   const slot = (n) => body.querySelector(`[data-slot="${n}"]`);
+  // Theme: applied at once, saved like every other key; a refusal restores the confirmed theme.
+  ctl.theme = mountThemeControl(slot('appearance'), {
+    value: S.theme,
+    onChange: (name) => {
+      applyTheme(name);
+      save({ theme: name }, () => {
+        ctl.theme.set(S.theme);
+        applyTheme(S.theme);
+      });
+    },
+  });
   const mkSwitch = (f, label) => {
     ctl[f] = new Switch({ label, checked: !!S[f], onChange: (v) => save({ [f]: v }, () => ctl[f].set(!v)) });
     slot(f).replaceWith(ctl[f].el);
@@ -292,6 +309,7 @@ function sync() {
   if (document.activeElement !== tpl) tpl.value = S.filename_template || '';
   renderExample();
   for (const f of SWITCHES) if (!busy(f)) ctl[f].set(!!S[f]);
+  if (!busy('theme') && S.theme) ctl.theme.set(S.theme);
   if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);

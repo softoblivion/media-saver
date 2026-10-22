@@ -246,6 +246,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "browser_cookies": "",                         // "" | "firefox" | "edge" | "chrome" | "brave" | "opera"; used by every platform
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus
   "open_folder_when_done": false,                // open output dir when the whole queue finishes
-  "sound_on_done": true                          // the UI plays assets/sounds/download-done.wav when a job finishes with a new file
+  "sound_on_done": true,                         // the UI plays assets/sounds/download-done.wav when a job finishes with a new file
+  "theme": "dusk"                                // "dusk" | "nova" | "frost" | "bloom": the UI kit's palette (background hue and accent); an unknown value is stored as "dusk"; the UI applies the confirmed value and keeps it for the next launch
 }
 ```

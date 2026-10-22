@@ -137,11 +137,11 @@ body:not(.is-ready) #app {
   border-radius: var(--r-22);
   background: var(--well);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 0 0 0.5px rgba(255, 255, 255, 0.07);
-  transition: box-shadow var(--t-fast) ease;
+  transition: box-shadow var(--d-1) ease;
 }
 
 .cmp-well:focus-within {
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1.5px rgba(120, 152, 255, 0.6);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35), 0 0 0 1.5px color-mix(in srgb, var(--focus-ring) 70%, transparent);
 }
 
 .cmp-input {
@@ -178,14 +178,14 @@ body:not(.is-ready) #app {
   display: grid;
   place-items: center;
   border-radius: inherit;
-  border: 1.5px dashed rgba(170, 190, 255, 0.55);
-  background: rgba(93, 141, 255, 0.16);
+  border: 1.5px dashed color-mix(in srgb, var(--accent-ink) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   font: var(--t-card);
-  color: #d6e0ff;
+  color: var(--accent-ink);
   opacity: 0;
   scale: 0.97;
   pointer-events: none;
-  transition: opacity var(--t-med) ease, scale 0.4s var(--ease-out);
+  transition: opacity var(--d-3) ease, scale var(--d-4) var(--ease-out);
 }
 
 .composer.is-drop .cmp-drop {
@@ -193,21 +193,17 @@ body:not(.is-ready) #app {
   scale: 1;
 }
 
+/* Three plain kit buttons (.btn-s); below 380 px of composer width the icons go so the row stays
+   on one line (layout only: size, fill and font are the kit's). */
 .cmp-tools {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  container-type: inline-size;
 }
 
-.cmp-tools .btn {
-  padding: 0 11px;
-  gap: 5px;
-  font-size: 12px;
-}
-
-.cmp-tools .btn .ic {
-  width: 14px;
-  height: 14px;
+@container (max-width: 380px) {
+  .cmp-tools .btn .ic { display: none; }
 }
 
 .cmp-preview {
@@ -248,13 +244,13 @@ body:not(.is-ready) #app {
   border-radius: var(--r-pill);
   background: var(--fill-2);
   box-shadow: inset 0 0 0 0.5px var(--stroke-1);
-  transition: background-color 0.5s ease, box-shadow 0.5s ease;
+  transition: background-color var(--d-4) ease, box-shadow var(--d-4) ease;
 }
 
 .pv-ic {
   display: grid;
   color: var(--ink-3);
-  transition: color 0.4s ease;
+  transition: color var(--d-3) ease;
 }
 
 .pv-ic .ic { width: 16px; height: 16px; }
@@ -292,8 +288,8 @@ body:not(.is-ready) #app {
 .pv-item.is-clean .pv-orig { display: none; }
 
 .pv-item.is-clean .pv-chip {
-  background: rgba(93, 141, 255, 0.17);
-  box-shadow: inset 0 0 0 0.5px rgba(130, 165, 255, 0.4);
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent-ink) 40%, transparent);
 }
 
 .pv-item.is-clean .pv-ic { color: var(--accent-ink); }
@@ -307,7 +303,8 @@ body:not(.is-ready) #app {
 .pv-item.is-invalid .pv-ic { color: var(--rose); }
 .pv-item.is-dup { opacity: 0.55; }
 
-/* A valid link of another platform: neutral chip, short clean form, inline switch action. */
+/* A valid link of another platform: amber chip, short clean form, inline switch action (a kit
+   .btn-xs in amber ink). */
 .pv-item.is-other .pv-chip {
   background: rgba(255, 196, 87, 0.09);
   box-shadow: inset 0 0 0 0.5px rgba(255, 210, 130, 0.3);
@@ -330,16 +327,8 @@ body:not(.is-ready) #app {
 
 .pv-switch {
   flex: none;
-  height: 26px;
-  padding: 0 10px;
-  font-size: 12px;
   color: #ffe1a8;
-  background: rgba(255, 196, 87, 0.14);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 210, 130, 0.32);
 }
-
-.pv-switch:hover { background: rgba(255, 196, 87, 0.22); }
-.pv-switch .ic { width: 14px; height: 14px; }
 
 .pv-more {
   padding: 8px 6px 2px;
@@ -377,7 +366,7 @@ body:not(.is-ready) #app {
   display: block;
   height: 10px;
   border-radius: 99px;
-  background: linear-gradient(90deg, rgba(130, 165, 255, 0.35), rgba(130, 165, 255, 0.08));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent-ink) 35%, transparent), color-mix(in srgb, var(--accent-ink) 8%, transparent));
   animation: hint-breathe 3.6s ease-in-out infinite;
 }
 
@@ -421,7 +410,7 @@ body:not(.is-ready) #app {
   color: var(--ink-3);
   white-space: nowrap;
   text-overflow: ellipsis;
-  transition: color var(--t-med) ease;
+  transition: color var(--d-3) ease;
 }
 
 .cmp-spec.is-off .spec-label,
@@ -458,7 +447,7 @@ body:not(.is-ready) #app {
   letter-spacing: var(--tr-micro);
   color: var(--ink-4);
   opacity: 0;
-  transition: opacity var(--t-med) ease;
+  transition: opacity var(--d-3) ease;
   pointer-events: none;
   user-select: none;
 }
@@ -473,224 +462,33 @@ body:not(.is-ready) #app {
 
 .cmp-btn-slot:has(#btn-download[data-state="ready"]) .cmp-kbd-hint { opacity: 1; }
 
+/* The primary button is the kit's hero pill (`.hero`, components.css of the kit; js/composer.js adds
+   the pill lens and the gel). It fills its slot; js/composer.js animates its width to a circle while
+   `enqueue` runs, so the kit's minimum width is lifted here (layout only). */
+.cmp-btn-slot .hero {
+  width: 100%;
+  min-width: 0;
+  --hero-h: 52px;
+}
+
 @container (max-width: 380px) {
   /* Narrow button (minimum window): the speed / percentage goes under the text instead of beside it. */
-  .cmp-action .pm-progress {
+  .cmp-action .hero .pm-progress {
     flex-direction: column;
     justify-content: center;
     gap: 0;
     padding: 0 16px;
   }
-  .cmp-action .pm-ptext {
+  .cmp-action .hero .pm-ptext {
     font: var(--t-control);
     letter-spacing: var(--tr-control);
     line-height: 18px;
   }
-  .cmp-action .pm-pmeta {
+  .cmp-action .hero .pm-pmeta {
     font: var(--t-meta);
     font-variant-numeric: tabular-nums;
     line-height: 15px;
   }
-}
-
-/* Primary button that morphs: ready -> sending (circle) -> progress pill -> done */
-
-.primary-morph {
-  position: relative;
-  isolation: isolate;
-  width: 100%;
-  height: 52px;
-  flex: none;
-  padding: 0;
-  border: 0;
-  border-radius: var(--r-pill);
-  overflow: hidden;
-  color: #fff;
-  font: var(--t-headline);
-  letter-spacing: var(--tr-headline);
-  background: var(--accent-grad);
-  box-shadow:
-    0 12px 26px -10px rgba(98, 110, 255, 0.8),
-    inset 0 1px 0 rgba(255, 255, 255, 0.36),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.15),
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.22);
-  text-shadow: 0 1px 2px rgba(20, 20, 80, 0.3);
-  cursor: pointer;
-  transition: background-color 0.4s ease, box-shadow 0.4s ease, color 0.3s ease;
-}
-
-/* Press: the tint lightens evenly (no pointer tracking). */
-.primary-morph::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border-radius: inherit;
-  background: rgba(255, 255, 255, 0.14);
-  opacity: 0;
-  transition: opacity 0.4s var(--ease-out);
-  pointer-events: none;
-}
-
-.primary-morph.is-pressed::before {
-  opacity: 1;
-  transition-duration: 80ms;
-}
-
-.primary-morph::after {
-  /* Specular streak along the top edge of the tinted glass. */
-  content: '';
-  position: absolute;
-  inset: 1px 18px auto;
-  height: 45%;
-  transition: opacity 0.3s ease;
-  z-index: 2;
-  border-radius: 999px 999px 40% 40%;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.28), transparent);
-  pointer-events: none;
-}
-
-.primary-morph[data-state="empty"] {
-  background: rgba(255, 255, 255, 0.075);
-  color: var(--ink-3);
-  box-shadow: inset 0 0 0 0.5px var(--stroke-2), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  text-shadow: none;
-  cursor: default;
-}
-
-.primary-morph[data-state="empty"]::after { opacity: 0.25; }
-
-.primary-morph[data-state="progress"] {
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px var(--stroke-2);
-  cursor: default;
-}
-
-/* Over the dark, empty part of the track the streak would read as a second pill; the liquid
-   carries its own top light instead. */
-.primary-morph[data-state="progress"]::after { opacity: 0; }
-
-.primary-morph[data-state="done"] {
-  background: var(--mint-grad);
-  box-shadow: 0 12px 26px -10px rgba(47, 224, 192, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.36);
-  cursor: default;
-}
-
-.pm-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  white-space: nowrap;
-  opacity: 0;
-  transform: translateY(12px) scale(0.92);
-  filter: blur(3px);
-  transition: opacity 0.22s ease, transform 0.45s var(--ease-out), filter 0.3s ease;
-  pointer-events: none;
-}
-
-.pm-layer .ic { width: 20px; height: 20px; }
-
-/* The label text is centred on its own: the icon hangs to its left (its width + the gap are taken back). */
-.pm-label .ic { margin-left: -29px; }
-
-[data-state="ready"] .pm-label,
-[data-state="empty"] .pm-label,
-[data-state="sending"] .pm-spin,
-[data-state="progress"] .pm-progress,
-[data-state="done"] .pm-done {
-  opacity: 1;
-  transform: none;
-  filter: none;
-}
-
-.pm-progress {
-  justify-content: space-between;
-  padding: 0 22px;
-  font-size: 14px;
-}
-
-.pm-pmeta {
-  font: var(--t-callout);
-  font-weight: var(--w-medium);
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-
-/* The sending circle is 52 px: a larger spinner than the kit's 18 px default. */
-.pm-spin .spinner { width: 22px; height: 22px; border-width: 2.5px; border-color: rgba(255, 255, 255, 0.28); border-top-color: #fff; animation-play-state: paused; }
-[data-state="sending"] .pm-spin .spinner { animation-play-state: running; }
-
-/* Liquid level of the progress state.
-   .pm-fill is a static clip with the button's own shape (it never moves, so nothing can render
-   outside the rounded pill). Inside it, .pm-liquid is wider than the button by its soft edge
-   (--pm-edge), masked from opaque to clear over that edge, and moves by translateX only:
-   (p - 1) * 100% of its own width puts the whole edge left of the button at p = 0, the opaque body
-   flush with the right end at p = 1, and the middle of the edge exactly at the centre at p = 0.5.
-   No bar, no halo: the level is the gradient edge itself. */
-.pm-fill {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-  border-radius: inherit;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
-}
-
-[data-state="progress"] .pm-fill { opacity: 1; }
-
-.pm-liquid {
-  --pm-edge: 56px;
-  --pm-mask: linear-gradient(90deg,
-    #000 calc(100% - var(--pm-edge)),
-    rgba(0, 0, 0, 0.82) calc(100% - var(--pm-edge) * 0.78),
-    rgba(0, 0, 0, 0.5) calc(100% - var(--pm-edge) * 0.5),
-    rgba(0, 0, 0, 0.18) calc(100% - var(--pm-edge) * 0.24),
-    transparent 100%);
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: calc(100% + var(--pm-edge));
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 52%),
-    var(--accent-grad);
-  -webkit-mask-image: var(--pm-mask);
-  mask-image: var(--pm-mask);
-  transform: translateX(calc((var(--p, 0) - 1) * 100%));
-  transition: transform 0.9s cubic-bezier(0.22, 0.8, 0.3, 1);
-}
-
-/* Entering the progress state sets the level without travel (composer.js toggles the class). */
-.primary-morph.pm-instant .pm-liquid { transition: none; }
-
-/* Sheen: a faint highlight drifting through the filled part only. Its track spans the visible
-   opaque body (p * 100% - edge of the liquid's width, ending where the edge starts); the
-   animation exists only in the progress state. */
-.pm-liquid::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: var(--pm-edge);
-  width: max(0px, calc(var(--p, 0) * 100% - var(--pm-edge)));
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.13) 50%, transparent 70%) no-repeat;
-  background-size: 60% 100%;
-  background-position: -150% 0;
-}
-
-[data-state="progress"] .pm-liquid::after {
-  animation: pm-sheen 3.6s cubic-bezier(0.45, 0, 0.55, 1) infinite;
-}
-
-@keyframes pm-sheen {
-  from { background-position: -150% 0; }
-  to { background-position: 250% 0; }
 }
 
 /* ---------------------------------------------------------------------------------------------
@@ -732,7 +530,7 @@ body:not(.is-ready) #app {
   border-radius: var(--r-pill);
   --lens-tint: rgba(24, 28, 52, 0.2);
   --lens-shadow: var(--shadow-m);
-  transition: --lens-bloom 0.3s ease;
+  transition: --lens-bloom var(--d-3) ease;
 }
 
 .q-title-wrap {
@@ -780,30 +578,13 @@ body:not(.is-ready) #app {
   flex: none;
 }
 
-/* "Open folder" split button: the main half opens the folder, the chevron half opens a two-item
-   menu (Open folder / Change folder...). One pill, one gel press for both halves, a hairline
-   between them. */
-.split {
-  display: inline-flex;
-  border-radius: var(--r-pill);
-}
-
+/* "Open folder" split button: the kit's `.split` (two .btn-s halves sharing one pill); the main
+   half opens the folder, the chevron half opens a two-item menu (Open folder / Change folder...).
+   One gel press for both halves; the chevron turns while the menu is open. */
+.split { border-radius: var(--r-pill); }
 .split > .btn { position: relative; }
-.split-main { border-radius: var(--r-pill) 0 0 var(--r-pill); padding-right: 10px; }
-.split-more { border-radius: 0 var(--r-pill) var(--r-pill) 0; width: 28px; padding: 0 2px 0 0; }
-.split-more .ic { width: 14px; height: 14px; color: var(--ink-2); transition: rotate var(--t-fast) ease; }
+.split-more .ic { transition: rotate var(--d-4) var(--ease-spring); }
 .split-more[aria-expanded="true"] .ic { rotate: 180deg; }
-.split-more[aria-expanded="true"] { background: var(--fill-3); }
-
-.split-more::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 7px;
-  bottom: 7px;
-  width: 1px;
-  background: var(--stroke-2);
-}
 
 .split-menu {
   position: absolute;
@@ -864,12 +645,13 @@ body:not(.is-ready) #app {
 .fm-item:focus-visible { background: var(--fill-3); outline: none; }
 
 @container (max-width: 640px) {
+  /* Narrow queue: the header buttons keep their icons only (layout: the labels would not fit). */
   .q-title-wrap { flex-direction: column; gap: 2px; }
   .q-title { font-size: 17px; letter-spacing: -0.013em; }
   .q-actions .btn > span { display: none; }
-  .q-actions .btn { width: 34px; padding: 0; }
+  .q-actions .btn { width: 30px; padding: 0; }
   .q-actions .split-main { width: 32px; padding: 0 0 0 2px; }
-  .q-actions .split-more { width: 24px; padding: 0 2px 0 0; }
+  .q-actions .split-more { width: 26px; padding: 0 2px 0 0; }
 }
 
 /* Job card: cheap glass, rendered only near the viewport (content-visibility).
@@ -883,7 +665,7 @@ body:not(.is-ready) #app {
   content-visibility: auto;
   contain-intrinsic-size: auto 122px;
   --lite-tint: rgba(18, 20, 40, 0.34);
-  transition: background-color 0.4s ease;
+  transition: background-color var(--d-3) ease;
 }
 
 .jcard.has-error {
@@ -1012,8 +794,6 @@ body:not(.is-ready) #app {
   flex: none;
 }
 
-.jc-act { width: 30px; height: 30px; }
-
 .jc-sub {
   display: flex;
   align-items: baseline;
@@ -1106,7 +886,7 @@ body:not(.is-ready) #app {
   font-weight: 650;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transition: color var(--t-fast) ease;
+  transition: color var(--d-2) ease;
 }
 
 .fmt-toggle button:hover { color: var(--ink-2); }
@@ -1121,7 +901,7 @@ body:not(.is-ready) #app {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.16);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0.5px 0 rgba(255, 255, 255, 0.25);
-  transition: translate 0.42s cubic-bezier(0.3, 1.35, 0.5, 1), background-color 0.3s ease;
+  transition: translate var(--d-4) var(--ease-spring), background-color var(--d-3) ease;
 }
 
 .fmt-toggle[data-v="mp3"] .fmt-thumb {
@@ -1151,7 +931,7 @@ body:not(.is-ready) #app {
   border-radius: inherit;
   background: var(--accent-grad);
   transform: translateX(-100%);
-  box-shadow: 0 0 12px rgba(110, 120, 255, 0.6);
+  box-shadow: 0 0 12px var(--btn-glow);
 }
 
 .jcard.is-active .jc-fill::after {
@@ -1163,7 +943,7 @@ body:not(.is-ready) #app {
   animation: sheen 1.8s linear infinite;
 }
 
-.jcard[data-status="processing"] .jc-fill { background: linear-gradient(135deg, #48a2ff, #2fe0c0); }
+.jcard[data-status="processing"] .jc-fill { background: linear-gradient(135deg, var(--accent), var(--mint)); }
 .jcard[data-status="done"] .jc-bar { display: none; }
 .jcard[data-status="canceled"] .jc-fill { background: rgba(255, 255, 255, 0.25); box-shadow: none; }
 .jcard[data-status="queued"] .jc-fill { background: rgba(255, 255, 255, 0.2); }
@@ -1295,7 +1075,6 @@ body:not(.is-ready) #app {
   .jc-title.is-skeleton,
   .jcard .jc-thumb::after,
   .jcard.is-active .jc-fill::after,
-  [data-state="progress"] .pm-liquid::after,
   .pv-hint-art i,
   .ea-drop,
   .ea-film,
@@ -1310,8 +1089,6 @@ body:not(.is-ready) #app {
 @media (max-width: 1040px) {
   #main { gap: 14px; padding: 2px 14px 14px; }
   .composer { padding: 14px; }
-  .cmp-tools .btn { padding: 0 10px; }
-  .cmp-tools .btn .ic { display: none; }
 }
 
 @media (max-height: 700px) {

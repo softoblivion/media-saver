@@ -6,7 +6,7 @@
 
 **Saves YouTube videos and Shorts, Instagram Reels, TikTok videos and X (Twitter) posts as MP4 (up to 4K) or MP3. Batch links, previews, one portable exe, no license key, no download limits. The download engine (yt-dlp) and the app update themselves. A free alternative to 4K Video Downloader and similar paid tools.**
 
-[![Download](https://img.shields.io/badge/Download-MediaSaver.exe-5d8dff?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe)
+[![Download](https://img.shields.io/badge/Download-MediaSaver.exe-ff7a59?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe)
 [![Release](https://img.shields.io/github/v/release/softoblivion/media-saver?display_name=release&label=latest&style=for-the-badge)](https://github.com/softoblivion/media-saver/releases/latest)
 
 ![Platform](https://img.shields.io/badge/platform-Windows_10_|_11-0078D6?logo=windows&logoColor=white)
@@ -79,7 +79,7 @@ and on up-to-date Windows 10). No installer, no admin rights.
 | **Self-updating app** | New releases are detected on launch or on request, downloaded into the data folder, verified by size and SHA-256 and installed on restart. |
 | **Self-healing downloads** | An extractor-type failure triggers one forced engine update and an automatic retry. Rate limits back off and retry. |
 | **In-app sign-in** | Reels that require an account are handled through Instagram's own login page in a separate window; only the resulting session cookies are stored locally. |
-| **Liquid Glass UI** | SVG displacement-map refraction, specular rims, spring physics, morphing controls, embedded Inter and Geist Mono fonts; animation loops stop when nothing moves. |
+| **Liquid Glass UI** | SVG displacement-map refraction, specular rims, spring physics, morphing controls, four colour themes (Dusk, Nova, Frost, Bloom), embedded Unbounded and Geist Mono fonts; animation loops stop when nothing moves. |
 
 ## How it works
 
@@ -154,6 +154,7 @@ members-only, sensitive content) can use the cookies of a browser chosen in Sett
 | `clipboard_watch` | `true` | Offer links found in the clipboard on window focus |
 | `open_folder_when_done` | `false` | Open the output folder when the queue drains |
 | `sound_on_done` | `true` | Play a short sound when a download finishes |
+| `theme` | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` (Settings > Appearance) |
 
 ## Link cleaning rules
 
@@ -309,7 +310,7 @@ Bundled into the executable:
 | bottle, proxy_tools | MIT |
 | cffi / pycparser | MIT-0 / BSD-3-Clause |
 | [PyInstaller](https://pyinstaller.org/) bootloader | GPL-2.0-or-later with the bootloader exception |
-| [Inter](https://github.com/rsms/inter), [Geist Mono](https://github.com/vercel/geist-font) fonts | SIL Open Font License 1.1 |
+| [Unbounded](https://fonts.google.com/specimen/Unbounded), [Geist Mono](https://github.com/vercel/geist-font) fonts | SIL Open Font License 1.1 |
 
 Downloaded at runtime from their official release channels, not redistributed with this project:
 

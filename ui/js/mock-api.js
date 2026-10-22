@@ -348,6 +348,7 @@ const DEFAULT_SETTINGS = {
   clipboard_watch: true,
   open_folder_when_done: false,
   sound_on_done: true,
+  theme: 'dusk',
 };
 
 const APP_VERSION = '2.0.0';
@@ -380,6 +381,13 @@ export function createMock({ params, emit }) {
   if (['youtube', 'tiktok', 'twitter'].includes(params.get('mode'))) settings.mode = params.get('mode');
   if (params.get('format') === 'mp3') settings.format = 'mp3';
   if (params.get('autodownload') === '0') settings.auto_download_updates = false;
+  // The theme the page already paints with (index.html reads the same key the app persists).
+  try {
+    const t = localStorage.getItem('media-saver.theme');
+    if (['dusk', 'nova', 'frost', 'bloom'].includes(t)) settings.theme = t;
+  } catch {
+    // storage unavailable: the default stays
+  }
   let auth = { logged_in: false, user_id: null, source: null, saved_at: null };
   let engine = {
     stage: 'starting',
@@ -864,6 +872,7 @@ export function createMock({ params, emit }) {
     clipboard_watch: (v) => typeof v === 'boolean',
     open_folder_when_done: (v) => typeof v === 'boolean',
     sound_on_done: (v) => typeof v === 'boolean',
+    theme: (v) => ['dusk', 'nova', 'frost', 'bloom'].includes(v),
   };
 
   // ---- the API --------------------------------------------------------------------------------

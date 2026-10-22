@@ -5,9 +5,12 @@ describes the material, the design system and the motion of the UI that codes ag
 
 ## 0. Liquid UI kit and the app
 
-The design system (tokens, fonts, the glass material, springs, overlays, form controls, toasts, the background
-scene, the version pill and update popover) is the shared Liquid UI kit, vendored in `ui/vendor/liquid_ui/`
-(`VENDORED.txt` names the kit version). Media Saver builds its screen on top of it. The kit is design only: the
+The design system (tokens, fonts, the four themes, the glass material, the button system, the hero pill, the
+motion template, overlays, form controls, toasts, the background scene, the version pill and update popover) is
+the shared Liquid UI kit, vendored in `ui/vendor/liquid_ui/` (`VENDORED.txt` names the kit version; its reference
+is the kit's own documentation, cited below as "the kit's documentation", sections 3 to 8). Media Saver builds its
+screen on top of it and overrides none of its identity: the look of the window is a kit theme, Dusk by default,
+switched in Settings > Appearance. The kit is design only: the
 update process is the Python self-updater (`docs/SELF_UPDATE.md`); the kit's update control renders `UpdateStatus`
 and calls the bridge (`docs/BRIDGE_API.md`, "Update UI").
 
@@ -15,25 +18,34 @@ Rules:
 - `ui/vendor/liquid_ui/` is a synced copy: never edit it here. A change is made in the kit's master and synced into
   this tree (the whole folder is replaced and `VENDORED.txt` rewritten); after a sync, check the mock in the browser
   (`index.html?mock=1`, section 7) and the app run from source.
-- Media Saver overrides kit tokens only in its own `:root` rule (`css/theme.css`), never in the copy. A missing kit
-  feature is added to the kit, or kept as app code beside it, never patched into the copy.
-- Stylesheet order (`index.html`): the kit's `tokens.css`, `base.css`, `scene.css`, `glass.css`, `components.css`,
-  then `css/theme.css`, `css/parts.css`, `css/app.css`. Modules import the kit by relative path
+- `css/theme.css` holds layout tokens only (`--titlebar-h`, `--cmp-w`). Identity tokens (`--accent` family,
+  scene colours, glass tints) come from the kit's themes and are never overridden; app CSS that needs the accent
+  uses the kit's tokens (`--accent`, `--accent-ink`, `--btn-glow`, `--focus-ring`, through `color-mix()` for
+  tints). A missing kit feature is added to the kit, or kept as app code beside it, never patched into the copy.
+- Buttons are the kit's `.btn` / `.icon-btn` / `.hero` as they are: the app places them and never restyles their
+  size, fill or font (the kit's documentation, section 6). The only geometry rules in app CSS are layout: the
+  icon-only collapse of the queue header buttons below 640 px of queue width, the hidden icons of the composer
+  tools below 380 px of row width, and the hero pill's width (100 % of its slot, no minimum, so it can narrow to a
+  circle).
+- Stylesheet order (`index.html`): the kit's `tokens.css`, `themes.css`, `base.css`, `scene.css`, `glass.css`,
+  `components.css`, then `css/theme.css`, `css/parts.css`, `css/app.css`. Modules import the kit by relative path
   (`../vendor/liquid_ui/js/<module>.js`); no app file names a font file.
 
 | Part | Kit (`ui/vendor/liquid_ui/`) | App |
 |---|---|---|
-| Tokens, fonts | `css/tokens.css`, `fonts/` (Inter, Geist Mono) | `css/theme.css`: the lagoon identity colours, glass tints, scene base, `--titlebar-h` 46 px, `--cmp-w` |
-| Reset, buttons, focus, scrollbars, spinner | `css/base.css` | the 22 px spinner of the `Download` circle (`css/app.css`) |
+| Tokens, fonts | `css/tokens.css`, `fonts/` (Unbounded, Geist Mono); the kit's documentation, section 3 | `css/theme.css`: layout tokens only (`--titlebar-h` 46 px, `--cmp-w`) |
+| Themes | `css/themes.css` (Dusk, Nova, Frost, Bloom), `js/theme.js` (`applyTheme`, `mountThemeControl`); section 4 | `index.html`: `data-theme="dusk"` and a head script that reads `localStorage['media-saver.theme']` before the first paint; `js/main.js`: applies `Settings.theme` on connect and on every `settings` event and writes that key; `js/settings.js`: the theme row in the Appearance group, saved through `set_settings({ theme })` |
+| Reset, buttons, focus, scrollbars, spinner | `css/base.css`: the button system (plate, sizes l / regular / s / xs, kinds plain / ghost / tinted / danger, states); section 6 | — (placement only, see the rules above) |
+| Hero pill | `.hero` with the `.pm-*` layers in `css/components.css`; section 6.1 | `#btn-download` (`js/composer.js`): the markup, `new Lens(btn, 'pill')`, `gel(btn, { amount: 0.8 })`, the five states, the width spring to a circle while sending, the `--p` level; `css/app.css`: width, `--hero-h: 52px`, the two-line progress layout below 380 px |
 | Material | `js/glass.js` (Lens, light, gel, shake), `css/glass.css` | — |
-| Springs | `js/motion.js` | — |
+| Motion template | `js/motion.js` (springs, `--d-1..--d-4`, `--ease-out` / `--ease-spring`, `enterRow` / `leaveRow` / `fadeIn` / `fadeOut`); section 8 | queue cards enter and leave with `enterRow` / `leaveRow`, the folder menu with `fadeIn` / `fadeOut`; app transitions use the `--d-*` tokens; the chip morph and the fly-out stay app motion built on the kit's springs |
 | Overlays | `js/overlay.js`, `.scrim` `.sheet` `.popover` | `.pop-wide` (384 px update popover), engine popover colours (`css/parts.css`) |
 | Controls | `js/controls.js` (Segmented, Switch, Stepper, Select), their CSS | segmented variants `seg-tb` / `seg-l` / `seg-q`; the per-card format toggle (`js/queue.js`) |
 | Toasts | `js/toast.js`, `.toast` | position over the queue column; under the update popover while it is open (`css/parts.css`) |
 | Icons | `js/icons.js` (`icon`, `registerIcons`) | `js/icons.js`: Media Saver's drawings registered into the kit's set (same names replace the kit's, e.g. `app` = the droplet), `kindGlyph`, `appGlyph` |
-| Background | `js/background.js`, `css/scene.css` | `js/scene.js`: six colour fields through `initBackground(root, { fields, idleMs })`, the thumbnail ghosts layer; `#scene` base gradient in `css/theme.css` |
+| Background | `js/background.js` (the `deep` treatment drawn from the theme tokens, `retint()` on a theme change), `css/scene.css`; section 7 | `js/scene.js`: `initBackground(root, { idleMs: 60000 })` with no colours of its own, the thumbnail ghosts layer |
 | Version pill, update popover, update toasts, "Updates" settings rows | `js/update.js` (`mountUpdateControl`, `mountSettings`), `.ver-pill` `.pop-*` `.upd-*` `.set-*` | `js/update.js`: the mount (product name, restart warning, active-jobs check, `settings` events) |
-| Settings sheet frame | `.sheet-head` `.sheet-scroll` `.set-group` `.set-card` `.set-row` | content (`js/settings.js`); path, template tokens, engine versions, sign-in (`css/parts.css`) |
+| Settings sheet frame | `.sheet-head` `.sheet-scroll` `.set-group` `.set-card` `.set-row`, the theme row `.theme-row` | content (`js/settings.js`); path, template tokens, engine versions, sign-in (`css/parts.css`) |
 | Everything else | — | title bar layout, engine chip, composer, queue, cards, clipboard pill, mock, bridge wrapper (`js/*.js`, `css/app.css`, `css/parts.css`) |
 
 ## 1. Sources and what was taken from each
@@ -70,7 +82,7 @@ Presets (bezel / thickness may depend on the short side `s`):
 
 | preset | used by | bezel | thickness | frost (px) | saturate | extra |
 |---|---|---|---|---|---|---|
-| `pill` | engine chip, gear | s/2 | 0.75 s | 0.6 | 1.7 | brightness 1.08 |
+| `pill` | engine chip, gear, the `Download` hero pill (the one lens among the buttons) | s/2 | 0.75 s | 0.6 | 1.7 | brightness 1.08 |
 | `capsule` | queue header, toasts, clipboard pill | min(s/2, 22) | min(0.7 s, 30) | 1.2 | 1.7 | brightness 1.06 |
 | `panel` | input capsule | 28 | 38 | 2.5 | 1.6 | brightness 1.04 |
 | `sheet` | settings sheet, engine popover, update popover | 30 | 40 | 14 | 1.5 | brightness 0.92 |
@@ -107,84 +119,46 @@ number), the engine hover card and the select menu.
   card, or the glass loses the scene behind it. Entrance animations therefore fade only surfaces that are lenses
   themselves and only transform containers. The queue scroller has no mask for the same reason (cards scroll under
   the queue header lens instead of fading out).
-- Tint only the primary action (`Download`, `Sign in to Instagram`, `Update now`, `Add`, the update panel's
-  `Download` / `Restart to update`): accent gradient.
+- Tint only the primary action (`Download` while links are ready, `Sign in to Instagram`, `Update now`, `Add`,
+  the update panel's `Download` / `Restart to update`): the theme's accent gradient (`.btn-tinted`, `.hero` in
+  `ready`).
 - Repeated controls inside cards (the per-item MP4 / MP3 toggle) are plain fills with a CSS thumb, never lenses.
 - Legibility: white ink with alpha steps, a 1 px text shadow on glass, darker wells (`--well`) under inputs and long text.
 - `prefers-reduced-transparency`: near-opaque tints. `prefers-contrast: more`: solid rim, no blend.
 
-## 3. Design tokens — kit `css/tokens.css`, app `css/theme.css`
+## 3. Design tokens — kit `css/tokens.css`, `css/themes.css`; app `css/theme.css`
 
-- Fonts, embedded in the kit (`ui/vendor/liquid_ui/fonts`, no network at runtime; `@font-face` in the kit's
-  `tokens.css`, `font-display: block`; the kit names the text face in one place, so a face change arrives with a
-  kit sync and no app file changes). Current files:
+The tokens are the kit's (the kit's documentation, section 3: fonts, type roles, colour, buttons, motion, shape,
+space, depth, layout); Media Saver uses them and defines none of its own except the two layout tokens in
+`css/theme.css` (`--titlebar-h` 46 px, `--cmp-w`, the composer column). What matters for the app code:
 
-  | File | Face | Version, source | Licence | Size |
-  |---|---|---|---|---|
-  | `InterVariable.woff2` | Inter, variable `wght` 100–900 + `opsz` 14–32, upright only | 4.1, official release zip of github.com/rsms/inter (`web/InterVariable.woff2`) | SIL OFL 1.1, `LICENSE-Inter.txt` | 352 240 B |
-  | `GeistMono-Variable.woff2` | Geist Mono, variable `wght` 100–900 | 1.8.1, official release zip of github.com/vercel/geist-font (`GeistMono/webfonts/GeistMono[wght].woff2`) | SIL OFL 1.1, `LICENSE-GeistMono.txt` | 71 236 B |
-
-  Geist Mono instead of JetBrains Mono: its release ships a variable woff2 (JetBrains Mono 2.304 has only static
-  woff2 or a variable TTF) and its proportions sit closer to Inter. No italics are used, so no italic file is shipped;
-  `font-synthesis: none` keeps the browser from faking one. Stacks: `--font-text` / `--font-display` = InterVariable,
-  `system-ui`; `--font-mono` = Geist Mono, `ui-monospace`, Cascadia Mono, Consolas. Segoe UI is no longer primary.
-- Optical size: `font-optical-sizing: auto`, so Inter picks its display cut for titles by itself.
-- Features: Inter `cv05` (lowercase l with a tail: I / l / 1 stay apart in names and titles) and `ss03` (round
-  quotes and commas); mono: `liga 0, calt 0`. The `font` shorthand resets `font-feature-settings`, so the features
-  travel as the inherited custom property `--ff-feat` (default `--ff-text`; mono elements set `--ff-feat:
-  var(--ff-mono)`) and one rule in `base.css` (`* { font-feature-settings: var(--ff-feat) !important }`) applies them.
-- Type roles (`--t-*` = weight size / line-height family, `--tr-*` = tracking from Inter's dynamic metrics,
-  `-0.0223 + 0.185·e^(-0.1745·size)` em). Use a role, never a raw size:
-
-  | Role | Spec | Tracking | Used for |
-  |---|---|---|---|
-  | `--t-display` | 650 22/1.15 | -0.019em | sheet titles |
-  | `--t-title` | 630 19/1.22 | -0.017em | composer, queue, empty state titles |
-  | `--t-headline` | 630 15/1.3 | -0.009em | popover titles, the `Download` button |
-  | `--t-card` | 560 14/1.3 | -0.006em | job card titles, setting labels, component names |
-  | `--t-body` | 450 13.5/1.45 | -0.005em | body, the links input, toasts, empty text |
-  | `--t-callout` | 450 13/1.4 | -0.003em | secondary lines, popover sub-lines, error text, release notes |
-  | `--t-control` / `--t-control-s` | 560 13 / 12.5 | -0.003em | buttons, segmented options |
-  | `--t-meta` | 470 12/1.35 | 0 | sizes, speeds, ETA, times, counters (with `tabular-nums`) |
-  | `--t-caption` | 520 11.5/1.3 | +0.003em | group labels (uppercase +0.06em), footnotes |
-  | `--t-micro` | 600 10.5/1.4 | +0.02em | badges, tags, kbd |
-  | `--t-mono` / `-s` / `-xs` | 450 12.5 / 450 12 / 500 11 | 0 | paths and templates / link chips, versions / the version pill |
-
-  The type roles are the kit's (this table mirrors its values); Media Saver does not override them.
-
-  Every number that changes in place (sizes, speeds, ETA, counters, durations, percentages) sets
-  `font-variant-numeric: tabular-nums` after its `font` shorthand (the shorthand resets it). Canonical links, video
-  IDs, paths, versions and codes are mono.
-- Legibility on glass is unchanged: ink alphas, `--ink-shadow` (1 px, 30 % black) on lenses.
-- Ink: `--ink-1..4` = white at 0.96 / 0.74 / 0.54 / 0.36. Fills `--fill-1..4` = white at 0.05–0.2. Well
-  `rgba(4,6,16,.32)`.
-- Identity "lagoon" (`css/theme.css`, overriding the kit's cobalt defaults; with it the glass tints `--tint-regular`,
-  `--tint-sheet`, `--well`, the tinted-glass gradient `--accent-grad-a` and the scene base): accent `#5d8dff`,
-  accent-2 `#8a6cff`, gradient `#48a2ff -> #6a7bff -> #9c62ff`; mint `#3fe2c1`
-  (success, done), amber `#ffc457` (duplicates, "already saved"), rose `#ff6482` (errors). Deliberately not the
-  pink-orange gradient of Instagram; no logo, mark or brand colour of Instagram, YouTube, TikTok or X anywhere (kind
-  glyphs are original line icons: `reel`, `post`, `video`, `shorts`).
-- Radii (concentric, inner = outer - padding): 6, 10, 14, 18, 22, 28, 34, pill.
-- Spacing: 4 pt grid (`--s-1..8`).
-- Shadows: `--shadow-s/m/l`, deeper under larger surfaces.
+- Fonts: embedded in the kit (Unbounded for text and display, Geist Mono for paths, links, versions; no network
+  at runtime). No app file names a font file; a face change arrives with a kit sync.
+- Type: always a role (`--t-*` with its `--tr-*` tracking), never a raw size. Every number that changes in place
+  (sizes, speeds, ETA, counters, durations, percentages) sets `font-variant-numeric: tabular-nums` after its
+  `font` shorthand (the shorthand resets it). Canonical links, video IDs, paths, versions and codes are mono
+  (`--ff-feat: var(--ff-mono)` on the element).
+- Identity: a theme (section 4 of the kit's documentation). Media Saver's default is **Dusk** (cobalt scene,
+  coral accent `#ff7a59`); Nova, Frost and Bloom are the other three, chosen in Settings > Appearance and stored
+  as `Settings.theme`. App CSS never hard-codes an accent: tints come from `--accent`, `--accent-ink`,
+  `--btn-glow` and `--focus-ring` through `color-mix()` (the clean-link chip, the drop overlay, the preview hint
+  bars, the progress bar glow, the well's focus ring). Semantic colours are the same in every theme: `--mint`
+  (success, done), `--amber` (duplicates, "already saved", another platform's link), `--rose` (errors); the MP3
+  violet of badges and the per-card toggle thumb is an app kind colour (`css/app.css`). Deliberately no logo,
+  mark or brand colour of Instagram, YouTube, TikTok or X anywhere (kind glyphs are original line icons: `reel`,
+  `post`, `video`, `shorts`).
+- Legibility on glass: ink alphas `--ink-1..4`, `--ink-shadow` on lenses, `--well` under inputs and long text.
+- Durations: `--d-1` (hover fill, rim), `--d-2` (state fades), `--d-3` (layout fades, progress), `--d-4` (long
+  reveals, icon turns with `--ease-spring`); no literal duration in app CSS except the decorative loops of the
+  scene ghosts, the empty-state art and the shimmer / sheen loops.
 
 ## 4. Motion — kit `js/motion.js`
 
-One spring solver (semi-implicit Euler, 240 Hz sub-steps), parameters SwiftUI-style: `response` (s) and `damping`
-fraction; `k = (2π/response)²`, `c = 4π·damping/response`. One shared rAF ticker runs only while a spring is moving and
-stops when the document is hidden (springs jump to their targets). Compositor animations use WAAPI with a CSS `linear()`
-easing sampled from the same spring (`springEasing`, `springAnimate`). `whenDone` guarantees DOM clean-up even when a
-hidden window pauses the animation timeline.
-
-| spring | response | damping | used for |
-|---|---|---|---|
-| snappy | 0.30 | 0.80 | lift of droplets, toggles |
-| bouncy | 0.42 | 0.62 | droplet travel, toasts, card insert, button width |
-| jelly | 0.38 | 0.42 | release wobble of a press, counters bump |
-| press | 0.20 | 0.75 | squish while the pointer is down |
-| smooth | 0.50 | 1.00 | progress bars, layout collapse |
-| sheet / sheetClose | 0.52 / 0.34 | 0.80 / 1.00 | sheets and popovers |
-| materialize | 0.45 | 0.92 | lensing strength in / out |
+The motion template is the kit's (its documentation, section 8): one spring solver, the named springs (`snappy`,
+`bouncy`, `jelly`, `press`, `smooth`, `expand`, `sheet` / `sheetClose`, `materialize`), WAAPI helpers
+(`springEasing`, `springAnimate`, `whenDone`) and the shared entrances and exits (`enterRow`, `leaveRow`,
+`fadeIn`, `fadeOut`). Media Saver adds no spring and no duration of its own; where it animates by hand (chip
+morph, fly-out, counters, the hero pill's width) it uses the kit's springs by name.
 
 Behaviours:
 - Gel press (`gel(el)`): squish `scale(1+0.10k, 1-0.07k)` (k larger for small controls), release with an inverse
@@ -209,19 +183,15 @@ Behaviours:
 - Sheets / popovers (`Overlay`): clip-path inset springs from the origin control's rect and radius to the full rect,
   overshoot becomes a slight stretch, content fades in after 35 %, lensing ramps up, scrim follows. Esc / outside click
   closes back into the origin; focus returns there.
-- `Download` morph: full-width pill -> 52 px circle with spinner while `enqueue` runs -> progress pill with a liquid
-  level and "Downloading N of M · speed" -> mint "Done" -> back. Width by spring.
-  Liquid level (reworked in 2.0 after the first build showed a hard bright bar with a halo at the edge): `.pm-fill` is
-  a static clip with the button's own pill shape (`overflow: hidden`, `border-radius: inherit`) and never moves;
-  `.pm-liquid` inside it is wider than the button by its soft edge (`--pm-edge`, 56 px), masked from opaque to clear
-  over that edge, and moves by `transform: translateX(calc((var(--p) - 1) * 100%))` only (0.9 s ease-out, no
-  overshoot). So the whole edge sits left of the button at 0, the edge's middle is at the centre at 50 % and the
-  opaque body is flush with the right end at 100 %; there is no meniscus element and nothing renders outside the clip.
-  A faint sheen (white 13 %, `pm-sheen`, 3.6 s) drifts through the filled part only; its animation is declared only
-  under `[data-state="progress"]`, so no loop runs in any other state (and none with reduced motion). The button's
-  top streak fades out in the progress state (it read as a second pill over the empty track). Entering the progress
-  state sets the level without travel (`.pm-instant` for one style flush), so a new batch never drains from the last
-  batch's value. Below 380 px of action-row width the speed / percentage moves under the text (two lines).
+- `Download`: the kit's hero pill (`.hero`, the kit's documentation, section 6.1), a pill lens with the gel
+  press. States set by `js/composer.js` through `data-state`: `empty` (neutral glass, dim ink, no action) ->
+  `ready` (the theme's accent glass with glow and top streak, label "Download N Reels") -> `sending` (the width
+  springs to a 52 px circle with the spinner while `enqueue` runs, `snappy`; back to the slot width with `bouncy`)
+  -> `progress` (dark glass track, the liquid level `--p` 0..1 with "Downloading N of M" and the speed or
+  percentage) -> `done` (mint glass, "Done" or "Done N of M") -> `empty`. The level moves by `translateX` only and
+  carries its own sheen loop in the progress state; entering that state sets the level without travel
+  (`.pm-instant` for one style flush), so a new batch never drains from the last batch's value. Below 380 px of
+  action-row width the speed / percentage moves under the text (two lines, `css/app.css`).
 - Link chips: each chip appears showing the original link, then its text width springs to the clean short form
   (`shortLink` in `js/format.js`, by platform first, then kind: Instagram `reel/<code>`, `p/<code>`; YouTube
   `watch?v=<id>`, `shorts/<id>`; TikTok `video/<id>`, `t/<code>` for a short link; X `status/<id>`) while the original
@@ -230,11 +200,14 @@ Behaviours:
   width), so 19-digit TikTok and X ids stay whole in the 332 px composer. After `Download` the chips fly out toward
   the queue. A mode switch rebuilds the chips (the text is cleaned again for the new platform).
 - Mode switch: cards of the other platforms get `[hidden]` (no rebuild, no refetch; 150 cards switch in ~3 ms), the
-  first 8 cards of the new mode settle in with a 28 ms stagger.
+  first 8 cards of the new mode enter with the kit's `enterRow` stagger (40 ms per card).
 - Preview: a pending card (queued, `previewed` false) shows a skeleton bar for the title and a sheen over the
   thumbnail; both are CSS loops bound to `.is-pending`, which drops when `previewed` turns true even if every field
   stayed null. The title then fades in from a 3 px blur.
-- Queue: new cards drop in with a spring and the visible ones FLIP down; removed cards shrink, then the gap collapses.
+- Queue: a new card enters with the kit's `enterRow` (16 px from below, `bouncy`) while the visible cards FLIP
+  down; the first eight cards of a mode switch enter staggered the same way; a removed card leaves with `leaveRow`
+  (fade and shrink, then its height collapses so the cards below slide up, then it is removed). The folder menu
+  opens with `fadeIn` and closes with `fadeOut`.
 - Toasts: drop from the top with scale and lensing ramp, FLIP-stacked, max 3.
 - `prefers-reduced-motion`: springs become critically damped and short, background drift stops, no elastic wobble;
   the skeleton, sheens, hint bars, empty-state art and the version dot pulse hold still; the mode switch skips the
@@ -242,34 +215,36 @@ Behaviours:
 
 ## 5. Background — kit `js/background.js`, app `js/scene.js`
 
-The kit's scene (`initBackground`) in Media Saver's colours: a near-black base with a violet glow at the top left
-and a teal one at the bottom right (`#scene` in `css/theme.css`), six radial colour fields (cobalt, violet, teal,
-rose, amber, sky; the `fields` option, 46–76 s drift loops), the kit's faint contour and caustic lines (crisp lines
-are what makes the lensing visible), its rising specks and light sweep, then Media Saver's layer of up to four recent
-job thumbnails as soft ghosts (`setGhosts`; downscaled to 18×32 and upscaled by the compositor = cheap blur), and the
-kit's vignette and grain. Pointer parallax moves fields, lines and specks by a few px. Everything pauses when the
-window is unfocused, the document hidden, after 60 s without input (`idleMs`), or with reduced motion;
-`html.is-still` pauses the decorative CSS loops inside the app and the clipboard pill as well.
+The kit's scene (`initBackground(root, { idleMs: 60000 })`, the kit's documentation, section 7) in the colours of
+the active theme: the base gradient and the `deep` treatment (two soft fields of the theme's hue, one small field
+of its accent, the floor pool) are read from the theme tokens, so `applyTheme()` retints the scene live and
+`js/scene.js` passes no colour of its own (the six "lagoon" fields of 2.x are gone). On top: the kit's faint contour
+and caustic lines (crisp lines are what makes the lensing visible), its rising specks and light sweep, then Media
+Saver's layer of up to four recent job thumbnails as soft ghosts (`setGhosts`; downscaled to 18×32 and upscaled by
+the compositor = cheap blur), and the kit's vignette and grain. Pointer parallax moves fields, lines and specks by a
+few px. Everything pauses when the window is unfocused, the document hidden, after 60 s without input (`idleMs`),
+or with reduced motion; `html.is-still` pauses the decorative CSS loops inside the app and the clipboard pill as
+well.
 
 ## 6. Components and files
 
 | File | Content |
 |---|---|
-| `index.html` | Static layout: title bar (brand, mode slot, version pill `#ver-pill`, engine chip, gear, window buttons), composer (one `c-other` counter template that `js/composer.js` clones per platform), queue, overlay hosts (engine popover, update popover, settings sheet). |
+| `index.html` | Static layout: `<html data-theme="dusk">` with the head script that applies the saved theme before the first paint, title bar (brand, mode slot, version pill `#ver-pill`, engine chip, gear, window buttons), composer (one `c-other` counter template that `js/composer.js` clones per platform; `#btn-download` as the kit's `.hero`), queue, overlay hosts (engine popover, update popover, settings sheet). |
 | `vendor/liquid_ui/` | The Liquid UI kit (section 0): tokens, fonts, base, scene, material, components and their modules. Never edited here. |
-| `css/theme.css`, `css/parts.css`, `css/app.css` | Identity overrides of the kit tokens; Media Saver's own components (engine chip, window buttons, segmented variants, settings content, clipboard pill, ghosts, toast position); screen layout. |
-| `js/main.js` | Boot, title bar, mode switch (four options, Alt+1..Alt+4), window buttons, entrance, auth -> auto retry of Instagram `login_required` jobs. |
+| `css/theme.css`, `css/parts.css`, `css/app.css` | Layout tokens; Media Saver's own components (engine chip, window buttons, segmented variants, settings content, clipboard pill, ghosts, toast position); screen layout, the hero pill's placement. |
+| `js/main.js` | Boot, the theme (`applyTheme(settings.theme)` on connect and on every `settings` event, `localStorage['media-saver.theme']` for the next first paint), title bar, mode switch (four options, Alt+1..Alt+4), window buttons, entrance, auth -> auto retry of Instagram `login_required` jobs. |
 | `js/mode.js` | `PLATFORMS` (`instagram`, `youtube`, `tiktok`, `twitter`, in mode-switch order), `PLATFORM_NAME` (Instagram, YouTube, TikTok, X), `QUALITIES`, `QUALITY_KEY`; current mode, default format and per-platform quality (`settings.mode`, `format`, `quality_<platform>`): local apply at once, `set_settings` persist, revert on refusal, stale-echo guard, `onPref(key)` subscribers, `html[data-mode]`, `html[data-format]`. There is no "other platform" helper: a switch action always names the platform of the item in question. |
 | `js/quality.js` | Quality control of the composer's spec row: one `Segmented` per platform (only the mode's one visible), hint line, disabled in MP3, the H.264 note on YouTube Max only. |
 | `js/api.js` | `window.__msEvent`, `pywebviewready` wait (1.5 s), mock fallback, `call()` / `on()`. |
 | `js/mock-api.js` | Full mock of BRIDGE_API (section 7 lists the URL flags). |
-| `js/scene.js` | The kit's background with Media Saver's fields, the thumbnail ghosts (`setGhosts`); re-exports `activity` / `setFocused`. |
+| `js/scene.js` | The kit's background in the theme's colours, the thumbnail ghosts (`setGhosts`); re-exports `activity` / `setFocused`. |
 | `js/engine.js` | Engine status chip (dot / ring progress), hover card with versions, popover with components and `update_engine`. |
 | `js/update.js` | Mounts the kit's update control (`mountUpdateControl`): version pill, update popover, update toasts; forwards `settings` events; `updateControl()` for the settings sheet's `mountSettings`, `appVersion()`. |
-| `js/composer.js` | Input capsule, live clean preview for the mode, chips of other platforms with "Switch to <their platform>", counters (one "N <platform>" pill per other platform present), tools, Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), Ctrl+Enter, format toggle, `Download` morph with the liquid level (one batch per platform). |
+| `js/composer.js` | Input capsule, live clean preview for the mode, chips of other platforms with "Switch to <their platform>", counters (one "N <platform>" pill per other platform present), tools (three plain `.btn-s`), Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), Ctrl+Enter, format toggle, the `Download` hero pill with its five states and the liquid level (one batch per platform). |
 | `js/clipboard.js` | Clipboard prompt pill on start and on `window` focus when `clipboard_watch`; offers the mode's links, or else the links of one other platform (the one with the most fresh links) with "Add to <platform>". |
 | `js/queue.js` | Queue header (counts of the mode, "Clear finished", the "Open folder" split button with its folder menu, `open_output_dir` / `choose_output_dir`, the "Videos now go to ..." toast on an `output_dir` change), job cards of every platform (others `[hidden]`), card shape (`tall`: Reels, Shorts, TikTok; `wide`: YouTube videos and X posts, an X post turns `tall` once its width / height or its thumbnail shows a vertical video), placeholder glyph from `kindGlyph`, author with `@` on Instagram, TikTok and X (handles), plain on YouTube (channel names), preview skeleton, per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
-| `js/settings.js` | Settings sheet (no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), the "Updates" group from the kit's `mountSettings`; its controls are the kit's Segmented / Switch / Stepper / Select. |
+| `js/settings.js` | Settings sheet (Appearance first: the kit's theme row, applied at once and saved as `theme`, restored from the confirmed value with a toast when refused; no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), the "Updates" group from the kit's `mountSettings`; its controls are the kit's Segmented / Switch / Stepper / Select. |
 | `js/icons.js`, `js/format.js` | Original line icons registered into the kit's set (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`) and `kindGlyph(platform, kind)` (Instagram `reel` / `post`, YouTube `video` / `shorts`, TikTok `shorts`, X `video`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes (all by platform). |
 | `assets/icon.svg`, `assets/icon-1024.png` | App icon: glass droplet with a down arrow (PNG rendered from the SVG with headless Edge). |
 
@@ -286,10 +261,9 @@ window is unfocused, the document hidden, after 60 s without input (`idleMs`), o
   free, more than the longest chip text ("Updating 100%", about 10 px wider) and the version pill's update dot
   need. The labels are therefore not shortened and no compact variant exists; "X" is the service's own name, not an
   abbreviation.
-- Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the primary button) at the left of
-  the composer's action row; `Download` takes the rest of the row (`.cmp-btn-slot`), so its morph measures the slot.
-  The label text is centred on its own: the icon hangs to its left (negative margin of its width + gap). The
-  shortcut hint is not in the button: a muted line under it (`.cmp-kbd-hint`, `--t-micro`, `--ink-4`, keys as faint
+- Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the hero pill) at the left of
+  the composer's action row; `Download` takes the rest of the row (`.cmp-btn-slot`), so its width spring measures
+  the slot. The shortcut hint is not in the button: a muted line under it (`.cmp-kbd-hint`, `--t-micro`, `--ink-4`, keys as faint
   `kbd`), 5 px below, centred on the button; the slot is a column and the action row aligns to the top, so the
   format toggle stays level with the button. The line's height is always reserved and only its opacity changes
   (visible while `Download` is `ready`), so neither the button's width nor the row ever moves. The button carries
@@ -327,7 +301,7 @@ window is unfocused, the document hidden, after 60 s without input (`idleMs`), o
   returns focus to the chevron, Tab or an outside click closes it. A split button rather than a second icon button:
   one control keeps the "where do my videos go" job in one place, the main action stays one click, and below 640 px
   of queue width (always the case at the 940 px minimum window) the buttons drop their labels, so the header gains
-  only 24 px (34 + 32 + 24 px of actions next to the counts). The Settings row "Downloads folder" (path + "Change…")
+  only 24 px (30 + 32 + 26 px of actions next to the counts). The Settings row "Downloads folder" (path + "Change…")
   stays. Whatever route changes `output_dir`, the `settings` event updates the title, the menu caption and the
   Settings row, and `js/queue.js` shows one toast "Videos now go to <folder name>"; the initial state never toasts.
 - Per-item format: queued cards show a compact fill toggle (`.fmt-toggle`, 22 px, CSS thumb, radio semantics, arrow
@@ -344,6 +318,11 @@ window is unfocused, the document hidden, after 60 s without input (`idleMs`), o
   scrollable well, footer with "Checked <time>" and one action. Opening it refreshes the status
   (`update_status()`). While it is open it covers the toasts (they drop at the same place; the "ready" toast and
   the panel's action say the same).
+- Settings "Appearance" group (first): the kit's theme row ("Theme", "Background colour and accent of the
+  window", four swatches Dusk / Nova / Frost / Bloom, arrows move the choice). A click applies the theme at once
+  (`applyTheme`: the root attribute, the scene retint) and saves `{ theme }`; the confirmed value from the answer
+  or a `settings` event sets the row; a refusal shows the sentence as a toast and restores the confirmed theme.
+  The persisted copy in `localStorage` only serves the first paint of the next launch; the bridge's value wins.
 - Settings "Updates" group (between Engine and About): the kit's `mountSettings` rows: the status line with
   "Checked <date, time>" and the next action (Check for updates / Download / a percentage while downloading / Restart
   to update) and "Download updates automatically" (switch). They save their own keys and
@@ -487,6 +466,8 @@ everywhere.
   and toasts "This is a TikTok link" / "These are TikTok links" / "These are TikTok and X links" with the action
   "Switch to <the platform with the most links>". Valid chips note the cut: "−1 char", "−17 chars".
 
+- Theme copy is the kit's: group "Appearance", row "Theme" with the hint "Background colour and accent of the
+  window", names "Dusk", "Nova", "Frost", "Bloom".
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
   TikTok and X videos as MP4 or MP3"; the "Updates" rows are the kit's copy: switch "Download updates automatically"
   (hint "Checked every 5 minutes; installing still needs a restart"; the check itself always runs and its period is

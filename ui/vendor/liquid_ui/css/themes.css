@@ -1,0 +1,89 @@
+/* Themes: the four palettes every app offers (the kit's documentation, "Themes"). Generated from
+   js/theme.js (THEMES + derive(); open the gallery with ?gen=1 to regenerate); a theme is a hue
+   family for the scene and a contrast accent for the primary action. The app sets
+   `data-theme` on <html> before the first paint (from its saved settings) and switches it with
+   applyTheme(). Without the attribute the page shows Dusk (the defaults of tokens.css). */
+
+/* Dusk: hue #2a5bd8, accent #ff7a59 */
+:root[data-theme="dusk"] {
+  --accent: #ff7a59;
+  --accent-2: #a66d8e;
+  --accent-ink: #ffc4b6;
+  --accent-grad: linear-gradient(135deg, #ff977e 0%, #ff7a59 48%, #a66d8e 100%);
+  --accent-grad-a: linear-gradient(135deg, rgba(255, 151, 126, 0.74) 0%, rgba(255, 122, 89, 0.74) 48%, rgba(166, 109, 142, 0.78) 100%);
+  --btn-glow: rgba(255, 122, 89, 0.55);
+  --focus-ring: rgba(255, 182, 164, 0.95);
+  --glyph-glow: rgba(85, 124, 224, 0.55);
+  --bg-top: #02050b;
+  --bg-mid: #060d1e;
+  --bg-bottom: #0b1838;
+  --scene-hue: #2a5bd8;
+  --scene-accent: #ff7a59;
+  --scene-line: #c8d4f5;
+  --tint-regular: rgba(8, 16, 39, 0.3);
+  --tint-sheet: rgba(5, 11, 26, 0.52);
+  --well: rgba(3, 7, 17, 0.4);
+}
+
+/* Nova: hue #6a3df0, accent #ff8a4a */
+:root[data-theme="nova"] {
+  --accent: #ff8a4a;
+  --accent-2: #c06a90;
+  --accent-ink: #ffccaf;
+  --accent-grad: linear-gradient(135deg, #ffa472 0%, #ff8a4a 48%, #c06a90 100%);
+  --accent-grad-a: linear-gradient(135deg, rgba(255, 164, 114, 0.74) 0%, rgba(255, 138, 74, 0.74) 48%, rgba(192, 106, 144, 0.78) 100%);
+  --btn-glow: rgba(255, 138, 74, 0.55);
+  --focus-ring: rgba(255, 191, 155, 0.95);
+  --glyph-glow: rgba(136, 100, 243, 0.55);
+  --bg-top: #05030c;
+  --bg-mid: #0f0922;
+  --bg-bottom: #1c103e;
+  --scene-hue: #6a3df0;
+  --scene-accent: #ff8a4a;
+  --scene-line: #d8cdfb;
+  --tint-regular: rgba(19, 11, 43, 0.3);
+  --tint-sheet: rgba(13, 7, 29, 0.52);
+  --well: rgba(8, 5, 19, 0.4);
+}
+
+/* Frost: hue #2d7fc9, accent #b58cff */
+:root[data-theme="frost"] {
+  --accent: #b58cff;
+  --accent-2: #7c87e8;
+  --accent-ink: #deccff;
+  --accent-grad: linear-gradient(135deg, #c5a5ff 0%, #b58cff 48%, #7c87e8 100%);
+  --accent-grad-a: linear-gradient(135deg, rgba(197, 165, 255, 0.74) 0%, rgba(181, 140, 255, 0.74) 48%, rgba(124, 135, 232, 0.78) 100%);
+  --btn-glow: rgba(181, 140, 255, 0.55);
+  --focus-ring: rgba(214, 192, 255, 0.95);
+  --glyph-glow: rgba(87, 153, 212, 0.55);
+  --bg-top: #02060a;
+  --bg-mid: #06121c;
+  --bg-bottom: #0c2134;
+  --scene-hue: #2d7fc9;
+  --scene-accent: #b58cff;
+  --scene-line: #c8def1;
+  --tint-regular: rgba(8, 23, 36, 0.3);
+  --tint-sheet: rgba(5, 15, 24, 0.52);
+  --well: rgba(4, 10, 16, 0.4);
+}
+
+/* Bloom: hue #d2409a, accent #3ee6b8 */
+:root[data-theme="bloom"] {
+  --accent: #3ee6b8;
+  --accent-2: #7ca0ab;
+  --accent-ink: #aaf4e0;
+  --accent-grad: linear-gradient(135deg, #68ecc8 0%, #3ee6b8 48%, #7ca0ab 100%);
+  --accent-grad-a: linear-gradient(135deg, rgba(104, 236, 200, 0.74) 0%, rgba(62, 230, 184, 0.74) 48%, rgba(124, 160, 171, 0.78) 100%);
+  --btn-glow: rgba(62, 230, 184, 0.55);
+  --focus-ring: rgba(149, 241, 216, 0.95);
+  --glyph-glow: rgba(219, 102, 174, 0.55);
+  --bg-top: #0b0308;
+  --bg-mid: #1d0916;
+  --bg-bottom: #371128;
+  --scene-hue: #d2409a;
+  --scene-accent: #3ee6b8;
+  --scene-line: #f3cde5;
+  --tint-regular: rgba(38, 12, 28, 0.3);
+  --tint-sheet: rgba(25, 8, 18, 0.52);
+  --well: rgba(17, 5, 12, 0.4);
+}

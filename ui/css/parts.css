@@ -37,7 +37,7 @@
   border-radius: 50%;
   background: var(--mint);
   box-shadow: 0 0 10px var(--mint);
-  transition: opacity var(--t-med) ease, background-color var(--t-med) ease, scale var(--t-med) var(--ease-out);
+  transition: opacity var(--d-3) ease, background-color var(--d-3) ease, scale var(--d-3) var(--ease-out);
 }
 
 .eng-chip[data-stage="offline"] .eng-dot { background: var(--amber); box-shadow: 0 0 10px var(--amber); }
@@ -50,7 +50,7 @@
   height: 16px;
   transform: rotate(-90deg);
   opacity: 0;
-  transition: opacity var(--t-med) ease;
+  transition: opacity var(--d-3) ease;
 }
 
 .eng-ring circle {
@@ -64,7 +64,7 @@
   stroke: var(--accent-ink);
   stroke-linecap: round;
   stroke-dasharray: calc(var(--ep, 0.25) * 100) 100;
-  transition: stroke-dasharray 0.35s var(--ease-out);
+  transition: stroke-dasharray var(--d-3) var(--ease-out);
 }
 
 .eng-chip.is-busy .eng-ring { opacity: 1; }
@@ -110,7 +110,7 @@
 .round-lens .ic {
   width: 18px;
   height: 18px;
-  transition: rotate 0.5s var(--ease-out);
+  transition: rotate var(--d-4) var(--ease-spring);
 }
 
 .round-lens:hover .ic,
@@ -135,7 +135,7 @@
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
-  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+  transition: background-color var(--d-1) ease, color var(--d-2) ease;
 }
 
 .win-btn .ic { width: 16px; height: 16px; }
@@ -196,7 +196,7 @@
   border-radius: 9px;
   background: var(--fill-2);
   cursor: pointer;
-  transition: background-color var(--t-fast) ease;
+  transition: background-color var(--d-1) ease;
 }
 
 .token:hover { background: var(--fill-3); }
@@ -363,8 +363,7 @@ body:has(#update-pop.is-open) .toasts {
 .clip-ic { color: var(--accent-ink); }
 .clip-ic .ic { width: 20px; height: 20px; }
 .clip-text b { font-weight: var(--w-display); font-variant-numeric: tabular-nums; }
-.clip-add { margin-left: 6px; height: 36px; padding: 0 14px; }
-.clip-x { width: 34px; height: 34px; }
+.clip-add { margin-left: 6px; }
 
 /* The clipboard pill lives outside #app: its loops hold with the scene as well. */
 html.is-still .clip-pill * {

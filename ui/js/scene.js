@@ -1,27 +1,18 @@
-// Media Saver's background: the kit's scene (vendor/liquid_ui/js/background.js) in Media Saver's
-// colours, plus soft "ghosts" of recent job thumbnails. The ghosts are an app layer inside #scene,
-// above the colour fields and lines, below the vignette and grain; they drift on a CSS loop that
-// holds with the rest of the scene (#scene.is-paused).
+// Media Saver's background: the kit's scene (vendor/liquid_ui/js/background.js) in the colours of
+// the active theme (the `deep` treatment reads the theme tokens; applyTheme() retints it), plus soft
+// "ghosts" of recent job thumbnails. The ghosts are an app layer inside #scene, above the colour
+// fields and lines, below the vignette and grain; they drift on a CSS loop that holds with the rest
+// of the scene (#scene.is-paused).
 
 import { initBackground, activity, setFocused } from '../vendor/liquid_ui/js/background.js';
 
 export { activity, setFocused };
 
-// Six colour fields: cobalt, violet, teal, rose, amber, sky ("lagoon" identity, docs/UI_DESIGN.md 5).
-const FIELDS = [
-  { c: '#3c6dff', x: 8, y: 12, s: 64, a: 0.75, d: 46, anim: 'drift-a' },
-  { c: '#8a4dff', x: 62, y: -6, s: 58, a: 0.62, d: 58, anim: 'drift-b' },
-  { c: '#14c7b4', x: 78, y: 62, s: 56, a: 0.5, d: 52, anim: 'drift-c' },
-  { c: '#ff6a8a', x: 30, y: 78, s: 40, a: 0.38, d: 64, anim: 'drift-b' },
-  { c: '#ffb648', x: 92, y: 28, s: 30, a: 0.3, d: 70, anim: 'drift-a' },
-  { c: '#2a9bff', x: 44, y: 42, s: 46, a: 0.36, d: 76, anim: 'drift-c' },
-];
-
 let ghosts = null;
 
 export function initScene() {
   const root = document.getElementById('scene');
-  initBackground(root, { fields: FIELDS, idleMs: 60000 });
+  initBackground(root, { idleMs: 60000 });
   ghosts = document.createElement('div');
   ghosts.className = 'scene-ghosts';
   root.insertBefore(ghosts, root.querySelector('.sc-sweep') || null);

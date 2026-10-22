@@ -1,41 +1,103 @@
-// Background scene: a layered, slowly living version of the black -> navy gradient.
+// Background scene: a dark, slowly living ground in the app's own hue.
 //
-//   1. base gradient (CSS on #scene)
-//   2. four large colour fields (cobalt, teal, violet, a faint ember) on 44-78 s CSS drift loops
+//   1. base gradient (CSS on #scene, from --bg-top / --bg-mid / --bg-bottom)
+//   2. the depth treatment: `deep` (two fields of the hue and one small contrast-accent field),
+//      `horizon` (one wide luminous band low in the frame, the accent at its end) or `mono`
+//      (no fields: the hue lives only in the base, the lines, the floor and the specks)
 //   3. faint crisp contour rings and caustic lines (static SVG on a 96 s drift): the lens rims
 //      need crisp detail to show their refraction
-//   4. ~40 blurred specks rising slowly (one half-resolution canvas, 30 fps cap)
-//   5. a light sweep that crosses the window every 26 s (CSS)
+//   3b. a floor pool along the bottom edge
+//   4. rising specks tinted from the hue and the accent (one half-resolution canvas, 30 fps cap)
+//   5. a light sweep that crosses the window every 40 s (CSS)
 //   6. vignette and a static grain tile
 //
 // Pointer parallax moves three wrappers by a few px (CSS transform transition, eased). Loops and
 // the speck canvas pause while the document is hidden, the window is unfocused (`window` event or
 // the browser blur), after 90 s without input, or with prefers-reduced-motion. Nothing here
-// triggers layout per frame: the drift is compositor work, the canvas draws ~40 sprites.
+// triggers layout per frame: the drift is compositor work, the canvas draws a few sprites.
 //
-// initBackground(root, options): every colour is an option (docs/LIQUID_UI.md, "Background"); the
-// base gradient comes from the --bg-top / --bg-mid / --bg-bottom tokens.
+// initBackground(root, options): the colours come from the options, else from the scene tokens
+// (--scene-hue, --scene-accent, --scene-line) of the root's computed style; `fields` overrides the
+// treatment's own fields (the kit's documentation, "Background").
 
 import { reducedMotion } from './motion.js';
 
-/** Default colour fields (cobalt, teal, violet, a faint ember). */
+/** The treatment names. */
+export const TREATMENTS = ['deep', 'horizon', 'mono'];
+
+/** Kit defaults when neither options nor tokens give a colour. */
+export const DEFAULT_HUE = '#2f5fe0';
+export const DEFAULT_ACCENT = '#ff8a4a';
+
+/** Fields of kit 1.x / 2.x (cobalt, teal, violet, ember); kept for apps that still pass them. */
 export const DEFAULT_FIELDS = [
-  // c: colour, x/y: centre in % of the scene, s: diameter (vmax), a: alpha, d: period (s),
-  // anim: one of the drift-a .. drift-d keyframes of css/scene.css
   { c: '#2f62ff', x: 18, y: 38, s: 92, a: 0.46, d: 58, anim: 'drift-a' },
   { c: '#12b8b0', x: 86, y: 78, s: 84, a: 0.3, d: 72, anim: 'drift-b' },
   { c: '#7a48ff', x: 78, y: 26, s: 70, a: 0.3, d: 46, anim: 'drift-c' },
   { c: '#ff8a4a', x: 12, y: 92, s: 58, a: 0.12, d: 78, anim: 'drift-d' },
 ];
 
-/** Default speck tints ("r,g,b"); the 4th and 5th are the rarer warm and violet specks. */
+/** Speck tints of kit 1.x / 2.x ("r,g,b"); kept for apps that still pass them. */
 export const DEFAULT_SPECK_TINTS = ['200,225,255', '150,210,255', '255,255,255', '255,190,140', '175,160,255'];
 
-let FIELDS = DEFAULT_FIELDS;
-let LINE_COLOR = '#cfe0ff';
-let TINTS = DEFAULT_SPECK_TINTS;
+/**
+ * The colour fields of a treatment for a hue and an accent.
+ * c: colour, x/y: centre in % of the scene, s: diameter (vmax), a: alpha, d: period (s),
+ * anim: one of the drift-a .. drift-d keyframes of css/scene.css.
+ */
+export function fieldsFor(treatment, hue, accent) {
+  if (treatment === 'horizon' || treatment === 'mono') return [];
+  return [
+    { c: hue, x: 26, y: 72, s: 128, a: 0.44, d: 110, anim: 'drift-a' },
+    { c: hue, x: 84, y: 16, s: 76, a: 0.2, d: 130, anim: 'drift-c' },
+    { c: accent, x: 90, y: 90, s: 60, a: 0.15, d: 150, anim: 'drift-b' },
+  ];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Colour helpers (hex in, "r,g,b" out)
+
+function rgbOf(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex).trim());
+  if (!m) return [255, 255, 255];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function mixWhite(hex, k) {
+  return rgbOf(hex).map((v) => Math.round(v + (255 - v) * k));
+}
+
+const rgbStr = (a) => a.join(',');
+const hexOf = (a) => `#${a.map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('')}`;
+
+/** Speck tints: hue light, hue, white, accent, accent light (the last two are the rarer ones). */
+export function speckTintsFor(hue, accent) {
+  return [rgbStr(mixWhite(hue, 0.55)), rgbStr(mixWhite(hue, 0.25)), '255,255,255', rgbStr(mixWhite(accent, 0.2)), rgbStr(mixWhite(accent, 0.5))];
+}
+
+/** Line colour: the hue lifted most of the way to white. */
+export function lineColorFor(hue) {
+  return hexOf(mixWhite(hue, 0.72));
+}
+
+function tokenOf(el, name) {
+  const v = getComputedStyle(el).getPropertyValue(name).trim();
+  return v || '';
+}
+
+// ---------------------------------------------------------------------------------------------
+// State
+
+let TREATMENT = 'deep';
+let HUE = DEFAULT_HUE;
+let ACCENT = DEFAULT_ACCENT;
+let FIELDS = null;
+let LINE_COLOR = '';
+let TINTS = null;
 let IDLE_MS = 90000;
-let SPECKS = 40;
+let SPECKS = 24;
+let FLOOR = true;
 const FRAME_MS = 1000 / 30;
 
 let scene = null;
@@ -138,9 +200,9 @@ function makeSprites() {
 function spawn(s, anywhere) {
   s.x = Math.random() * W;
   s.y = anywhere ? Math.random() * H : H + 10 + Math.random() * 40;
-  s.r = 1.5 + Math.random() * Math.random() * 6;           // half-res px: 3-15 CSS px glow
-  s.v = 3 + Math.random() * 8 + s.r * 0.6;                 // rise speed, half-res px / s
-  s.a = 0.12 + Math.random() * 0.36;
+  s.r = 1.5 + Math.random() * Math.random() * 5.5;         // half-res px: 3-14 CSS px glow
+  s.v = 2.5 + Math.random() * 6 + s.r * 0.5;               // rise speed, half-res px / s
+  s.a = 0.08 + Math.random() * 0.28;
   s.sw = 4 + Math.random() * 14;                           // sway amplitude
   s.sf = 0.05 + Math.random() * 0.12;                      // sway frequency (Hz)
   s.ph = Math.random() * Math.PI * 2;
@@ -227,22 +289,22 @@ function parallaxFrame() {
   });
 }
 
-/**
- * Build the scene into `root` (default `#scene`). Call once.
- * @param {HTMLElement} root
- * @param {{fields?:{c:string,x:number,y:number,s:number,a:number,d:number,anim:string}[],
- *          lineColor?:string, speckTints?:string[], specks?:number, idleMs?:number,
- *          parallax?:number[]}} options
- */
-export function initBackground(root = document.getElementById('scene'), options = {}) {
-  if (options.fields) FIELDS = options.fields;
-  if (options.lineColor) LINE_COLOR = options.lineColor;
-  if (options.speckTints && options.speckTints.length) TINTS = options.speckTints;
-  if (options.specks != null) SPECKS = Math.max(0, options.specks);
-  if (options.idleMs) IDLE_MS = options.idleMs;
-  if (options.parallax) DEPTH = options.parallax;
-  scene = root;
+let OPTIONS = {};
+let listening = false;
+let ro = null;
+
+function resolveColours(root, options) {
+  HUE = options.hue || tokenOf(root, '--scene-hue') || DEFAULT_HUE;
+  ACCENT = options.accent || tokenOf(root, '--scene-accent') || DEFAULT_ACCENT;
+  FIELDS = options.fields || fieldsFor(TREATMENT, HUE, ACCENT);
+  LINE_COLOR = options.lineColor || tokenOf(root, '--scene-line') || lineColorFor(HUE);
+  TINTS = options.speckTints && options.speckTints.length ? options.speckTints : speckTintsFor(HUE, ACCENT);
+}
+
+function buildLayers() {
   scene.innerHTML = '';
+  scene.dataset.treatment = TREATMENT;
+  W = H = 0;
 
   const fields = document.createElement('div');
   fields.className = 'sc-par sc-fields';
@@ -252,10 +314,19 @@ export function initBackground(root = document.getElementById('scene'), options 
     el.style.cssText = `--x:${f.x}%;--y:${f.y}%;--s:${f.s}vmax;--c:${f.c};--a:${f.a};--d:${f.d}s;--anim:${f.anim};--delay:${-i * 9}s`;
     fields.appendChild(el);
   });
+  if (TREATMENT === 'horizon') {
+    const band = document.createElement('div');
+    band.className = 'sc-band';
+    band.style.cssText = `--c:${HUE};--y:74%`;
+    const acc = document.createElement('div');
+    acc.className = 'sc-band-accent';
+    acc.style.cssText = `--c:${ACCENT};--x:84%;--y:70%`;
+    fields.append(band, acc);
+  }
 
   const lines = document.createElement('div');
   lines.className = 'sc-par sc-lines';
-  lines.innerHTML = `<div class="sc-lines-in">${linesSvg()}</div>`;
+  lines.innerHTML = `<div class="sc-lines-in"${TREATMENT === 'mono' ? ' style="--lines-o:1.35"' : ''}>${linesSvg()}</div>`;
 
   const specksWrap = document.createElement('div');
   specksWrap.className = 'sc-par';
@@ -265,6 +336,11 @@ export function initBackground(root = document.getElementById('scene'), options 
   ctx = canvas.getContext('2d');
   sprites = makeSprites();
 
+  const floor = document.createElement('div');
+  floor.className = 'sc-floor';
+  floor.style.cssText = `--c:${TREATMENT === 'mono' ? HUE : ACCENT}`;
+  floor.hidden = !FLOOR;
+
   const sweep = document.createElement('div');
   sweep.className = 'sc-sweep';
   const vignette = document.createElement('div');
@@ -273,25 +349,67 @@ export function initBackground(root = document.getElementById('scene'), options 
   grain.className = 'sc-grain';
   grain.style.backgroundImage = `url(${grainUrl()})`;
 
-  scene.append(fields, lines, specksWrap, sweep, vignette, grain);
+  scene.append(fields, lines, floor, specksWrap, sweep, vignette, grain);
   parLayers = [fields, lines, specksWrap];
-
-  new ResizeObserver(resize).observe(canvas);
+  if (ro) ro.disconnect();
+  ro = new ResizeObserver(resize);
+  ro.observe(canvas);
   resize();
+  if (lastPointer) parallaxFrame();
+}
 
-  addEventListener('pointermove', (e) => {
-    lastPointer = { x: e.clientX, y: e.clientY };
-    if (!parRaf) parRaf = requestAnimationFrame(parallaxFrame);
-    activity();
-  }, { passive: true });
-  addEventListener('keydown', activity);
-  addEventListener('wheel', activity, { passive: true });
-  addEventListener('pointerdown', activity, { passive: true });
-  addEventListener('focus', () => setFocused(true));
-  addEventListener('blur', () => setFocused(false));
-  document.addEventListener('visibilitychange', sync);
-  reducedMotion.addEventListener('change', sync);
+/**
+ * Build the scene into `root` (default `#scene`). Call once; retint() rebuilds the colours.
+ * @param {HTMLElement} root
+ * @param {{treatment?:'deep'|'horizon'|'mono', hue?:string, accent?:string,
+ *          fields?:{c:string,x:number,y:number,s:number,a:number,d:number,anim:string}[],
+ *          lineColor?:string, speckTints?:string[], specks?:number, floor?:boolean,
+ *          idleMs?:number, parallax?:number[]}} options
+ */
+export function initBackground(root = document.getElementById('scene'), options = {}) {
+  scene = root;
+  OPTIONS = options;
+  if (options.treatment && TREATMENTS.includes(options.treatment)) TREATMENT = options.treatment;
+  if (options.specks != null) SPECKS = Math.max(0, options.specks);
+  if (options.floor != null) FLOOR = !!options.floor;
+  if (options.idleMs) IDLE_MS = options.idleMs;
+  if (options.parallax) DEPTH = options.parallax;
+  resolveColours(root, options);
+  buildLayers();
+
+  if (!listening) {
+    listening = true;
+    addEventListener('pointermove', (e) => {
+      lastPointer = { x: e.clientX, y: e.clientY };
+      if (!parRaf) parRaf = requestAnimationFrame(parallaxFrame);
+      activity();
+    }, { passive: true });
+    addEventListener('keydown', activity);
+    addEventListener('wheel', activity, { passive: true });
+    addEventListener('pointerdown', activity, { passive: true });
+    addEventListener('focus', () => setFocused(true));
+    addEventListener('blur', () => setFocused(false));
+    document.addEventListener('visibilitychange', sync);
+    reducedMotion.addEventListener('change', sync);
+  }
   activity();
+}
+
+/**
+ * Re-read the scene tokens (after a theme change) and rebuild the colour layers. Explicit
+ * colours given to initBackground() keep winning over the tokens; `options` can replace them.
+ */
+export function retint(options = null) {
+  if (!scene) return;
+  if (options) OPTIONS = { ...OPTIONS, ...options };
+  if (OPTIONS.treatment && TREATMENTS.includes(OPTIONS.treatment)) TREATMENT = OPTIONS.treatment;
+  if (raf) {
+    cancelAnimationFrame(raf);
+    raf = 0;
+  }
+  resolveColours(scene, OPTIONS);
+  buildLayers();
+  sync();
 }
 
 /** Any user input: wake the scene and restart the idle timer. */

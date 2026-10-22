@@ -86,7 +86,7 @@ kbd {
 }
 
 :focus-visible {
-  outline: 2px solid rgba(140, 180, 255, 0.95);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -117,47 +117,155 @@ kbd {
 }
 
 /* ---------------------------------------------------------------------------------------------
-   Buttons */
+   Buttons (the kit's documentation, "Buttons"). One system for every app:
+   - sizes: .btn-l 44, .btn 34, .btn-s 30, .btn-xs 26; glyph buttons .icon-btn 30 (.icon-btn-s 26,
+     .icon-btn-l 36); the title bar's .tb-btn lives in components.css
+   - kinds: plain (plate), .btn-ghost (no plate until hover), .btn-tinted (the one primary action:
+     accent glass with a coloured glow), .btn-danger (rose ink; with .btn-tinted a solid rose)
+   - states: rest, :hover / .is-hover, .is-pressed (set by gel()), :focus-visible, :disabled,
+     .is-busy (label hidden, a ring spins; set aria-busy too)
+   The plate: a fill, a hairline, a 1 px bevel along the top, a 1 px shade along the bottom, a
+   soft drop shadow and a specular streak across the top 46 %; the rim (::after) is a thin conic
+   ring lit from the global light angle --la like the lenses. Label and icon: the icon leads,
+   16 px at 34 px height, gap 7 px, the label in the control type role; a glyph-only button is
+   square and carries aria-label. .is-hover exists for galleries and screenshot tests only. */
 
 .btn {
   position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 7px;
   height: 34px;
-  padding: 0 14px;
+  padding: 0 15px;
   border: 0;
   border-radius: var(--r-pill);
-  background: var(--fill-2);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, var(--btn-streak, 0.075)), rgba(255, 255, 255, 0) 46%),
+    var(--btn-fill);
   color: var(--ink-1);
   font: var(--t-control);
   letter-spacing: var(--tr-control);
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: inset 0 0 0 0.5px var(--stroke-2), inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  transition: background-color var(--t-fast) ease, opacity var(--t-med) ease, filter var(--t-fast) ease, color var(--t-fast) ease;
+  box-shadow:
+    inset 0 0 0 0.5px var(--btn-stroke),
+    inset 0 1px 0 var(--btn-bevel),
+    inset 0 -1px 0 var(--btn-shade),
+    var(--btn-drop);
   text-shadow: none;
+  transition:
+    background-color var(--d-1) ease,
+    box-shadow var(--d-1) ease,
+    color var(--d-2) ease,
+    opacity var(--d-2) ease,
+    filter var(--d-1) ease;
+}
+
+/* Specular rim: a conic ring that brightens towards the light angle, as on the lenses. */
+.btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: conic-gradient(
+    from calc(var(--la) - 90deg),
+    rgba(255, 255, 255, 0.55) 0deg,
+    rgba(255, 255, 255, 0.14) 40deg,
+    rgba(255, 255, 255, 0.02) 90deg,
+    rgba(255, 255, 255, 0.02) 150deg,
+    rgba(255, 255, 255, 0.2) 180deg,
+    rgba(255, 255, 255, 0.02) 210deg,
+    rgba(255, 255, 255, 0.02) 270deg,
+    rgba(255, 255, 255, 0.14) 320deg,
+    rgba(255, 255, 255, 0.55) 360deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  mix-blend-mode: plus-lighter;
+  opacity: var(--btn-rim, 0.5);
+  transition: opacity var(--d-1) ease;
 }
 
 .btn .ic {
   width: 16px;
   height: 16px;
+  transition: color var(--d-2) ease;
 }
 
-.btn:hover {
-  background: var(--fill-3);
+.btn:hover,
+.btn.is-hover {
+  --btn-fill: var(--btn-fill-hover);
+  --btn-streak: 0.11;
+  --btn-rim: 0.85;
 }
 
-.btn:disabled {
-  opacity: 0.36;
+.btn.is-pressed {
+  --btn-fill: var(--btn-fill-press);
+  --btn-streak: 0.05;
+  --btn-rim: 1;
+  box-shadow:
+    inset 0 0 0 0.5px var(--btn-stroke),
+    inset 0 1px 2px rgba(0, 0, 0, 0.25),
+    0 0 0 0 transparent;
+  transition-duration: 60ms;
+}
+
+.btn:disabled,
+.btn[aria-disabled="true"] {
+  opacity: 0.38;
   cursor: default;
   pointer-events: none;
+  --btn-streak: 0;
+  --btn-rim: 0.25;
+}
+
+/* Busy: the label and icon turn transparent (the width is kept), a ring spins in the middle. */
+.btn.is-busy,
+.btn.btn-tinted.is-busy,
+.btn.btn-danger.is-busy {
+  color: transparent;
+  text-shadow: none;
+  pointer-events: none;
+  cursor: default;
+}
+
+.btn.is-busy::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.26);
+  border-top-color: rgba(255, 255, 255, 0.95);
+  animation: spin 0.8s linear infinite;
+}
+
+/* Sizes */
+.btn-l {
+  height: 44px;
+  padding: 0 22px;
+  gap: 8px;
+  font: var(--w-body) 14px / 1 var(--font-text);
+  letter-spacing: -0.005em;
+}
+
+.btn-l .ic {
+  width: 17px;
+  height: 17px;
 }
 
 .btn-s {
   height: 30px;
-  padding: 0 12px;
+  padding: 0 13px;
+  gap: 6px;
   font: var(--t-control-s);
   letter-spacing: var(--tr-control);
 }
@@ -180,35 +288,98 @@ kbd {
   height: 14px;
 }
 
+.btn-xs.is-busy::before,
+.btn-s.is-busy::before {
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+}
+
+/* Kinds */
 .btn-ghost {
-  background: transparent;
+  --btn-fill: transparent;
+  --btn-streak: 0;
+  --btn-rim: 0;
   box-shadow: none;
 }
 
-.btn-ghost:hover {
-  background: var(--fill-2);
+.btn-ghost:hover,
+.btn-ghost.is-hover {
+  --btn-fill: var(--fill-2);
+  --btn-streak: 0.06;
+  --btn-rim: 0.5;
+  box-shadow: inset 0 0 0 0.5px var(--stroke-1);
+}
+
+.btn-ghost.is-pressed {
+  --btn-fill: var(--fill-3);
 }
 
 .btn-tinted {
-  background: var(--accent-grad);
-  box-shadow: 0 8px 20px -8px rgba(80, 120, 255, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.2);
-  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.18);
+  --btn-fill: transparent;
+  --btn-streak: 0.26;
+  --btn-rim: 0.9;
+  --btn-stroke: rgba(255, 255, 255, 0.28);
+  --btn-bevel: rgba(255, 255, 255, 0.34);
+  --btn-shade: rgba(0, 0, 0, 0.16);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, var(--btn-streak)), rgba(255, 255, 255, 0) 46%),
+    var(--accent-grad);
+  box-shadow:
+    inset 0 0 0 0.5px var(--btn-stroke),
+    inset 0 1px 0 var(--btn-bevel),
+    inset 0 -1px 0 var(--btn-shade),
+    0 8px 22px -8px var(--btn-glow),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
 }
 
-.btn-tinted:hover {
-  background: var(--accent-grad);
-  filter: brightness(1.1);
+.btn-tinted:hover,
+.btn-tinted.is-hover {
+  --btn-streak: 0.34;
+  filter: brightness(1.07) saturate(1.05);
+}
+
+.btn-tinted.is-pressed {
+  --btn-streak: 0.16;
+  filter: brightness(0.96);
+  box-shadow:
+    inset 0 0 0 0.5px var(--btn-stroke),
+    inset 0 1px 2px rgba(0, 0, 0, 0.22),
+    0 3px 10px -6px var(--btn-glow);
+}
+
+.btn-tinted.is-busy::before {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
 }
 
 .btn-danger {
   color: var(--rose-ink);
 }
 
-.btn-danger:hover {
-  background: rgba(255, 100, 130, 0.16);
+.btn-danger:hover,
+.btn-danger.is-hover {
+  --btn-fill: rgba(255, 100, 130, 0.16);
+  --btn-stroke: rgba(255, 120, 150, 0.3);
 }
 
+.btn-danger.is-pressed {
+  --btn-fill: rgba(255, 100, 130, 0.24);
+}
+
+.btn-danger.btn-tinted {
+  color: #fff;
+  --btn-glow: rgba(255, 90, 130, 0.5);
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, var(--btn-streak)), rgba(255, 255, 255, 0) 46%),
+    var(--rose-grad);
+}
+
+/* Glyph buttons: round, transparent at rest; .icon-btn-plate sits on the plate like .btn. */
 .icon-btn {
+  position: relative;
+  isolation: isolate;
   display: grid;
   place-items: center;
   width: 30px;
@@ -219,7 +390,7 @@ kbd {
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
-  transition: background-color var(--t-fast) ease, color var(--t-fast) ease;
+  transition: background-color var(--d-1) ease, color var(--d-2) ease, box-shadow var(--d-1) ease, opacity var(--d-2) ease;
 }
 
 .icon-btn .ic {
@@ -227,14 +398,50 @@ kbd {
   height: 17px;
 }
 
-.icon-btn:hover {
+.icon-btn:hover,
+.icon-btn.is-hover {
   background: var(--fill-3);
   color: var(--ink-1);
 }
 
-.icon-btn:disabled {
+.icon-btn.is-pressed {
+  background: var(--fill-4);
+  color: var(--ink-1);
+}
+
+.icon-btn:disabled,
+.icon-btn[aria-disabled="true"] {
   opacity: 0.35;
   pointer-events: none;
+}
+
+.icon-btn-s { width: 26px; height: 26px; }
+.icon-btn-s .ic { width: 15px; height: 15px; }
+.icon-btn-l { width: 36px; height: 36px; }
+.icon-btn-l .ic { width: 19px; height: 19px; }
+
+.icon-btn-plate {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0) 46%),
+    var(--btn-fill);
+  color: var(--ink-1);
+  box-shadow:
+    inset 0 0 0 0.5px var(--btn-stroke),
+    inset 0 1px 0 var(--btn-bevel),
+    inset 0 -1px 0 var(--btn-shade),
+    var(--btn-drop);
+}
+
+.icon-btn-plate:hover,
+.icon-btn-plate.is-hover {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0) 46%),
+    var(--btn-fill-hover);
+}
+
+.icon-btn-plate.is-pressed {
+  background: var(--btn-fill-press);
+  box-shadow: inset 0 0 0 0.5px var(--btn-stroke), inset 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 .spinner {

@@ -21,7 +21,8 @@ class SettingsTest(unittest.TestCase):
                                   "quality_youtube", "quality_tiktok", "quality_twitter", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
                                   "auto_download_updates", "auth_mode", "browser_cookies", "clipboard_watch", "sound_on_done",
-                                  "open_folder_when_done"})
+                                  "open_folder_when_done", "theme"})
+        self.assertEqual(d["theme"], "dusk")
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
         self.assertEqual(d["quality_instagram"], "max")
         self.assertEqual(d["quality_youtube"], "max")
