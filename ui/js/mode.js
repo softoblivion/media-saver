@@ -11,13 +11,10 @@ import { toast } from '../vendor/liquid_ui/js/toast.js';
 export const PLATFORMS = ['instagram', 'youtube', 'tiktok', 'twitter'];
 export const FORMATS = ['mp4', 'mp3'];
 export const PLATFORM_NAME = { instagram: 'Instagram', youtube: 'YouTube', tiktok: 'TikTok', twitter: 'X' };
-/** Allowed quality values per platform (docs/BRIDGE_API.md, Settings). */
-export const QUALITIES = {
-  instagram: ['low', 'medium', 'max'],
-  youtube: ['360', '720', 'max'],
-  tiktok: ['low', 'medium', 'max'],
-  twitter: ['low', 'medium', 'max'],
-};
+/** Allowed quality values, the same four steps for every platform and both formats
+ *  (docs/BRIDGE_API.md, Settings): MP4 by resolution, MP3 by bitrate. */
+export const QUALITY_STEPS = ['low', 'medium', 'high', 'max'];
+export const QUALITIES = Object.fromEntries(PLATFORMS.map((p) => [p, QUALITY_STEPS]));
 export const QUALITY_KEY = Object.fromEntries(PLATFORMS.map((p) => [p, `quality_${p}`]));
 
 const VALID = {

@@ -2,7 +2,8 @@
 
 Validation errors are ValueError with an English message (the bridge passes it to the UI as is).
 Loading never fails: a missing or broken file gives defaults, bad values fall back per key, unknown keys
-are dropped.
+are dropped (2.4.x - 2.6.x files carry `update_check_interval`), and quality values of versions before the
+four-step ladder are mapped (`load_quality`).
 """
 from __future__ import annotations
 
@@ -17,10 +18,17 @@ from .paths import atomic_write_json, default_output_dir
 
 log = logging.getLogger("mediasaver.core.settings")
 
-QUALITIES_INSTAGRAM = ("low", "medium", "max")   # short side <= 480 / <= 720 / best
-QUALITIES_YOUTUBE = ("360", "720", "max")        # short side <= 360 / <= 720 / best (1080p, 1440p, 2160p)
-QUALITIES_TIKTOK = ("low", "medium", "max")      # short side <= 480 / <= 720 / best (1080p)
-QUALITIES_TWITTER = ("low", "medium", "max")     # short side <= 480 / <= 720 / best (1080p)
+# One quality ladder for every platform and both formats (ENGINE.md section 4.5):
+# mp4 short side <= 480 / <= 720 / <= 1080 / best; mp3 bitrate 128 / 192 / 256 / 320 kbps.
+QUALITIES = ("low", "medium", "high", "max")
+QUALITIES_INSTAGRAM = QUALITIES
+QUALITIES_YOUTUBE = QUALITIES   # "max" = best the video has (1440p, 2160p)
+QUALITIES_TIKTOK = QUALITIES
+QUALITIES_TWITTER = QUALITIES
+# Stored values of versions before the four-step ladder (YouTube had "360" / "720"); any other stored value that
+# is not on the ladder loads as LEGACY_QUALITY_FALLBACK. Applies to the settings file only, never to a patch.
+LEGACY_QUALITIES = {"360": "low", "720": "medium"}
+LEGACY_QUALITY_FALLBACK = "high"
 PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 QUALITY_KEYS = {"instagram": "quality_instagram", "youtube": "quality_youtube", "tiktok": "quality_tiktok",
                 "twitter": "quality_twitter"}
@@ -73,8 +81,6 @@ def _bool(key: str, value: Any) -> bool:
 
 
 def _choice(key: str, value: Any, choices: tuple, label: str) -> str:
-    if isinstance(value, (int, float)) and not isinstance(value, bool) and key == "quality_youtube":
-        value = str(int(value))
     if not isinstance(value, str) or value not in choices:
         raise ValueError(f"Invalid value for '{label}': {value!r}")
     return value
@@ -159,6 +165,18 @@ def apply_patch(current: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any
     return result
 
 
+def load_quality(value: Any) -> str:
+    """Quality value of a stored settings file: ladder values unchanged, the former YouTube values mapped
+    ("360" -> "low", "720" -> "medium", also in the numeric form 360 / 720), anything else -> "high"."""
+    if isinstance(value, str) and value in QUALITIES:
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and value == int(value):
+        value = str(int(value))
+    if isinstance(value, str) and value in LEGACY_QUALITIES:
+        return LEGACY_QUALITIES[value]
+    return LEGACY_QUALITY_FALLBACK
+
+
 def load(path: str) -> dict[str, Any]:
     """Defaults merged with the valid values of the file; never raises."""
     result = defaults()
@@ -174,7 +192,11 @@ def load(path: str) -> dict[str, Any]:
         log.warning("settings file %s is not an object; using defaults", path)
         return result
     for key in KEYS:
-        if key in data:
+        if key in data and key in QUALITY_KEYS.values():
+            result[key] = load_quality(data[key])
+            if result[key] != data[key]:
+                log.info("settings key %r: stored value %r loads as %r", key, data[key], result[key])
+        elif key in data:
             try:
                 result[key] = validate_value(key, data[key])
             except (ValueError, KeyError) as exc:

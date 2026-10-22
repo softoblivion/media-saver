@@ -145,7 +145,7 @@ class EngineTest(unittest.TestCase):
         def boom(t, p):
             raise RuntimeError("ui gone")
         engine = Engine(boom, "1", use_system_ffmpeg=False, app_updates=False)
-        engine.set_settings({"quality_youtube": "720"})  # must not raise
+        engine.set_settings({"quality_youtube": "medium"})  # must not raise
         engine.logout()
 
     @unittest.skipUnless(HAS_LINKCLEAN, "app.core.linkclean not written yet")
@@ -171,6 +171,68 @@ class EngineTest(unittest.TestCase):
         self.assertIsNone(self.engine.job_file(job_id))
         self.assertEqual(self.engine.clear_finished("youtube"), 0)
         self.assertEqual(self.engine.clear_finished(), 1)
+
+    def _start_order(self, n):
+        """Ids of the next n jobs the download workers would start (the engine is not started here)."""
+        dl = self.engine.downloader
+        dl.usable = lambda: True
+        order = []
+        for _ in range(n):
+            job = dl._next_job()
+            order.append(job.id)
+            with dl._cond:
+                dl._running.discard(job.id)  # as if it finished at once: the next one may start
+        return order
+
+    @unittest.skipUnless(HAS_LINKCLEAN, "app.core.linkclean not written yet")
+    def test_pasted_batch_reads_and_downloads_top_to_bottom(self):
+        links = ["https://www.youtube.com/watch?v=aaaaaaaaaa1", "https://www.youtube.com/watch?v=aaaaaaaaaa2",
+                 "https://www.youtube.com/watch?v=aaaaaaaaaa3"]
+        res = self.engine.enqueue("\n".join(links), "youtube")
+        added = [j["id"] for j in res["added"]]
+        self.assertEqual([j["url"] for j in res["added"]], links)  # `added` in paste order
+        shown = [j["id"] for j in self.engine.get_state()["jobs"]]  # newest first = top to bottom in the UI
+        self.assertEqual(shown, added)
+        created = [j["created_at"] for j in res["added"]]
+        self.assertEqual(created, sorted(created, reverse=True))  # the UI sorts by created_at, newest first
+        self.assertEqual(len(set(created)), 3)
+        job_events = [p["id"] for t, p in self.events if t == "job"]
+        self.assertEqual(job_events, list(reversed(added)))  # emitted oldest first: inserting on arrival agrees
+        self.assertEqual(self._start_order(3), added)
+
+    @unittest.skipUnless(HAS_LINKCLEAN, "app.core.linkclean not written yet")
+    def test_later_enqueue_starts_before_older_queued_jobs(self):
+        first = [j["id"] for j in self.engine.enqueue(
+            "https://www.youtube.com/watch?v=bbbbbbbbbb1 https://www.youtube.com/watch?v=bbbbbbbbbb2")["added"]]
+        later = self.engine.enqueue("https://www.youtube.com/watch?v=bbbbbbbbbb3")["added"][0]["id"]
+        self.assertEqual([j["id"] for j in self.engine.get_state()["jobs"]], [later] + first)
+        self.assertEqual(self._start_order(3), [later] + first)
+
+    def test_created_at_is_strictly_increasing_on_a_frozen_clock(self):
+        dl = self.engine.downloader
+        from unittest import mock
+        with mock.patch("app.core.downloader.time.time", return_value=1760950000.0):
+            a = dl.add("https://www.youtube.com/watch?v=ccccccccccc", "ccccccccccc", "youtube", "video", "mp4")
+            batch = dl.add_batch([("https://www.youtube.com/watch?v=cccccccccc1", "cccccccccc1", "youtube", "video",
+                                   "mp4"),
+                                  ("https://www.youtube.com/watch?v=cccccccccc2", "cccccccccc2", "youtube", "video",
+                                   "mp4")])
+        self.assertGreater(batch[1]["created_at"], a["created_at"])
+        self.assertGreater(batch[0]["created_at"], batch[1]["created_at"])
+        shown = dl.jobs()
+        self.assertEqual([j["id"] for j in shown], [batch[0]["id"], batch[1]["id"], a["id"]])
+        self.assertEqual([j["created_at"] for j in shown], sorted((j["created_at"] for j in shown), reverse=True))
+
+    def test_retried_job_moves_to_the_top_and_starts_next(self):
+        dl = self.engine.downloader
+        old = dl.add("https://www.youtube.com/watch?v=ddddddddddd", "ddddddddddd", "youtube", "video", "mp4")["id"]
+        newer = dl.add("https://www.youtube.com/watch?v=dddddddddd1", "dddddddddd1", "youtube", "video", "mp4")["id"]
+        self.assertTrue(dl.cancel(old))
+        created = dl.get(old).created_at
+        self.assertTrue(dl.retry(old))
+        self.assertEqual([j["id"] for j in dl.jobs()], [old, newer])
+        self.assertEqual(dl.get(old).created_at, created)  # unchanged: a live UI keeps the card in place
+        self.assertEqual(self._start_order(2), [old, newer])
 
     @unittest.skipUnless(HAS_LINKCLEAN, "app.core.linkclean not written yet")
     def test_enqueue_platform_filter_and_format(self):

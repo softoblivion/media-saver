@@ -15,12 +15,17 @@ body:not(.is-ready) #app {
 /* ---------------------------------------------------------------------------------------------
    Title bar */
 
+/* Three columns: brand + version pill | mode switch | right cluster. The side columns share the free
+   width equally (1fr each), so the mode switch sits at the window's centre whatever the widths of
+   the brand block and the right cluster are. The drag region is an absolutely positioned layer
+   under all three (it takes no grid cell). */
 #titlebar {
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 10px;
-  padding: 0 7px 0 16px;
+  column-gap: 12px;
+  padding: 0 7px;   /* symmetric, so the middle column is centred on the window; the brand adds its own inset */
 }
 
 .tb-drag {
@@ -28,12 +33,22 @@ body:not(.is-ready) #app {
   inset: 0;
 }
 
+/* The brand block lets pointer events through to the drag layer below; only the version pill
+   (a button, not a drag region) takes them back, so it stays clickable. */
 .tb-brand {
   position: relative;
+  justify-self: start;
   display: flex;
   align-items: center;
   gap: 9px;
+  min-width: 0;
+  margin-left: 9px;
   pointer-events: none;
+}
+
+.tb-brand .ver-pill {
+  margin-left: 3px;
+  pointer-events: auto;
 }
 
 .tb-name {
@@ -43,20 +58,18 @@ body:not(.is-ready) #app {
   text-shadow: var(--ink-shadow);
 }
 
-/* Mode switch (Instagram / YouTube / TikTok / X): a sibling of the drag region, never inside it.
-   Four full labels are about 280 px wide; at the 940 px minimum window about 135 px stay free before
-   the right cluster (docs/UI_DESIGN.md 6.1). */
+/* Mode switch (Instagram / YouTube / TikTok / X as service glyphs): a sibling of the drag region,
+   never inside it, centred in the middle column (docs/UI_DESIGN.md 6.1). */
 .tb-mode {
   position: relative;
-  flex: none;
-  margin-left: 14px;
+  justify-self: center;
   display: flex;
   align-items: center;
 }
 
 .tb-right {
   position: relative;
-  margin-left: auto;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -379,8 +392,9 @@ body:not(.is-ready) #app {
   50% { opacity: 1; scale: 1.06 1; }
 }
 
-/* Spec row ("what you get"): video quality of the current mode, read right before the format toggle
-   and Download below it. MP3 dims the control (is-off) instead of hiding it, so nothing jumps. */
+/* Spec row ("what you get"): quality of the current mode, read right before the format toggle and
+   Download below it. The same four steps apply to MP4 (resolution) and MP3 (bitrate); only the
+   hint wording follows the format. */
 .cmp-spec {
   flex: none;
   display: flex;
@@ -413,8 +427,12 @@ body:not(.is-ready) #app {
   transition: color var(--d-3) ease;
 }
 
-.cmp-spec.is-off .spec-label,
-.cmp-spec.is-off .spec-hint { color: var(--ink-4); }
+/* Four options need about 240 px: in a narrow composer (the 940 px window gives 332 px) the caption
+   goes first, so the hint (resolution or bitrate) keeps its room; the option names and the group's
+   aria-label still say what the control is. Below 290 px the hint goes too (the tooltips carry it). */
+@container (max-width: 380px) {
+  .spec-label { display: none; }
+}
 
 @container (max-width: 290px) {
   .spec-hint { display: none; }
@@ -435,32 +453,7 @@ body:not(.is-ready) #app {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
 }
-
-/* Shortcut hint under the button: muted, its line always reserved, visible only while Download is ready. */
-.cmp-kbd-hint {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font: var(--t-micro);
-  letter-spacing: var(--tr-micro);
-  color: var(--ink-4);
-  opacity: 0;
-  transition: opacity var(--d-3) ease;
-  pointer-events: none;
-  user-select: none;
-}
-
-.cmp-kbd-hint kbd {
-  padding: 0 5px;
-  line-height: 1.5;
-  color: var(--ink-3);
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.1);
-}
-
-.cmp-btn-slot:has(#btn-download[data-state="ready"]) .cmp-kbd-hint { opacity: 1; }
 
 /* The primary button is the kit's hero pill (`.hero`, components.css of the kit; js/composer.js adds
    the pill lens and the gel). It fills its slot; js/composer.js animates its width to a circle while

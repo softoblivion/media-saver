@@ -206,6 +206,45 @@ class JobTests(FakeBase):
         self.assertGreater(job["duration_s"], 0)
         self.assertIsNotNone(first)
 
+    def test_batch_reads_and_starts_top_to_bottom(self):
+        self.engine.set_settings({"concurrency": 1})
+        with mock.patch("app.fake_engine.time.sleep", lambda s: None):
+            result = self.engine.enqueue(f"{IG} {YT} {TT}")
+            added = [j["id"] for j in result["added"]]
+            self.assertEqual([j["url"] for j in result["added"]], [IG_CLEAN, YT_CLEAN, TT_CLEAN])  # paste order
+            self.assertEqual([j["id"] for j in self.engine.get_state()["jobs"]], added)       # top to bottom
+            created = [j["created_at"] for j in result["added"]]
+            self.assertEqual(created, sorted(set(created), reverse=True))
+            self.assertTrue(self.wait_for(lambda: all(j["status"] == "done" for j in self.engine.get_state()["jobs"]),
+                                          20))
+        with self.lock:
+            starts = [p["id"] for t, p in self.events if t == "job" and p["status"] == "probing"]
+        first_start = list(dict.fromkeys(starts))
+        self.assertEqual(first_start, added)
+
+    def test_later_enqueue_starts_before_older_queued_jobs(self):
+        self.engine.set_settings({"concurrency": 1})
+        running = self.engine.enqueue(YT)["added"][0]["id"]  # takes the single slot
+        self.assertTrue(self.wait_for(lambda: self.engine.get_state()["jobs"][0]["status"] != "queued"))
+        older = self.engine.enqueue(IG)["added"][0]["id"]
+        later = self.engine.enqueue(TT)["added"][0]["id"]
+        self.assertTrue(self.wait_for(lambda: any(
+            j["id"] in (older, later) and j["status"] != "queued" for j in self.engine.get_state()["jobs"]), 20))
+        state = {j["id"]: j["status"] for j in self.engine.get_state()["jobs"]}
+        self.assertNotEqual(state[later], "queued")
+        self.assertEqual(state[older], "queued")
+        self.assertIsNotNone(running)
+
+    def test_previews_of_a_batch_arrive_in_parallel(self):
+        self.engine.set_settings({"concurrency": 1})
+        started = time.time()
+        ids = [j["id"] for j in self.engine.enqueue(f"{IG} {YT} {TT} {X}")["added"]]
+        self.assertTrue(self.wait_for(lambda: all(j["previewed"] for j in self.engine.get_state()["jobs"]), 3))
+        self.assertLess(time.time() - started, 1.6)  # serially four previews would take 1.2 s at the least
+        jobs = {j["id"]: j for j in self.engine.get_state()["jobs"]}
+        for job_id in ids:
+            self.assertTrue(jobs[job_id]["title"] and jobs[job_id]["author"] and jobs[job_id]["thumbnail"])
+
     def test_set_job_format_only_while_queued(self):
         self.engine.set_settings({"concurrency": 1})
         self.engine.enqueue(YT)
@@ -231,11 +270,40 @@ class JobTests(FakeBase):
 
     def test_mp4_job_has_video_fields(self):
         with mock.patch("app.fake_engine.time.sleep", lambda s: None):
-            self.engine.enqueue(YT)
+            self.engine.enqueue(IG)
             self.assertTrue(self.wait_for(lambda: self.engine.get_state()["jobs"][0]["status"] == "done", 20))
         done = self.engine.get_state()["jobs"][0]
-        self.assertEqual((done["vcodec"], done["acodec"], done["height"]), ("h264", "aac", 1920))
+        self.assertEqual((done["vcodec"], done["acodec"], done["width"], done["height"]), ("h264", "aac", 1080, 1920))
         self.assertTrue(done["filepath"].endswith(".mp4"))
+
+    def run_one(self, link, fmt="mp4"):
+        with mock.patch("app.fake_engine.time.sleep", lambda s: None):
+            job_id = self.engine.enqueue(link, None, fmt)["added"][0]["id"]
+            self.assertTrue(self.wait_for(lambda: any(
+                j["id"] == job_id and j["status"] == "done" for j in self.engine.get_state()["jobs"]), 20))
+        done = next(j for j in self.engine.get_state()["jobs"] if j["id"] == job_id)
+        self.engine.remove(job_id)  # the same link may be queued again by the next case
+        return done
+
+    def test_mp4_resolution_follows_the_quality_ladder(self):
+        cases = [("quality_instagram", IG, {"low": (480, 854), "medium": (720, 1280), "high": (1080, 1920),
+                                            "max": (1080, 1920)}),
+                 ("quality_youtube", YT, {"low": (854, 480), "medium": (1280, 720), "high": (1920, 1080),
+                                          "max": (3840, 2160)})]
+        for key, link, sizes in cases:
+            for quality, size in sizes.items():
+                with self.subTest(key=key, quality=quality):
+                    self.engine.set_settings({key: quality})
+                    done = self.run_one(link)
+                    self.assertEqual((done["width"], done["height"]), size)
+
+    def test_mp3_size_follows_the_ladder_bitrate(self):
+        sizes = {}
+        for quality in ("low", "medium", "high", "max"):
+            self.engine.set_settings({"quality_tiktok": quality})
+            done = self.run_one(TT, "mp3")
+            sizes[quality] = done["filesize"] / done["duration_s"] / 125  # bytes per second -> kbit/s
+        self.assertEqual({q: round(v) for q, v in sizes.items()}, {"low": 128, "medium": 192, "high": 256, "max": 320})
 
     def test_fail_shortcode_gives_a_platform_specific_error(self):
         with mock.patch("app.fake_engine.time.sleep", lambda s: None):
@@ -277,17 +345,18 @@ class QualitySettingsTests(FakeBase):
         self.assertEqual([settings[f"quality_{p}"] for p in ("instagram", "youtube", "tiktok", "twitter")],
                          ["max"] * 4)
 
-    def test_tiktok_and_x_quality_accept_low_medium_max(self):
-        for key in ("quality_tiktok", "quality_twitter"):
-            for value in ("low", "medium", "max"):
+    def test_every_platform_accepts_the_four_step_ladder(self):
+        for key in ("quality_instagram", "quality_youtube", "quality_tiktok", "quality_twitter"):
+            for value in ("low", "medium", "high", "max"):
                 with self.subTest(key=key, value=value):
                     self.assertEqual(self.engine.set_settings({key: value})[key], value)
                     self.assertEqual(self.engine.get_settings()[key], value)
 
-    def test_invalid_tiktok_and_x_quality_is_rejected(self):
-        cases = [("quality_tiktok", "Invalid TikTok quality."), ("quality_twitter", "Invalid X quality.")]
+    def test_invalid_quality_is_rejected(self):
+        cases = [("quality_instagram", "Invalid Instagram quality."), ("quality_youtube", "Invalid YouTube quality."),
+                 ("quality_tiktok", "Invalid TikTok quality."), ("quality_twitter", "Invalid X quality.")]
         for key, message in cases:
-            for value in ("360", "720", "high", "", None):
+            for value in ("360", "720", 720, "best", "", None):
                 with self.subTest(key=key, value=value):
                     with self.assertRaises(ValueError) as ctx:
                         self.engine.set_settings({key: value})

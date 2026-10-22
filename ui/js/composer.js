@@ -87,12 +87,6 @@ export function initComposer() {
     clearTimeout(debounce);
     debounce = setTimeout(refresh, 110);
   });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.ctrlKey) {
-      e.preventDefault();
-      download();
-    }
-  });
 
   root.querySelectorAll('[data-tool]').forEach((b) => {
     gel(b);
@@ -130,12 +124,6 @@ export function initComposer() {
   onPref('format', (f) => {
     formatSeg.set(f);
     renderButton();
-  });
-  addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && e.ctrlKey && e.target !== input && !topOverlay()) {
-      e.preventDefault();
-      download();
-    }
   });
   applyCopy();
   autoGrow();

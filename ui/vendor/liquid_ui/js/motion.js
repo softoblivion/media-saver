@@ -77,8 +77,16 @@ function frame(t) {
 }
 
 function wake(s) {
+  if (document.hidden) {
+    // No frames arrive while the window is hidden (minimized, another virtual desktop): jump to the
+    // target now, so an overlay opened by a background event (the update sheet) is complete when the
+    // window comes back instead of frozen at its first frame.
+    active.delete(s);
+    s.snap();
+    return;
+  }
   active.add(s);
-  if (!rafId && !document.hidden) {
+  if (!rafId) {
     lastT = 0;
     rafId = requestAnimationFrame(frame);
   }
@@ -90,7 +98,13 @@ document.addEventListener('visibilitychange', () => {
     if (rafId) cancelAnimationFrame(rafId);
     rafId = 0;
     lastT = 0;
-    for (const s of Array.from(active)) s.snap();
+    for (const s of Array.from(active)) {
+      active.delete(s);
+      s.snap();
+    }
+  } else if (active.size && !rafId) {
+    lastT = 0;
+    rafId = requestAnimationFrame(frame);
   }
 });
 

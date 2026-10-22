@@ -248,7 +248,6 @@ class Bridge:
         self._login_opener = login_opener
         self._on_close = on_close
         self._logout_hook: Optional[Callable[[], None]] = None
-        self._maximized = False
         self._focused = True
         self._shutdown_lock = threading.Lock()
         self._shut_down = False
@@ -267,17 +266,12 @@ class Bridge:
     def _toast(self, level: str, text: str) -> None:
         self._pump.emit("toast", {"level": level, "text": text})
 
-    def _on_window_state(self, maximized: Optional[bool] = None, focused: Optional[bool] = None) -> None:
-        """Called by native window events; emits `window` when something actually changed."""
-        changed = False
-        if maximized is not None and maximized != self._maximized:
-            self._maximized = maximized
-            changed = True
+    def _on_window_state(self, focused: Optional[bool] = None) -> None:
+        """Called by the native focus events; emits `window` ({"focused": bool}) when the focus state changed.
+        The window has a fixed size and cannot be maximized, so focus is the only window state."""
         if focused is not None and focused != self._focused:
             self._focused = focused
-            changed = True
-        if changed:
-            self._pump.emit("window", {"maximized": self._maximized, "focused": self._focused})
+            self._pump.emit("window", {"focused": self._focused})
 
     def _shutdown(self) -> None:
         """Idempotent: stop the pump and shut the engine down (<= 3 s by contract)."""
@@ -318,7 +312,7 @@ class Bridge:
             start()
         state = self._engine.get_state()
         self._pump.set_ready()
-        self._pump.emit("window", {"maximized": self._maximized, "focused": self._focused})
+        self._pump.emit("window", {"focused": self._focused})
         return state
 
     # -- links and jobs
@@ -482,25 +476,12 @@ class Bridge:
     def open_url(self, url):
         return bool(winutil.open_url(_as_text(url)))
 
-    # -- window control (frameless window: the HTML title bar calls these)
+    # -- window control (fixed-size frameless window: the HTML title bar offers minimize and close only)
     @_api
     def window_minimize(self):
         if self._window is not None:
             self._window.minimize()
         return None
-
-    @_api
-    def window_toggle_maximize(self):
-        if self._window is None:
-            return self._maximized
-        if self._maximized:
-            self._window.restore()
-            new_state = False
-        else:
-            self._window.maximize()
-            new_state = True
-        self._on_window_state(maximized=new_state)
-        return new_state
 
     @_api
     def window_close(self):

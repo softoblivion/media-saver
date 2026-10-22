@@ -14,7 +14,7 @@ CONTRACT_METHODS = {
     "ready", "clean_links", "enqueue", "set_job_format", "cancel", "retry", "remove", "clear_finished", "open_file",
     "reveal_file", "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings",
     "update_engine", "update_status", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
-    "read_clipboard", "copy_text", "open_url", "window_minimize", "window_toggle_maximize", "window_close",
+    "read_clipboard", "copy_text", "open_url", "window_minimize", "window_close",
 }
 
 
@@ -30,12 +30,6 @@ class FakeWindow:
 
     def minimize(self):
         self.calls.append("minimize")
-
-    def maximize(self):
-        self.calls.append("maximize")
-
-    def restore(self):
-        self.calls.append("restore")
 
     def hide(self):
         self.calls.append("hide")
@@ -191,7 +185,7 @@ class DelegationTests(unittest.TestCase):
         self.assertIs(bridge.remove("a1"), True)
         self.assertEqual(bridge.clear_finished(), 3)
         self.assertEqual(bridge.get_settings()["quality_youtube"], "max")
-        self.assertEqual(bridge.set_settings({"quality_youtube": "720"})["quality_youtube"], "720")
+        self.assertEqual(bridge.set_settings({"quality_youtube": "medium"})["quality_youtube"], "medium")
         self.assertIsNone(bridge.update_engine())
         self.assertEqual(bridge.logout(), {"logged_in": False})
         names = [c[0] for c in engine.calls]
@@ -449,26 +443,31 @@ class WindowTests(unittest.TestCase):
         self.assertIsNone(bridge.window_minimize())
         self.assertEqual(window.calls, ["minimize"])
 
-    def test_toggle_maximize_roundtrip_and_event(self):
-        bridge, _, window, pump, _ = make_bridge()
-        pump.set_ready()
-        self.assertTrue(bridge.window_toggle_maximize())
-        self.assertFalse(bridge.window_toggle_maximize())
-        self.assertEqual(window.calls, ["maximize", "restore"])
-        pump.flush()
-        text = "".join(window.scripts)
-        self.assertIn('"maximized":true', text)
-        self.assertIn('"maximized":false', text)
+    def test_no_maximize_method(self):
+        # the window is fixed-size: nothing in the API can maximize or restore it
+        bridge, *_ = make_bridge()
+        self.assertFalse(hasattr(bridge, "window_toggle_maximize"))
+        self.assertFalse(hasattr(bridge, "_maximized"))
 
     def test_window_event_only_when_state_changes(self):
         bridge, _, window, pump, _ = make_bridge()
         pump.set_ready()
-        bridge._on_window_state(maximized=False, focused=True)  # same as the defaults
+        bridge._on_window_state(focused=True)  # same as the default
         pump.flush()
         self.assertEqual(window.scripts, [])
         bridge._on_window_state(focused=False)
         pump.flush()
         self.assertIn('"focused":false', window.scripts[0])
+
+    def test_window_event_payload_is_focus_only(self):
+        bridge, _, window, pump, _ = make_bridge()
+        bridge.ready()
+        bridge._on_window_state(focused=False)
+        pump.flush()
+        text = "".join(window.scripts)
+        self.assertIn('"window",{"focused":true}', text)
+        self.assertIn('"window",{"focused":false}', text)
+        self.assertNotIn("maximized", text)
 
     def test_close_shuts_engine_down_once_then_destroys(self):
         bridge, engine, window, pump, closed = make_bridge()

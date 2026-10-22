@@ -204,7 +204,7 @@ class Engine:
     def enqueue(self, text: str, platform: str | None = None, fmt: str | None = None) -> dict:
         result = _clean_links(text, _platform(platform))
         fmt = _format(fmt) or self._settings["format"]
-        added: list[dict] = []
+        batch: list[tuple[str, str, str, str, str]] = []
         skipped: list[dict] = []
         with self._lock:
             active = self.downloader.active_keys()
@@ -218,7 +218,10 @@ class Engine:
                     skipped.append({"input": item.get("original", ""), "reason": "duplicate"})
                     continue
                 active.add(key)
-                added.append(self.downloader.add(item["clean"], item["shortcode"], item["platform"], item["kind"], fmt))
+                batch.append((item["clean"], item["shortcode"], item["platform"], item["kind"], fmt))
+            # one call: the first pasted link lands on top of the list and starts first (ARCHITECTURE 5.2);
+            # `added` comes back in paste order
+            added = self.downloader.add_batch(batch)
         return {"added": added, "skipped": skipped}
 
     def set_job_format(self, job_id: str, fmt: str) -> dict | None:

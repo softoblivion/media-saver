@@ -91,7 +91,7 @@
 .eng-hover i { font-style: normal; color: var(--ink-4); }
 
 /* ---------------------------------------------------------------------------------------------
-   Title bar: gear lens and window buttons (minimize, maximize / restore, close) */
+   Title bar: gear lens and window buttons (minimize, close; the window has a fixed size) */
 
 .round-lens {
   width: 32px;
@@ -295,6 +295,32 @@
 
 .seg-tb .seg-drop { height: 28px; }
 
+/* Service glyphs in the mode switch (js/main.js swaps each text label for its svc* icon). The
+   glyph never takes pointer events: the kit resolves pointer selection on the track's drag handler.
+   The selected glyph is lit in the theme's accent with a soft glow; the glow is a filter on the
+   glyph itself, never on an ancestor of the droplet lens (UI_DESIGN 2.3). */
+.seg-svc .seg-opt {
+  display: grid;
+  place-items: center;
+  padding: 0 13px;
+}
+
+.seg-svc .seg-opt .ic {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  transition: color var(--d-2) ease, filter var(--d-3) ease;
+}
+
+.seg-svc .seg-opt[aria-checked="true"] {
+  color: var(--accent-ink);
+}
+
+.seg-svc .seg-opt[aria-checked="true"] .ic {
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 75%, transparent))
+          drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 45%, transparent));
+}
+
 /* Large variant (format toggle next to Download): matches the 52 px primary button. */
 .seg.seg-l {
   flex: none;
@@ -311,10 +337,11 @@
 
 .seg-l .seg-drop { height: 46px; }
 
-/* Compact variant (quality in the composer's spec row): 34 px, like the title bar switch. */
+/* Compact variant (quality in the composer's spec row): 34 px, like the title bar switch. Four
+   options (Low / Medium / High / Max): 9 px side padding, about 237 px in all (UI_DESIGN 6.1). */
 .seg-q .seg-opt {
   height: 28px;
-  padding: 0 12px;
+  padding: 0 9px;
   font: var(--t-control-s);
   letter-spacing: var(--tr-control);
 }

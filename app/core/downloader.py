@@ -675,13 +675,12 @@ def unique_path(path: str) -> str:
 # Format selection
 # =====================================================================================================
 
-# Short-side caps per platform setting (`quality_<platform>`); None = best available.
-QUALITY_CAPS = {
-    "instagram": {"low": 480, "medium": 720, "max": None},
-    "youtube": {"360": 360, "720": 720, "max": None},
-    "tiktok": {"low": 480, "medium": 720, "max": None},
-    "twitter": {"low": 480, "medium": 720, "max": None},
-}
+# One ladder for every platform (`quality_<platform>`, ENGINE.md section 4.5).
+# mp4: short-side cap in pixels, None = best available.
+_LADDER_CAPS = {"low": 480, "medium": 720, "high": 1080, "max": None}
+QUALITY_CAPS = {p: dict(_LADDER_CAPS) for p in ("instagram", "youtube", "tiktok", "twitter")}
+# mp3: constant bitrate in kbit/s (`--audio-quality <N>K` for yt-dlp, `-b:a <N>k` for ffmpeg).
+MP3_BITRATES = {"low": 128, "medium": 192, "high": 256, "max": 320}
 QUALITY_SETTING = {"instagram": "quality_instagram", "youtube": "quality_youtube", "tiktok": "quality_tiktok",
                    "twitter": "quality_twitter"}
 CAP_TOLERANCE = 1.02  # a cap keeps near-cap streams (Instagram serves 716x1274 next to 720x1280, 1088x1936 next to 1080x1920)
@@ -690,6 +689,11 @@ CAP_TOLERANCE = 1.02  # a cap keeps near-cap streams (Instagram serves 716x1274 
 def quality_cap(platform: str, quality: str) -> int | None:
     """Short-side cap in pixels for a platform's quality value; None for "max" and for unknown values."""
     return QUALITY_CAPS.get(platform, {}).get(quality)
+
+
+def mp3_bitrate(quality: str) -> int:
+    """MP3 bitrate in kbit/s for a quality value; unknown values get the "max" bitrate (as mp4 gets "best")."""
+    return MP3_BITRATES.get(quality, MP3_BITRATES["max"])
 
 
 def _is_avc(vcodec: str | None) -> bool:
@@ -779,7 +783,7 @@ class FormatChoice:
 def select_formats(info: dict[str, Any], platform: str, quality: str, h264_compat: bool) -> FormatChoice:
     """Pick video + audio: highest resolution, then fps, then bitrate; AVC at the same size when h264_compat.
 
-    `quality` is the value of the platform's own setting (`quality_instagram` / `quality_youtube`).
+    `quality` is the value of the platform's own setting (`quality_instagram`, `quality_youtube`, ...).
     """
     formats = info.get("formats") or []
     cap = quality_cap(platform, quality)
@@ -1012,6 +1016,7 @@ class Job:
     thumb_path: str | None = None
     preview_path: str | None = None   # cache/jobs/<id>/preview.json written by the preview worker
     preview_at: float | None = None   # time.time() of that fetch; the download reuses it for PREVIEW_MAX_AGE
+    thumb_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)  # one thumbnail fetch at a time
 
     @property
     def platform_name(self) -> str:
@@ -1097,6 +1102,8 @@ class Downloader:
     """Thread-safe job table + worker pool running the per-job pipeline."""
 
     MAX_WORKERS = 4
+    PREVIEW_WORKERS = 3      # preview fetches of queued jobs run in parallel, top of the list first
+    CREATED_STEP = 0.001     # created_at of each added job is strictly greater than the previous one
     RATE_BACKOFF = (30.0, 90.0)
     EMIT_INTERVAL = 0.15
     PROBE_TIMEOUT = 180.0
@@ -1130,8 +1137,9 @@ class Downloader:
         self._lock = threading.RLock()
         self._cond = threading.Condition(self._lock)
         self._jobs: dict[str, Job] = {}
-        self._order: list[str] = []  # oldest first
-        self._queue: list[str] = []
+        self._order: list[str] = []  # oldest first; jobs() and the UI show it newest first (top = last here)
+        self._queue: list[str] = []  # queued job ids; the worker takes the one shown topmost (last in _order)
+        self._last_created = 0.0     # created_at of the newest job, so the next one gets a strictly greater value
         self._running: set[str] = set()
         self._last_emit: dict[str, float] = {}
         self._threads: list[threading.Thread] = []
@@ -1140,8 +1148,9 @@ class Downloader:
         self._batch_done = 0
         self._batch_failed = 0
         self._history_lock = threading.Lock()
-        self._preview_id: str | None = None             # job whose preview fetch runs now
-        self._preview_cancel = threading.Event()        # stops that fetch (job started, canceled, removed, shutdown)
+        # preview fetches in flight: job id -> {"cancel": Event, "running": bool}; "running" turns true when the
+        # fetch holds the gate and its subprocess starts (a download that starts then lets it finish)
+        self._previews: dict[str, dict[str, Any]] = {}
 
     # --- lifecycle -----------------------------------------------------------------------------------
     def start(self) -> None:
@@ -1150,9 +1159,10 @@ class Downloader:
             t = threading.Thread(target=self._worker, name=f"ms-job-{i}", daemon=True)
             t.start()
             self._threads.append(t)
-        t = threading.Thread(target=self._preview_worker, name="ms-preview", daemon=True)
-        t.start()
-        self._threads.append(t)
+        for i in range(self.PREVIEW_WORKERS):
+            t = threading.Thread(target=self._preview_worker, name=f"ms-preview-{i}", daemon=True)
+            t.start()
+            self._threads.append(t)
 
     def shutdown(self, timeout: float = 2.5) -> None:
         with self._cond:
@@ -1160,7 +1170,8 @@ class Downloader:
             running = [self._jobs[j] for j in self._running if j in self._jobs]
             for job in running:
                 job.cancel_event.set()
-            self._preview_cancel.set()
+            for entry in self._previews.values():
+                entry["cancel"].set()
             self._cond.notify_all()
         deadline = time.monotonic() + timeout
         for t in self._threads:
@@ -1191,26 +1202,51 @@ class Downloader:
             return {f"{j.platform}:{j.shortcode}" for j in self._jobs.values() if j.status in ACTIVE}
 
     def add(self, url: str, shortcode: str, platform: str, kind: str, fmt: str) -> dict:
-        """Queue a cleaned link; the preview worker picks it up. Returns the Job dict."""
-        if platform not in JOB_PLATFORMS:
-            raise ValueError(f"Unknown platform: {platform!r}")
-        if kind not in JOB_KINDS[platform]:
-            raise ValueError(f"Unknown kind for {platform}: {kind!r}")
-        if fmt not in JOB_FORMATS:
-            raise ValueError(f"Unknown format: {fmt!r}")
-        job = Job(id=uuid.uuid4().hex[:8], url=url, shortcode=shortcode, platform=platform, kind=kind, format=fmt)
+        """Queue a cleaned link on top of the list; the preview workers pick it up. Returns the Job dict."""
+        return self.add_batch([(url, shortcode, platform, kind, fmt)])[0]
+
+    def add_batch(self, items: list[tuple[str, str, str, str, str]]) -> list[dict]:
+        """Queue several cleaned links `(url, shortcode, platform, kind, fmt)` given in paste order.
+
+        They are added in reverse under one lock hold, so the first pasted link gets the newest position and the
+        greatest created_at: the batch reads top to bottom in paste order in the list (newest first), and the
+        workers, which take the topmost queued job, start it first. Returns the Job dicts in paste order.
+        """
+        jobs: list[Job] = []
+        for url, shortcode, platform, kind, fmt in items:
+            if platform not in JOB_PLATFORMS:
+                raise ValueError(f"Unknown platform: {platform!r}")
+            if kind not in JOB_KINDS[platform]:
+                raise ValueError(f"Unknown kind for {platform}: {kind!r}")
+            if fmt not in JOB_FORMATS:
+                raise ValueError(f"Unknown format: {fmt!r}")
+            jobs.append(Job(id=uuid.uuid4().hex[:8], url=url, shortcode=shortcode, platform=platform, kind=kind,
+                            format=fmt))
+        if not jobs:
+            return []
         with self._cond:
-            while job.id in self._jobs:
-                job.id = uuid.uuid4().hex[:8]
-            self._jobs[job.id] = job
-            self._order.append(job.id)
-            self._queue.append(job.id)
-            if not self.usable():
-                job.stage_text = "Waiting for engine update"
+            waiting = not self.usable()
+            for job in reversed(jobs):
+                while job.id in self._jobs:
+                    job.id = uuid.uuid4().hex[:8]
+                job.created_at = self._next_created_at()
+                self._jobs[job.id] = job
+                self._order.append(job.id)
+                self._queue.append(job.id)
+                if waiting:
+                    job.stage_text = "Waiting for engine update"
             self._cond.notify_all()
-        self._emit_job(job, force=True)
+        for job in reversed(jobs):  # oldest first, so a UI that inserts on arrival ends with the same order
+            self._emit_job(job, force=True)
         self._save_soon()
-        return job.to_dict()
+        with self._lock:
+            return [job.to_dict() for job in jobs]
+
+    def _next_created_at(self) -> float:
+        """Caller holds the lock. time.time(), but strictly greater than the created_at of every job so far."""
+        value = max(time.time(), self._last_created + self.CREATED_STEP)
+        self._last_created = value
+        return value
 
     def set_format(self, job_id: str, fmt: str) -> dict | None:
         """Per-job format override, only while the job is queued. Returns the updated Job dict or None."""
@@ -1229,9 +1265,10 @@ class Downloader:
             return job.to_dict()
 
     def _stop_preview_of(self, job_id: str) -> None:
-        """Caller holds the lock. Kills the preview subprocess when it works on this job."""
-        if self._preview_id == job_id:
-            self._preview_cancel.set()
+        """Caller holds the lock. Stops the preview fetch of this job (kills its subprocess) when one is in flight."""
+        entry = self._previews.get(job_id)
+        if entry is not None:
+            entry["cancel"].set()
 
     def _drop_job_cache(self, job: Job) -> None:
         """A queued job that ends without running may still own a preview.json in its cache folder."""
@@ -1268,8 +1305,10 @@ class Downloader:
             if not self.usable():
                 job.stage_text = "Waiting for engine update"
             self._queue.append(job_id)
+            # A retried job moves to the top of the engine order (jobs() and the next start) and keeps its
+            # created_at, so a live UI keeps its card where it was (ENGINE.md section 3).
             self._order.remove(job_id)
-            self._order.append(job_id)  # retried job moves to the top of the list
+            self._order.append(job_id)
             self._cond.notify_all()
         self._emit_job(job, force=True)
         return True
@@ -1351,6 +1390,8 @@ class Downloader:
                 if job.id not in self._jobs:
                     self._jobs[job.id] = job
                     self._order.append(job.id)
+                    if isinstance(job.created_at, (int, float)):
+                        self._last_created = max(self._last_created, float(job.created_at))
 
     def save_history(self, interrupted: bool = False) -> None:
         with self._lock:
@@ -1411,16 +1452,32 @@ class Downloader:
                 if self._stopping:
                     return None
                 if self._queue and len(self._running) < self._concurrency and self.usable():
-                    job = self._jobs.get(self._queue.pop(0))
-                    if job is None or job.status != "queued":
+                    job = self._take_top_queued()
+                    if job is None:
                         continue
                     self._running.add(job.id)
-                    # leaving "queued" here freezes the format and tells the preview worker to let go: the
-                    # download probes by itself instead of waiting for an in-flight preview
+                    # Leaving "queued" here freezes the format. The download never waits for a preview: it
+                    # probes by itself. A preview that has not started its subprocess yet is dropped; one whose
+                    # subprocess runs is let finish, and its fields fill what the probe has not set yet.
                     job.status, job.stage_text = "probing", "Starting"
-                    self._stop_preview_of(job.id)
+                    entry = self._previews.get(job.id)
+                    if entry is not None and not entry["running"]:
+                        entry["cancel"].set()
                     return job
                 self._cond.wait(0.5)
+
+    def _take_top_queued(self) -> Job | None:
+        """Caller holds the lock. Removes and returns the queued job shown topmost (the last one in `_order`);
+        drops stale ids. None when no queued job is left."""
+        queued = set(self._queue)
+        for jid in reversed(self._order):
+            if jid in queued:
+                self._queue.remove(jid)
+                job = self._jobs.get(jid)
+                if job is not None and job.status == "queued":
+                    return job
+        self._queue = [j for j in self._queue if j in self._order and self._jobs[j].status == "queued"]
+        return None
 
     def _worker(self) -> None:
         while True:
@@ -1546,35 +1603,42 @@ class Downloader:
         self._emit_job(job, force=True)
 
     # --- preview -------------------------------------------------------------------------------------
-    def _next_preview(self) -> Job | None:
-        """Oldest queued job without a preview; waits while the engine is not usable or being replaced."""
+    def _next_preview(self) -> tuple[Job, threading.Event] | None:
+        """The queued job without a preview shown topmost (the same order as the download start) that no other
+        preview worker holds, with the cancel event of its fetch; waits while the engine is not usable or its
+        binaries are being replaced. None on shutdown."""
         with self._cond:
             while True:
                 if self._stopping:
                     return None
                 if self.usable() and not self.gate.replacing:
-                    for jid in self._order:
+                    for jid in reversed(self._order):
                         job = self._jobs.get(jid)
-                        if job is not None and job.status == "queued" and not job.previewed and not job.removed:
-                            self._preview_id = job.id
-                            self._preview_cancel = threading.Event()
-                            return job
+                        if (job is not None and job.status == "queued" and not job.previewed and not job.removed
+                                and jid not in self._previews):
+                            cancel = threading.Event()
+                            self._previews[jid] = {"cancel": cancel, "running": False}
+                            return job, cancel
                 self._cond.wait(0.5)
 
     def _preview_worker(self) -> None:
         while True:
-            job = self._next_preview()
-            if job is None:
+            picked = self._next_preview()
+            if picked is None:
                 return
+            job, cancel = picked
             try:
-                self._run_preview(job, self._preview_cancel)
+                self._run_preview(job, cancel)
             except Exception:  # noqa: BLE001  the preview is cosmetic
                 log.exception("preview of job %s crashed", job.id)
                 self._preview_done(job, None)
             finally:
-                with self._cond:
-                    self._preview_id = None
-                    self._cond.notify_all()
+                self._preview_release(job.id)
+
+    def _preview_release(self, job_id: str) -> None:
+        with self._cond:
+            self._previews.pop(job_id, None)
+            self._cond.notify_all()
 
     def _preview_done(self, job: Job, reason: str | None) -> None:
         """Mark the preview as finished (found or not); removes a stray cache folder of a job that left the queue."""
@@ -1589,11 +1653,24 @@ class Downloader:
         self._emit_job(job, force=True)
         self._save_soon()
 
+    @staticmethod
+    def _fill_meta(job: Job, meta: dict, overwrite: bool) -> None:
+        """Caller holds the lock. Sets title / author / duration_s from `meta`; an empty value never replaces a
+        field. `overwrite=False` (a preview result) fills only empty fields, so a preview that arrives after the
+        download's probe changes nothing the probe set; the probe (`overwrite=True`) replaces non-empty values."""
+        for key in ("title", "author", "duration_s"):
+            value = meta.get(key)
+            if value is None or value == "":
+                continue
+            if overwrite or getattr(job, key) in (None, ""):
+                setattr(job, key, value)
+
     def _run_preview(self, job: Job, cancel: threading.Event) -> None:
         """Anonymous `yt-dlp -J` of one queued job; on success stores preview.json and fills the preview fields.
 
-        Never uses cookies. Any failure only sets `previewed`. Stops (no field change) when the job leaves the
-        queue: a download that starts meanwhile probes by itself, cancel / remove / shutdown kill the subprocess.
+        Never uses cookies. Any failure only sets `previewed`. cancel / remove / shutdown kill the subprocess (no
+        field change); a download that starts before the subprocess runs drops the fetch, one that starts while
+        it runs lets it finish: the result then fills only the fields the download's probe has not set yet.
         """
         started = time.monotonic()
         exe = self.binaries().get("yt-dlp")
@@ -1604,12 +1681,18 @@ class Downloader:
         if not self.gate.acquire_shared(cancel):
             return
         try:
+            with self._lock:
+                entry = self._previews.get(job.id)
+                if cancel.is_set() or job.status != "queued":
+                    return
+                if entry is not None:
+                    entry["running"] = True
             res = self.runner.run(argv, cwd=self.paths.jobs_cache_dir, cancel=cancel, timeout=self.PREVIEW_TIMEOUT)
         finally:
             self.gate.release_shared()
         elapsed = time.monotonic() - started
         if res.canceled or cancel.is_set():
-            log.info("preview of job %s stopped after %.1f s (job left the queue)", job.id, elapsed)
+            log.info("preview of job %s stopped after %.1f s (job canceled or removed)", job.id, elapsed)
             return
         if res.timed_out or res.returncode != 0 or not res.stdout.strip():
             code = "timeout" if res.timed_out else classify_error(res.stderr, job.platform)[0]
@@ -1624,22 +1707,26 @@ class Downloader:
             return
         meta = meta_from_info(info, job.platform)
         job_dir = self.paths.job_cache(job.id)
-        path = os.path.join(job_dir, "preview.json")
-        try:
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump(info, fh, ensure_ascii=False)
-        except OSError as exc:
-            self._preview_done(job, f"cannot write preview.json: {exc}")
-            return
         with self._lock:
-            if job.status != "queued" or job.removed or cancel.is_set():
+            queued = job.status == "queued"
+        if queued:
+            path = os.path.join(job_dir, "preview.json")
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(info, fh, ensure_ascii=False)
+            except OSError as exc:
+                self._preview_done(job, f"cannot write preview.json: {exc}")
+                return
+        with self._lock:
+            if job.removed or cancel.is_set():
                 if job.id not in self._running:
                     shutil.rmtree(job_dir, ignore_errors=True)
                 return
-            job.preview_path, job.preview_at = path, time.time()
-            job.title, job.author, job.duration_s = meta["title"], meta["author"], meta["duration_s"]
+            if queued and job.status == "queued":
+                job.preview_path, job.preview_at = path, time.time()  # the download reuses it (_take_preview)
+            self._fill_meta(job, meta, overwrite=False)
         self._emit_job(job, force=True)
-        if not job.thumbnail and job.status == "queued" and not cancel.is_set():
+        if not job.thumbnail and not cancel.is_set():
             self._make_thumbnail(job, info, job_dir, src_name="preview_thumb_src")
         self._preview_done(job, None)
         log.info("preview of job %s done in %.1f s", job.id, time.monotonic() - started)
@@ -1748,8 +1835,11 @@ class Downloader:
         with open(info_path, "w", encoding="utf-8") as fh:
             json.dump(info, fh, ensure_ascii=False)
         meta = meta_from_info(info, job.platform)
-        self._set(job, title=meta["title"], author=meta["author"], duration_s=meta["duration_s"], previewed=True)
-        if not job.thumbnail:
+        with self._lock:
+            self._fill_meta(job, meta, overwrite=True)
+            job.previewed = True
+        self._emit_job(job, force=True)
+        if not job.thumbnail:  # right after the probe, before the download starts
             self._make_thumbnail(job, info, job_dir)
         self._check_cancel(job)
 
@@ -1763,8 +1853,7 @@ class Downloader:
 
     def _download_mp4(self, job: Job, rung: Rung, base: list[str], info: dict, info_path: str, target: str,
                       settings: dict, job_dir: str, logs: list[str]) -> None:
-        choice = select_formats(info, job.platform, settings[QUALITY_SETTING.get(job.platform, "quality_instagram")],
-                                settings["h264_compat"])
+        choice = select_formats(info, job.platform, self._quality(job, settings), settings["h264_compat"])
         model = ProgressModel(stage_weights(choice.has_audio or choice.video is None, choice.needs_transcode))
         self._set(job, status="downloading", stage_text="Downloading video", progress=model.set("probe", 1.0))
 
@@ -1818,6 +1907,11 @@ class Downloader:
         self._finalize(job, media, target, settings, model, logs)
 
     @staticmethod
+    def _quality(job: Job, settings: dict) -> str:
+        """The quality setting of the job's own platform, read when the job starts (mp4 and mp3 alike)."""
+        return settings.get(QUALITY_SETTING.get(job.platform, "quality_instagram"), "max")
+
+    @staticmethod
     def _audio_missing(info: dict) -> bool:
         """True only when every format says it has no audio (unknown acodec counts as maybe-audio)."""
         formats = [f for f in info.get("formats") or [] if _usable_format(f)]
@@ -1825,7 +1919,8 @@ class Downloader:
 
     def _download_mp3(self, job: Job, rung: Rung, base: list[str], info: dict, info_path: str, target: str,
                       settings: dict, job_dir: str, logs: list[str]) -> None:
-        """Best audio -> MP3 (VBR quality 0) by yt-dlp's ExtractAudio postprocessor; no merge, no H.264 pass."""
+        """Best audio -> MP3 at the bitrate of the platform's quality setting (128 / 192 / 256 / 320 kbit/s) by
+        yt-dlp's ExtractAudio postprocessor; no merge, no H.264 pass."""
         if self._audio_missing(info):
             raise JobFailed("not_found", message_for("no_audio", job.platform))
         ffmpeg = self._bin("ffmpeg")  # ffmpeg_missing before any subprocess starts
@@ -1834,8 +1929,9 @@ class Downloader:
         out_tmpl = os.path.join(job_dir, "media.%(ext)s")
         # `-S channels:2`: stereo / mono before the 5.1 tracks YouTube lists with a JavaScript runtime (yt-dlp's
         # default order ranks more channels higher and would downmix a 6-channel AAC / AC-3 source into the MP3).
+        kbps = mp3_bitrate(self._quality(job, settings))
         argv = base + ["--load-info-json", info_path, "-f", "ba/b", "-S", "channels:2", "-x", "--audio-format", "mp3",
-                       "--audio-quality", "0", "--ffmpeg-location", ffmpeg,
+                       "--audio-quality", f"{kbps}K", "--ffmpeg-location", ffmpeg,
                        "-o", out_tmpl, "--no-part", "--force-overwrites", *progress_args(),
                        "--print", "after_move:" + FILE_MARK + "%(filepath)j", "--no-simulate"]
         state = {"file": None}
@@ -2023,8 +2119,12 @@ class Downloader:
 
     def _make_thumbnail(self, job: Job, info: dict, job_dir: str, src_name: str = "thumb_src") -> None:
         """Fetch the poster (Instagram jpg, YouTube webp / jpg, TikTok and X jpg), scale to <= 480 px wide as JPEG,
-        keep it in
-        cache/thumbs and send it as a data URL. Without ffmpeg a raw poster under 400 KB is kept as is."""
+        keep it in cache/thumbs and send it as a data URL. Without ffmpeg a raw poster under 400 KB is kept as is."""
+        with job.thumb_lock:  # the preview and the download's probe may both get here; the first one makes it
+            if not job.thumbnail:
+                self._make_thumbnail_locked(job, info, job_dir, src_name)
+
+    def _make_thumbnail_locked(self, job: Job, info: dict, job_dir: str, src_name: str) -> None:
         url = info.get("thumbnail")
         if not url:
             thumbs = [t for t in info.get("thumbnails") or [] if t.get("url")]
@@ -2078,7 +2178,9 @@ class Downloader:
         if isinstance(date, str) and re.match(r"\d{4}-\d{2}-\d{2}", date):
             info["upload_date"] = date[:10].replace("-", "")
         meta = meta_from_info(info)
-        self._set(job, title=meta["title"], author=meta["author"])
+        with self._lock:
+            self._fill_meta(job, {"title": meta["title"], "author": meta["author"]}, overwrite=True)
+        self._emit_job(job, force=True)
         if not job.thumbnail:
             self._make_thumbnail(job, info, job_dir)
         target = self._target_path(job, settings, meta)
@@ -2110,15 +2212,15 @@ class Downloader:
             raise JobFailed(code, msg, res.stderr)
         media = sorted(files)[0]
         if mp3:
-            media = self._extract_mp3(job, media, model, logs)
+            media = self._extract_mp3(job, media, model, logs, mp3_bitrate(self._quality(job, settings)))
         self._finalize(job, media, target, settings, model, logs)
 
-    def _extract_mp3(self, job: Job, src: str, model: ProgressModel, logs: list[str]) -> str:
-        """MP3 (libmp3lame VBR quality 0, as yt-dlp's `--audio-quality 0`) from a downloaded video file."""
+    def _extract_mp3(self, job: Job, src: str, model: ProgressModel, logs: list[str], kbps: int = 320) -> str:
+        """MP3 (libmp3lame at `kbps` kbit/s, as yt-dlp's `--audio-quality <kbps>K`) from a downloaded video file."""
         ffmpeg = self._bin("ffmpeg")
         dst = os.path.join(os.path.dirname(src), "media.mp3")
         argv = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", src, "-vn",
-                "-map", "0:a:0", "-c:a", "libmp3lame", "-q:a", "0", dst]
+                "-map", "0:a:0", "-c:a", "libmp3lame", "-b:a", f"{kbps}k", dst]
         self._set(job, status="processing", stage_text="Converting to MP3", progress=model.set("convert", 0.1),
                   speed_bps=None, eta_s=None)
         res = self._run_tool(job, argv, logs, label="mp3", timeout=self.DOWNLOAD_TIMEOUT, gated=False)
