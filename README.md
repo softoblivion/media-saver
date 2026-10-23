@@ -57,7 +57,7 @@ and on up-to-date Windows 10). No installer, no admin rights.
 | **Self-updating engines** | `yt-dlp` (nightly channel by default), `gallery-dl` and FFmpeg are checked on every start and replaced with verified builds when a newer release exists. An extractor-type failure triggers one forced engine update and an automatic retry; rate limits back off and retry. |
 | **Self-updating app** | New releases are detected on launch or on request, downloaded into the data folder, verified by size and SHA-256 and installed on restart. |
 | **In-app sign-in** | Reels that require an account are handled through Instagram's own login page in a separate window; only the resulting session cookies are stored locally. |
-| **Liquid Glass UI** | SVG displacement-map refraction, specular rims, spring physics, morphing controls, four colour themes (Dusk, Nova, Frost, Bloom), embedded Unbounded and Geist Mono fonts; animation loops stop when nothing moves. |
+| **Liquid Glass UI** | SVG displacement-map refraction, specular rims, spring physics, morphing controls, four colour themes (Dusk, Nova, Frost, Bloom), a Scale setting from 100 to 200 %, embedded Sora and Geist Mono fonts; animation loops stop when nothing moves. |
 
 ## How it works
 

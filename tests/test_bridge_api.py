@@ -14,7 +14,7 @@ CONTRACT_METHODS = {
     "ready", "clean_links", "enqueue", "set_job_format", "cancel", "retry", "remove", "clear_finished", "open_file",
     "reveal_file", "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings",
     "update_engine", "update_status", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
-    "read_clipboard", "copy_text", "open_url", "window_minimize", "window_close",
+    "read_clipboard", "copy_text", "open_url", "window_minimize", "window_close", "set_scale",
 }
 
 

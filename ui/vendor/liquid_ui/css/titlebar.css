@@ -1,0 +1,189 @@
+/* The title bar (js/titlebar.js builds it; the kit's documentation, "Title bar"). One layout for
+   every app: three columns on a grid (1fr auto 1fr), so the centre slot is centred on the window
+   whatever the side clusters measure.
+     left    app glyph 20 px, app name (label role), the version pill (a 24 px capsule lens, owned
+             by the update control)
+     centre  the app's own controls (a mode switch, tabs); empty in most apps
+     aside   optional status chips of the app, right before the window cluster
+     right   one capsule lens of 34 px with three fills: settings | minimize, close
+   The drag layer (.tb-drag) sits under everything; the left cluster lets the pointer through
+   to it (only the pill takes events back), the buttons are siblings of the drag layer, never
+   its children. Height: --titlebar-h (44 px). */
+
+.titlebar {
+  position: fixed;
+  z-index: 45;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  column-gap: 10px;
+  padding: 0 10px;   /* symmetric, so the centre column is centred on the window */
+}
+
+.tb-drag {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.titlebar > :not(.tb-drag) {
+  position: relative;
+  z-index: 1;
+}
+
+.tb-left {
+  justify-self: start;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  pointer-events: none;
+}
+
+.tb-left .ver-pill {
+  margin-left: 2px;
+  pointer-events: auto;
+}
+
+.tb-glyph {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  filter: drop-shadow(0 2px 8px var(--glyph-glow));
+}
+
+.tb-glyph svg {
+  width: 20px;
+  height: 20px;
+}
+
+.tb-name {
+  font: var(--t-label);
+  letter-spacing: var(--tr-label);
+  color: var(--ink-1);
+  text-shadow: var(--ink-shadow);
+  white-space: nowrap;
+}
+
+.tb-centre {
+  justify-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tb-right {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tb-aside {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tb-aside:empty { display: none; }
+
+/* Version pill: a small capsule lens; a dot when an update is available. */
+.ver-pill {
+  height: var(--h-xs);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: var(--r-pill);
+  color: var(--ink-3);
+  font: var(--t-mono-s);
+  --ff-feat: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  --lens-tint: rgba(255, 255, 255, 0.035);
+  --lens-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --lens-bloom: 0.08;
+  transition: color var(--d-2) ease;
+}
+
+.ver-pill:hover,
+.ver-pill.is-source { color: var(--ink-1); }
+
+.ver-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.ver-pill[data-stage="available"],
+.ver-pill[data-stage="downloading"],
+.ver-pill[data-stage="ready"] { color: var(--accent-ink); }
+
+.ver-pill[data-stage="available"] .ver-dot,
+.ver-pill[data-stage="downloading"] .ver-dot,
+.ver-pill[data-stage="ready"] .ver-dot { display: block; }
+
+.ver-pill[data-stage="ready"] .ver-dot { background: var(--mint); box-shadow: 0 0 8px var(--mint); }
+.ver-pill[data-stage="downloading"] .ver-dot { animation: ver-pulse 1.4s ease-in-out infinite; }
+
+/* Window cluster: settings | minimize, close in one capsule lens. Buttons inside are fills. */
+.tb-cluster {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 34px;
+  padding: 3px;
+  border-radius: var(--r-pill);
+  --lens-tint: rgba(255, 255, 255, 0.035);
+  --lens-shadow: var(--shadow-s);
+}
+
+.tb-btn {
+  width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background-color var(--d-1) ease, color var(--d-2) ease;
+}
+
+.tb-btn .ic { width: 15px; height: 15px; }
+.tb-btn:hover, .tb-btn.is-hover { background: var(--fill-3); color: var(--ink-1); }
+.tb-btn.is-pressed { background: var(--fill-4); color: var(--ink-1); }
+.tb-close:hover, .tb-close.is-hover { background: #e5484d; color: #fff; }
+.tb-close.is-pressed { background: #c93c41; color: #fff; }
+.tb-gear .ic { width: 17px; height: 17px; transition: rotate var(--d-4) var(--ease-spring); }
+.tb-gear:hover .ic,
+.tb-gear.is-source .ic { rotate: 60deg; }
+.tb-gear.is-source { background: var(--fill-3); color: var(--ink-1); }
+
+.tb-sep {
+  width: 1px;
+  height: 15px;
+  margin: 0 3px;
+  background: var(--stroke-2);
+}
+
+@keyframes ver-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ver-pill[data-stage="downloading"] .ver-dot { animation: none; }
+}
