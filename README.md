@@ -1,10 +1,6 @@
 <div align="center">
 
-<img src="ui/assets/icon.svg" alt="" width="96" height="96">
-
-# Media Saver: free open-source YouTube, Instagram, TikTok and X video downloader for Windows
-
-**Saves YouTube videos and Shorts, Instagram Reels, TikTok videos and X (Twitter) posts as MP4 (up to 4K) or MP3. Batch links, previews, one portable exe, no license key, no download limits. The download engine (yt-dlp) and the app update themselves. A free alternative to 4K Video Downloader and similar paid tools.**
+<img src="docs/assets/hero.svg" alt="Media Saver" width="100%">
 
 [![Download](https://img.shields.io/badge/Download-MediaSaver.exe-ff7a59?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/softoblivion/media-saver/releases/latest/download/MediaSaver.exe)
 [![Release](https://img.shields.io/github/v/release/softoblivion/media-saver?display_name=release&label=latest&style=for-the-badge)](https://github.com/softoblivion/media-saver/releases/latest)
@@ -17,6 +13,8 @@
 ![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?logo=powershell&logoColor=white)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
+**Free open-source YouTube, Instagram, TikTok and X video downloader for Windows. Saves YouTube videos and Shorts, Instagram Reels, TikTok videos and X (Twitter) posts as MP4 (up to 4K) or MP3. Batch links, previews, one portable exe, no installer, no license key, no download limits. The download engine (yt-dlp) and the app update themselves. A free alternative to 4K Video Downloader and similar paid tools.**
+
 <img src="docs/assets/screenshot.png" alt="Media Saver main window" width="860">
 
 <sub>Paste any text with links · pick MP4 or MP3 and the quality · press Download. Engines and the app keep themselves up to date.</sub>
@@ -24,25 +22,6 @@
 </div>
 
 ---
-
-## Contents
-
-- [Why Media Saver](#why-media-saver)
-- [Quick start](#quick-start)
-- [Features](#features)
-- [How it works](#how-it-works)
-- [Usage](#usage)
-- [Settings](#settings)
-- [Link cleaning rules](#link-cleaning-rules)
-- [Data and privacy](#data-and-privacy)
-- [Updates](#updates)
-- [FAQ](#faq)
-- [Building from source](#building-from-source)
-- [Roadmap](#roadmap)
-- [Project structure](#project-structure)
-- [Third-party components](#third-party-components)
-- [Disclaimer](#disclaimer)
-- [License](#license)
 
 ## Why Media Saver
 
@@ -75,9 +54,8 @@ and on up-to-date Windows 10). No installer, no admin rights.
 | **Editor-ready video** | Optional H.264 mode: prefers an AVC stream at the top resolution; when only VP9 / AV1 / HEVC exists there (YouTube above 1080p, current Instagram reels, TikTok 1080p), re-encodes with x264 CRF 16 so the file opens in Premiere Pro and After Effects without conversion. |
 | **Batch input** | Accepts messages, lists and glued-together links; extracts, cleans and de-duplicates them before queuing. Drag and drop of text and `.txt` files, `Ctrl+V` anywhere in the window. |
 | **Previews** | Thumbnail, title, author and duration appear on a queued card before the download starts. |
-| **Self-updating engines** | `yt-dlp` (nightly channel by default), `gallery-dl` and FFmpeg are checked on every start and replaced with verified builds when a newer release exists. |
+| **Self-updating engines** | `yt-dlp` (nightly channel by default), `gallery-dl` and FFmpeg are checked on every start and replaced with verified builds when a newer release exists. An extractor-type failure triggers one forced engine update and an automatic retry; rate limits back off and retry. |
 | **Self-updating app** | New releases are detected on launch or on request, downloaded into the data folder, verified by size and SHA-256 and installed on restart. |
-| **Self-healing downloads** | An extractor-type failure triggers one forced engine update and an automatic retry. Rate limits back off and retry. |
 | **In-app sign-in** | Reels that require an account are handled through Instagram's own login page in a separate window; only the resulting session cookies are stored locally. |
 | **Liquid Glass UI** | SVG displacement-map refraction, specular rims, spring physics, morphing controls, four colour themes (Dusk, Nova, Frost, Bloom), embedded Unbounded and Geist Mono fonts; animation loops stop when nothing moves. |
 
@@ -96,158 +74,24 @@ flowchart LR
     E -- MP3 --> K["Best audio<br/>FFmpeg → MP3"] --> J
 ```
 
-On every launch a background updater runs before any job starts; links can be queued while it works.
+On every launch a background updater runs before any job starts; links can be queued while it works. The
+components it keeps current and their update rules are in the [user guide](docs/USER_GUIDE.md#updates). Without
+network access the app keeps working with the binaries it already has.
 
-| Component | Source | Update rule |
-|---|---|---|
-| `yt-dlp.exe` | GitHub releases of yt-dlp (nightly or stable) | Local SHA-256 compared with the release checksum file; `--update-to <channel>` or a verified fresh download |
-| `gallery-dl.exe` | Codeberg releases of gallery-dl | Same checksum comparison; built-in `-U` |
-| `ffmpeg.exe`, `ffprobe.exe` | System `PATH`, otherwise yt-dlp/FFmpeg-Builds (win64 GPL) | Own copy refreshed at most every 30 days |
-| `deno.exe` | System `PATH`, otherwise the official Deno release (win64) | JavaScript runtime for yt-dlp's YouTube extraction; SHA-256 verified; own copy refreshed at most every 30 days |
-| `MediaSaver.exe` | GitHub Releases of this repository | Checked on launch; size and SHA-256 verified against `SHA256SUMS`; swapped on restart |
+## Documentation
 
-Without network access the app keeps working with the binaries it already has.
-
-## Usage
-
-1. Choose the mode: **Instagram**, **YouTube**, **TikTok** or **X** (`Alt+1` … `Alt+4`).
-2. Paste one or more links into the input panel, or press `Ctrl+V` anywhere in the window. A link of the other
-   platform is shown with a **Switch** action.
-3. Check the cleaned preview: valid, invalid and duplicate links are counted separately. Pick **MP4** or **MP3**
-   and the quality for the current platform.
-4. Press **Download**. Each card shows a preview as soon as the site answers, then progress, speed
-   and ETA. A queued card can still switch between MP4 and MP3.
-5. Finished cards open the file or reveal it in Explorer.
-
-If Instagram refuses a reel without an account, the card offers **Sign in to Instagram**. After sign-in, the
-failed jobs retry automatically. YouTube, TikTok and X videos that require a signed-in viewer (age-restricted,
-members-only, sensitive content) can use the cookies of a browser chosen in Settings.
-
-| Shortcut | Action |
+| Document | What it covers |
 |---|---|
-| `Ctrl+V` | Paste into the input panel from anywhere |
-| `Alt+1` … `Alt+4` | Instagram / YouTube / TikTok / X mode |
-| `←` `→` | Move a segmented control (mode, format, quality) |
-| `Esc` | Close the settings sheet or a popover |
-
-## Settings
-
-| Key | Default | Meaning |
-|---|---|---|
-| `output_dir` | `%USERPROFILE%\Videos\Media-Saver` | Destination folder (the Windows Videos library, redirected or not) |
-| `filename_template` | `{author}_{shortcode}` | Tokens `{author}` `{shortcode}` `{date}` `{title}`; `{shortcode}` (the video id) is required |
-| `mode` | `instagram` | `instagram`, `youtube`, `tiktok` or `twitter`: the platform shown in the window |
-| `format` | `mp4` | Default output format for new jobs, `mp4` or `mp3` |
-| `quality_instagram` | `max` | `low`, `medium`, `high` or `max`. MP4: short side ≤ 480, ≤ 720, ≤ 1080 or the best available (up to 1080p); MP3: 128, 192, 256 or 320 kbps |
-| `quality_youtube` | `max` | The same four steps; MP4 `max` is the best available, up to 2160p |
-| `quality_tiktok` | `max` | The same four steps; MP4 `max` up to 1080p |
-| `quality_twitter` | `max` | The same four steps; MP4 `max` up to 1080p |
-| `h264_compat` | `true` | Guarantee H.264 / AAC output for video editors (MP4 only) |
-| `skip_existing` | `true` | Mark a job done when the target file already exists |
-| `concurrency` | `2` | Parallel downloads, 1–4, shared by both modes |
-| `update_channel` | `nightly` | `nightly` or `stable` channel of yt-dlp |
-| `auto_update` | `true` | Check engines on every start |
-| `auto_download_updates` | `true` | Download a new version in the background; installing is always a click on **Restart** |
-| `auth_mode` | `auto` | Instagram: `auto` (anonymous first), `always` (session first), `never` |
-| `browser_cookies` | *(empty)* | Optional browser to read cookies from: `firefox`, `edge`, `chrome`, `brave`, `opera` (every platform) |
-| `clipboard_watch` | `true` | Offer links found in the clipboard on window focus |
-| `open_folder_when_done` | `false` | Open the output folder when the queue drains |
-| `sound_on_done` | `true` | Play a short sound when a download finishes |
-| `theme` | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` (Settings > Appearance) |
-
-## Link cleaning rules
-
-Every recognised link is reduced to scheme, host, kind and id. Anything after the id is dropped: trailing slashes,
-`?igsh=`, `utm_*`, `t=`, `list=`, `si=`, `feature=`, `is_from_webapp=` and `s=` parameters, fragments, `/embed`,
-`/video/1` and `/photo/1` suffixes.
-
-| Input | Result |
-|---|---|
-| `https://www.instagram.com/reel/DAbC123xYz_/?igsh=MWx0cG9x` | `https://www.instagram.com/reel/DAbC123xYz_` |
-| `instagram.com/reels/DAbC123xYz_/` | `https://www.instagram.com/reel/DAbC123xYz_` |
-| `https://www.instagram.com/someuser/reel/DAbC123xYz_/` | `https://www.instagram.com/reel/DAbC123xYz_` |
-| `https://m.instagram.com/tv/DAbC123xYz_` | `https://www.instagram.com/reel/DAbC123xYz_` |
-| `https://www.instagram.com/p/DAbC123xYz_/?img_index=2` | `https://www.instagram.com/p/DAbC123xYz_` |
-| `https://l.instagram.com/?u=https%3A%2F%2Fwww.instagram.com%2Freel%2FDAbC123xYz_%2F` | `https://www.instagram.com/reel/DAbC123xYz_` |
-| `https://youtu.be/dQw4w9WgXcQ?si=abc&t=42` | `https://www.youtube.com/watch?v=dQw4w9WgXcQ` |
-| `https://m.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123&index=2` | `https://www.youtube.com/watch?v=dQw4w9WgXcQ` |
-| `https://www.youtube.com/shorts/dQw4w9WgXcQ?feature=share` | `https://www.youtube.com/shorts/dQw4w9WgXcQ` |
-| `https://www.youtube.com/embed/dQw4w9WgXcQ` | `https://www.youtube.com/watch?v=dQw4w9WgXcQ` |
-| `https://www.tiktok.com/@tiktok/video/7106594312292453675?is_from_webapp=1&sender_device=pc` | `https://www.tiktok.com/@tiktok/video/7106594312292453675` |
-| `https://vm.tiktok.com/ZMabcdef1/` | `https://vm.tiktok.com/ZMabcdef1` (resolved by the engine) |
-| `https://x.com/oshtru/status/1577855540407197696?s=20&t=abc` | `https://x.com/oshtru/status/1577855540407197696` |
-| `https://twitter.com/i/web/status/1577855540407197696/video/1` | `https://x.com/i/status/1577855540407197696` |
-| `https://www.instagram.com/stories/someuser/` | rejected: not a single reel or post |
-| `https://www.youtube.com/playlist?list=PL123` | rejected: not a single video |
-| `https://www.tiktok.com/@tiktok/photo/7300000000000000000` | rejected: a photo post |
-| `https://x.com/oshtru` | rejected: a profile, not a post |
-
-Ids keep their case. Profiles, stories, audio pages, playlists, channels, searches, photo posts, Spaces, live
-broadcasts, `/share/` redirect tokens and `t.co` short links are reported as unsupported.
-
-## Data and privacy
-
-All runtime data lives in `media-saver_data\` next to `MediaSaver.exe` (override with the `MEDIA_SAVER_HOME`
-environment variable); nothing is written to the user profile:
-
-| Path | Content |
-|---|---|
-| `bin\` | Engine executables and their version records |
-| `auth\cookies.txt` | Session cookies from the in-app sign-in (Netscape format) |
-| `settings.json`, `history.json` | Preferences and the last 300 finished jobs of every platform |
-| `cache\` | Thumbnails and per-job working files |
-| `logs\` | `app.log`, `shell.log` and full engine output of failed jobs |
-| `webview\` | WebView2 profile of the sign-in window |
-| `updates\` | Downloaded app updates and `apply.log` |
-
-The app never sees or stores the Instagram password: sign-in happens on Instagram's own page. **Sign out** deletes
-the cookie file and clears the WebView2 cookies. Network traffic goes only to Instagram, YouTube, TikTok, X,
-GitHub and Codeberg (engine and app updates).
-
-> [!TIP]
-> Upgrading from Reels Saver 1.x: the old app kept its data in `%LOCALAPPDATA%\ReelsSaver`. Copy that folder to
-> `<folder of MediaSaver.exe>\media-saver_data` to keep your settings, history and Instagram sign-in; otherwise the
-> app starts fresh.
-
-## Updates
-
-- **Engines:** checked on every launch (`auto_update`), or **Update now** in the engine panel.
-- **The app:** checked on every launch and then every 5 minutes while it runs; a failed check is retried later with
-  a growing wait of up to an hour, and nothing is checked without a network connection. **Check for updates** in the
-  popover of the version pill next to the app name or in Settings > Updates checks at once. **Download updates
-  automatically** (`auto_download_updates`, on by default) fetches a new version in the background and a notice
-  offers **Restart**; installing still needs **Restart to update**, the app never restarts by itself. A new release is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256
-  against the `SHA256SUMS` asset of the release, and installed by **Restart to update**: the downloaded exe waits
-  for the app to exit, swaps `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new
-  one started) and relaunches it. If anything fails the current exe stays untouched. Closing the window ends the
-  app and every process it started; nothing runs in the background after that.
-- Versions 2.0.0 and 2.1.0 cannot update themselves (their updater hung in a console window): download the
-  current `MediaSaver.exe` once by hand; from 2.1.1 on the update applies in place.
-- Every release ships two assets: `MediaSaver.exe` and `SHA256SUMS`. Release notes live in
-  [`docs/releases/`](docs/releases/).
-
-## FAQ
-
-**A 4K YouTube video takes minutes and the file is huge.** With *H.264 for editing* on, VP9 / AV1 sources above
-1080p are re-encoded at CRF 16 for editors. Pick **High** (≤ 1080p) for a quick AVC file, or switch H.264 off to keep the
-original VP9 / AV1 stream.
-
-**Instagram says it needs a sign-in.** Some reels are served only to accounts. Press **Sign in to Instagram** on the
-card; the login happens on Instagram's own page and the failed jobs retry by themselves.
-
-**YouTube asks to confirm you are not a bot.** Choose a browser under *Browser cookies* in Settings; the engine then
-uses that browser's YouTube session.
-
-**An X post or a TikTok says it needs a sign-in.** Age-restricted and sensitive posts are served to signed-in users
-only. Choose a browser under *Browser cookies* in Settings where you are signed in to that site and retry.
-
-**TikTok says the video is blocked for my network.** TikTok refuses some posts by region or IP; the app reports it
-as is. A photo post (slideshow) has no video to save.
-
-**Where is FFmpeg?** It is used for merging and for MP3. The app takes `ffmpeg.exe` from `PATH` when present and
-otherwise downloads a static build into `media-saver_data\bin` on the first launch.
-
-**Can I run two copies?** Yes: each folder is its own installation with its own settings and history.
+| [User guide](docs/USER_GUIDE.md) | Usage, keyboard, settings, link cleaning rules, data folder, updates, FAQ |
+| [Architecture](docs/ARCHITECTURE.md) | Stack, layout, modules, runtime data, behaviour, engine facade |
+| [Bridge API](docs/BRIDGE_API.md) | The JS ↔ Python contract between the page and the app |
+| [Engine](docs/ENGINE.md) | Engine updates, command lines, formats, previews, error codes, site quirks, headless CLI |
+| [Self-update](docs/SELF_UPDATE.md) | Release layout, check, verify and apply of the app's own updates |
+| [UI design](docs/UI_DESIGN.md) | Design system, Liquid Glass material, typography, motion, copy rules |
+| [Build](docs/BUILD.md) | Running from source, tests, building the exe, releasing, troubleshooting |
+| [Release notes](docs/releases/) | What changed in every version |
+| [Third-party components](docs/THIRD_PARTY.md) | What is bundled or downloaded, with licences |
+| [Roadmap](docs/ROADMAP.md) | Planned work |
 
 ## Building from source
 
@@ -265,67 +109,17 @@ places a desktop shortcut.
 
 | Task | Command |
 |---|---|
-| Run from source | `run_dev.bat` (data in `media-saver_data\` under the project root) |
-| Run with a simulated engine (no network) | `run_dev.bat --fake` |
+| Run from source | `run_dev.bat` (data in `media-saver_data\` under the project root); `run_dev.bat --fake` runs a simulated engine without network |
 | Unit tests | `set MEDIA_SAVER_HOME=%TEMP%\ms_tests` then `.venv\Scripts\python.exe -m unittest discover -s tests` |
 | Headless download test | `.venv\Scripts\python.exe -m app.core.cli --home <dir> --out <dir> [--platform youtube\|tiktok\|twitter] [--format mp3] <links>` |
 | UI in a browser with mock data | `python -m http.server 5173 --directory ui`, then open `http://localhost:5173/?mock=1&demo=1` |
-
-Architecture, the JS ↔ Python contract, engine details, self-update and build notes:
-[ARCHITECTURE](docs/ARCHITECTURE.md) · [BRIDGE_API](docs/BRIDGE_API.md) · [ENGINE](docs/ENGINE.md) ·
-[SELF_UPDATE](docs/SELF_UPDATE.md) · [UI_DESIGN](docs/UI_DESIGN.md) · [BUILD](docs/BUILD.md)
-
-## Roadmap
-
-Planned work is tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
-
-## Project structure
-
-```
-media-saver/
-├── app/
-│   ├── core/            download engine (stdlib only): updater, self-update, queue, link cleaner (4 platforms), auth, settings, CLI
-│   ├── vendor/          bundled self-update package (stdlib only)
-│   ├── main.py          entry point: windows, single instance, engine lifecycle
-│   ├── bridge.py        JS ↔ Python API and event pump
-│   ├── login.py         Instagram sign-in window and cookie capture
-│   ├── winutil.py       clipboard, Explorer, DWM, fixed-size frameless window
-│   └── fake_engine.py   simulated engine for UI work
-├── ui/                  HTML / CSS / JS interface, Liquid Glass material, embedded fonts, mock API
-├── tests/               unittest suite
-├── build/               PyInstaller spec, build script, icon generator
-└── docs/                architecture, API contract, engine, self-update, UI and build notes, release notes
-```
-
-## Third-party components
-
-Bundled into the executable:
-
-| Component | License |
-|---|---|
-| [CPython](https://www.python.org/) | PSF-2.0 |
-| [pywebview](https://github.com/r0x0r/pywebview) | BSD-3-Clause |
-| [pythonnet](https://github.com/pythonnet/pythonnet), clr_loader | MIT |
-| bottle, proxy_tools | MIT |
-| cffi / pycparser | MIT-0 / BSD-3-Clause |
-| [PyInstaller](https://pyinstaller.org/) bootloader | GPL-2.0-or-later with the bootloader exception |
-| [Unbounded](https://fonts.google.com/specimen/Unbounded), [Geist Mono](https://github.com/vercel/geist-font) fonts | SIL Open Font License 1.1 |
-
-Downloaded at runtime from their official release channels, not redistributed with this project:
-
-| Component | License |
-|---|---|
-| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense |
-| [gallery-dl](https://codeberg.org/mikf/gallery-dl) | GPL-2.0 |
-| [FFmpeg](https://ffmpeg.org/) ([yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds)) | GPL |
-| [Deno](https://github.com/denoland/deno) | MIT |
 
 ## Disclaimer
 
 Media Saver is an independent project and is not affiliated with, endorsed by or sponsored by Instagram, Meta
 Platforms, Inc., YouTube, Google LLC, TikTok, ByteDance Ltd. or X Corp. "Instagram", "Reels", "YouTube",
-"Shorts", "TikTok" and "X" are trademarks of their respective owners. Download only content you own or have permission to use, and follow the Terms of Service of the
-platforms and the copyright law that applies to you.
+"Shorts", "TikTok" and "X" are trademarks of their respective owners. Download only content you own or have
+permission to use, and follow the Terms of Service of the platforms and the copyright law that applies to you.
 
 ## License
 

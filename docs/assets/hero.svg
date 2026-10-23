@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-label="Media Saver">
+  <title>Media Saver</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#02050b"/>
+      <stop offset="0.55" stop-color="#060d1e"/>
+      <stop offset="1" stop-color="#0b1838"/>
+    </linearGradient>
+    <radialGradient id="blob-hue" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#2a5bd8" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#2a5bd8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="blob-accent" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff7a59" stop-opacity="0.75"/>
+      <stop offset="1" stop-color="#ff7a59" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.04"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.35"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff7a59" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#ff7a59" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="60"/>
+    </filter>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <clipPath id="frame"><rect width="1280" height="400" rx="24"/></clipPath>
+  </defs>
+  <style>
+    .t { font-family: 'Segoe UI Variable Display','Segoe UI',Inter,Roboto,'Helvetica Neue',Arial,system-ui,sans-serif; fill: #ffffff; }
+    .name { font-size: 68px; font-weight: 700; letter-spacing: -0.02em; }
+    .tag { font-size: 25px; font-weight: 400; fill-opacity: 0.78; }
+    .meta { font-size: 16px; font-weight: 600; fill-opacity: 0.5; letter-spacing: 0.12em; text-transform: uppercase; }
+    .b1 { animation: drift1 26s ease-in-out infinite alternate; }
+    .b2 { animation: drift2 31s ease-in-out infinite alternate; }
+    @keyframes drift1 { from { transform: translate(0, 0); } to { transform: translate(90px, -40px); } }
+    @keyframes drift2 { from { transform: translate(0, 0); } to { transform: translate(-110px, 50px); } }
+    @media (prefers-reduced-motion: reduce) { .b1, .b2 { animation: none; } }
+  </style>
+  <g clip-path="url(#frame)">
+    <rect width="1280" height="400" fill="url(#bg)"/>
+    <g filter="url(#blur)">
+      <circle class="b1" cx="922" cy="72" r="312" fill="url(#blob-hue)"/>
+      <circle class="b2" cx="384" cy="380" r="248" fill="url(#blob-accent)"/>
+    </g>
+    <rect x="112.0" y="120.0" width="160" height="160" rx="32" fill="url(#tile)" stroke="url(#rim)" stroke-width="1.5" filter="url(#shadow)"/>
+    <svg x="134.4" y="142.4" width="115.2" height="115.2" viewBox="0 0 1024 1024" preserveAspectRatio="xMidYMid meet">
+  
+  <defs>
+    <linearGradient id="ic-body" x1="250" y1="160" x2="800" y2="930" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6cc4ff"/>
+      <stop offset="0.48" stop-color="#6a7dff"/>
+      <stop offset="1" stop-color="#a65cff"/>
+    </linearGradient>
+    <radialGradient id="ic-depth" cx="500" cy="600" r="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0.62" stop-color="#1b1060" stop-opacity="0"/>
+      <stop offset="1" stop-color="#1b1060" stop-opacity="0.42"/>
+    </radialGradient>
+    <radialGradient id="ic-caustic" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8ff6e4" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#8ff6e4" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ic-spec" x1="300" y1="300" x2="470" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ic-rim" x1="260" y1="200" x2="780" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.95"/>
+      <stop offset="0.45" stop-color="#fff" stop-opacity="0.12"/>
+      <stop offset="0.8" stop-color="#fff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.6"/>
+    </linearGradient>
+    <filter id="ic-shadow" filterUnits="userSpaceOnUse" x="0" y="820" width="1024" height="204">
+      <feGaussianBlur stdDeviation="28"/>
+    </filter>
+    <filter id="ic-arrowShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+    <clipPath id="ic-clip">
+      <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z"/>
+    </clipPath>
+  </defs>
+
+  
+  <ellipse cx="512" cy="958" rx="250" ry="34" fill="#2a1b80" opacity="0.45" filter="url(#ic-shadow)"/>
+
+  
+  <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="url(#ic-body)"/>
+  <g clip-path="url(#ic-clip)">
+    <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="url(#ic-depth)"/>
+    <ellipse cx="560" cy="900" rx="240" ry="130" fill="url(#ic-caustic)"/>
+    
+    <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="44"/>
+    
+    <path d="M318 600C318 470 420 330 486 250c12 40-8 110-46 190-38 82-70 150-80 230-26 0-42-30-42-70Z" fill="url(#ic-spec)"/>
+    <ellipse cx="672" cy="770" rx="58" ry="22" transform="rotate(-40 672 770)" fill="#fff" opacity="0.35"/>
+  </g>
+  
+  <path d="M512 92C512 92 206 436 206 648a306 306 0 0 0 612 0C818 436 512 92 512 92Z" fill="none" stroke="url(#ic-rim)" stroke-width="10"/>
+
+  
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M512 452v290M398 640l114 114 114-114" stroke="#2a1580" stroke-opacity="0.45" stroke-width="78" filter="url(#ic-arrowShadow)" transform="translate(0 16)"/>
+    <path d="M512 452v290M398 640l114 114 114-114" stroke="#fff" stroke-width="74"/>
+  </g>
+</svg>
+    <text class="t name" x="320.0" y="190.0">Media Saver</text>
+    <rect x="320.0" y="204.0" width="200" height="3" rx="1.5" fill="url(#line)"/>
+    <text class="t tag" x="320.0" y="241.0">Videos and audio from YouTube, Instagram, TikTok and X</text>
+    <text class="t meta" x="320.0" y="279.0">Windows 10 / 11 · Portable · Open source</text>
+  </g>
+</svg>
