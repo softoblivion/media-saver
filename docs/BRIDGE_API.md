@@ -39,6 +39,7 @@ produces the payloads. A field not listed here does not exist; add it here first
 | `choose_output_dir()` | — | `str \| null` | Native folder dialog; on success saves `output_dir` and emits `settings`. |
 | `get_settings()` | — | `Settings` | |
 | `set_settings(patch)` | `patch: object` (subset of Settings) | `Settings` | Invalid values -> rejection with a readable message. |
+| `set_scale(value)` | `value: 100 \| 125 \| 150 \| 175 \| 200` | `Settings` | The Scale setting: saves `ui_scale` (an unknown value snaps to the nearest step), sets the WebView2 zoom factor and resizes the window to the logical size times the factor at once, keeping its top-left corner inside the work area. Emits `settings`. |
 | `update_engine()` | — | `null` | Forced engine update; progress through `engine` events. |
 | `update_status()` | — | `UpdateStatus` | The current status, no side effects (the update popover refreshes with it when it opens). |
 | `check_updates()` | — | `UpdateStatus` | Starts a check of GitHub Releases for a newer app; result through `update` events. Returns the status at call time. |
@@ -251,6 +252,7 @@ may miss formats; when `components.deno.ok` is false the updater fetches the run
   "clipboard_watch": true,                       // UI offers links found in the clipboard on window focus
   "open_folder_when_done": false,                // open output dir when the whole queue finishes
   "sound_on_done": true,                         // the UI plays assets/sounds/download-done.wav when a job finishes with a new file
-  "theme": "dusk"                                // "dusk" | "nova" | "frost" | "bloom": the UI kit's palette (background hue and accent); an unknown value is stored as "dusk"; the UI applies the confirmed value and keeps it for the next launch
+  "theme": "dusk",                               // "dusk" | "nova" | "frost" | "bloom": the UI kit's palette (background hue and accent); an unknown value is stored as "dusk"; the UI applies the confirmed value and keeps it for the next launch
+  "ui_scale": 100                                // 100 | 125 | 150 | 175 | 200: the Scale setting (percent of the whole window on top of Windows' own scaling); an unknown value snaps to the nearest step; applied by the shell before the page is shown and through set_scale
 }
 ```

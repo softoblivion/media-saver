@@ -211,6 +211,7 @@ class FakeEngine:
             "open_folder_when_done": False,
             "sound_on_done": True,
             "theme": "dusk",
+            "ui_scale": 100,
         }
         # The theme is the one setting the fake keeps between launches (the UI checks that a chosen
         # theme survives a restart); everything else starts from the defaults above.

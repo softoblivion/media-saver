@@ -18,7 +18,7 @@ Rules:
 - `ui/vendor/liquid_ui/` is a synced copy: never edit it here. A change is made in the kit's master and synced into
   this tree (the whole folder is replaced and `VENDORED.txt` rewritten); after a sync, check the mock in the browser
   (`index.html?mock=1`, section 7) and the app run from source.
-- `css/theme.css` holds layout tokens only (`--titlebar-h`, `--cmp-w`). Identity tokens (`--accent` family,
+- `css/theme.css` holds one layout token (`--cmp-w`). Identity tokens (`--accent` family,
   scene colours, glass tints) come from the kit's themes and are never overridden; app CSS that needs the accent
   uses the kit's tokens (`--accent`, `--accent-ink`, `--btn-glow`, `--focus-ring`, through `color-mix()` for
   tints). A missing kit feature is added to the kit, or kept as app code beside it, never patched into the copy.
@@ -28,12 +28,15 @@ Rules:
   tools below 380 px of row width, and the hero pill's width (100 % of its slot, no minimum, so it can narrow to a
   circle).
 - Stylesheet order (`index.html`): the kit's `tokens.css`, `themes.css`, `base.css`, `scene.css`, `glass.css`,
-  `components.css`, then `css/theme.css`, `css/parts.css`, `css/app.css`. Modules import the kit by relative path
-  (`../vendor/liquid_ui/js/<module>.js`); no app file names a font file.
+  `components.css`, `titlebar.css`, then `css/theme.css`, `css/parts.css`, `css/app.css`. Modules import the kit
+  by relative path (`../vendor/liquid_ui/js/<module>.js`); no app file names a font file.
+- Type: every text is a role of the kit's type scale (`font: var(--t-<role>)` with its `--tr-<role>`; display,
+  title, section, body, label, caption, mono and the variants label-s, mono-s); no app rule carries a `font-size`
+  or a `font` shorthand with a pixel size. Control heights come from the kit (`--h-l` .. `--h-xs`).
 
 | Part | Kit (`ui/vendor/liquid_ui/`) | App |
 |---|---|---|
-| Tokens, fonts | `css/tokens.css`, `fonts/` (Unbounded, Geist Mono); the kit's documentation, section 3 | `css/theme.css`: layout tokens only (`--titlebar-h` 46 px, `--cmp-w`) |
+| Tokens, fonts, type scale | `css/tokens.css`, `fonts/` (Sora, Geist Mono); the seven type roles and the control heights; the kit's documentation, section 3 | `css/theme.css`: one layout token (`--cmp-w`, the composer column) |
 | Themes | `css/themes.css` (Dusk, Nova, Frost, Bloom), `js/theme.js` (`applyTheme`, `mountThemeControl`); section 4 | `index.html`: `data-theme="dusk"` and a head script that reads `localStorage['media-saver.theme']` before the first paint; `js/main.js`: applies `Settings.theme` on connect and on every `settings` event and writes that key; `js/settings.js`: the theme row in the Appearance group, saved through `set_settings({ theme })` |
 | Reset, buttons, focus, scrollbars, spinner | `css/base.css`: the button system (plate, sizes l / regular / s / xs, kinds plain / ghost / tinted / danger, states); section 6 | — (placement only, see the rules above) |
 | Hero pill | `.hero` with the `.pm-*` layers in `css/components.css`; section 6.1 | `#btn-download` (`js/composer.js`): the markup, `new Lens(btn, 'pill')`, `gel(btn, { amount: 0.8 })`, the five states, the width spring to a circle while sending, the `--p` level; `css/app.css`: width, `--hero-h: 52px`, the two-line progress layout below 380 px |
@@ -44,9 +47,11 @@ Rules:
 | Toasts | `js/toast.js`, `.toast` | position over the queue column; under the update popover while it is open (`css/parts.css`) |
 | Icons | `js/icons.js` (`icon`, `registerIcons`) | `js/icons.js`: Media Saver's drawings registered into the kit's set (same names replace the kit's, e.g. `app` = the droplet), `kindGlyph`, `appGlyph` |
 | Background | `js/background.js` (the `deep` treatment drawn from the theme tokens, `retint()` on a theme change), `css/scene.css`; section 7 | `js/scene.js`: `initBackground(root, { idleMs: 60000 })` with no colours of its own, the thumbnail ghosts layer |
+| Title bar | `js/titlebar.js` (`mountTitlebar`), `css/titlebar.css`: glyph, name, version pill, the centre and aside slots, the window cluster; the kit's documentation, section 9.3 | `js/main.js`: the mount (name, glyph, the bridge calls of the window buttons, the gear toggles the settings sheet), the mode switch in the centre slot, the engine chip in the aside slot |
+| Scale | `js/scale.js` (`mountScaleControl`), the `.seg-scale` row; the kit's documentation, section 9.4 | `js/settings.js`: the row under Appearance, saved through `set_scale` (the shell zooms the window, ARCHITECTURE 5.8) |
 | Version pill, update popover, update toasts, "Updates" settings rows | `js/update.js` (`mountUpdateControl`, `mountSettings`), `.ver-pill` `.pop-*` `.upd-*` `.set-*` | `js/update.js`: the mount (product name, restart warning, active-jobs check, `settings` events) |
 | Settings sheet frame | `.sheet-head` `.sheet-scroll` `.set-group` `.set-card` `.set-row`, the theme row `.theme-row` | content (`js/settings.js`); path, template tokens, engine versions, sign-in (`css/parts.css`) |
-| Everything else | — | title bar layout, engine chip, composer, queue, cards, clipboard pill, mock, bridge wrapper (`js/*.js`, `css/app.css`, `css/parts.css`) |
+| Everything else | — | engine chip, composer, queue, cards, clipboard pill, mock, bridge wrapper (`js/*.js`, `css/app.css`, `css/parts.css`) |
 
 ## 1. Sources and what was taken from each
 
@@ -128,16 +133,20 @@ number), the engine hover card and the select menu.
 
 ## 3. Design tokens — kit `css/tokens.css`, `css/themes.css`; app `css/theme.css`
 
-The tokens are the kit's (the kit's documentation, section 3: fonts, type roles, colour, buttons, motion, shape,
-space, depth, layout); Media Saver uses them and defines none of its own except the two layout tokens in
-`css/theme.css` (`--titlebar-h` 46 px, `--cmp-w`, the composer column). What matters for the app code:
+The tokens are the kit's (the kit's documentation, section 3: fonts, the type scale, density, colour, buttons,
+motion, shape, space, depth, layout); Media Saver uses them and defines none of its own except the layout token in
+`css/theme.css` (`--cmp-w`, the composer column). What matters for the app code:
 
-- Fonts: embedded in the kit (Unbounded for text and display, Geist Mono for paths, links, versions; no network
-  at runtime). No app file names a font file; a face change arrives with a kit sync.
-- Type: always a role (`--t-*` with its `--tr-*` tracking), never a raw size. Every number that changes in place
-  (sizes, speeds, ETA, counters, durations, percentages) sets `font-variant-numeric: tabular-nums` after its
-  `font` shorthand (the shorthand resets it). Canonical links, video IDs, paths, versions and codes are mono
-  (`--ff-feat: var(--ff-mono)` on the element).
+- Fonts: embedded in the kit (Sora for text and display, Geist Mono for paths, links, versions; no network at
+  runtime). No app file names a font file; a face change arrives with a kit sync.
+- Type: always a role of the kit's scale (display 20, title 16, section 11 uppercase, body 13, label 12.5,
+  caption 11.5, mono 12; label-s 11.5 and mono-s 11), never a raw size: the panel titles "Links" and "Queue" are
+  `title`, card titles and setting labels `label`, meta lines and counters `caption`, badges, chips and the
+  "QUALITY" caption `section`. Every number that changes in place (sizes, speeds, ETA, counters, durations,
+  percentages) sets `font-variant-numeric: tabular-nums` after its `font` shorthand (the shorthand resets it).
+  Canonical links, video IDs, paths, versions and codes are mono (`--ff-feat: var(--ff-mono)` on the element).
+- Density: the kit's compact heights (buttons 40 / 32 / 28 / 24, segmented options 28, the title bar 44, the hero
+  pill 48, the queue header 56, cards with 10 px padding and the 18 px radius).
 - Identity: a theme (section 4 of the kit's documentation). Media Saver's default is **Dusk** (cobalt scene,
   coral accent `#ff7a59`); Nova, Frost and Bloom are the other three, chosen in Settings > Appearance and stored
   as `Settings.theme`. App CSS never hard-codes an accent: tints come from `--accent`, `--accent-ink`,
@@ -168,7 +177,7 @@ Behaviours:
   (no pointer follow). Uses the individual `scale` property so it composes with layout transforms.
 - Segmented droplet: x and width springs; stretch `1 + |v|/2400` along the motion, thinner across it; lifts (scale +
   lensing) while pressed or dragged, can be dragged across options and snaps to the one under its centre.
-- Switch (kit, 46 x 28 px track, 24 px thumb): the thumb grows to a 34 px droplet while pressed and turns into a lens
+- Switch (kit, 40 x 24 px track, 20 px thumb): the thumb grows to a 28 px droplet while pressed and turns into a lens
   over the track, travels with `bouncy`.
 - Stepper (`Stepper` in the kit's `js/controls.js`, Settings "Simultaneous downloads"): the number rolls through a 28 px window
   (`.step-val`: `overflow: hidden`, `contain: paint`, a mask that softens the top and bottom 24 %). The roll is a WAAPI
@@ -237,10 +246,10 @@ well.
 
 | File | Content |
 |---|---|
-| `index.html` | Static layout: `<html data-theme="dusk">` with the head script that applies the saved theme before the first paint, title bar in three columns (brand with the version pill `#ver-pill`; the mode slot, centred; engine chip, gear, window buttons Minimize and Close), composer (one `c-other` counter template that `js/composer.js` clones per platform; `#btn-download` as the kit's `.hero`), queue, overlay hosts (engine popover, update popover, settings sheet). |
+| `index.html` | Static layout: `<html data-theme="dusk">` with the head script that applies the saved theme before the first paint, an empty `<header id="titlebar">` that the kit fills, composer (one `c-other` counter template that `js/composer.js` clones per platform; `#btn-download` as the kit's `.hero`), queue, overlay hosts (engine popover, update popover, settings sheet). |
 | `vendor/liquid_ui/` | The Liquid UI kit (section 0): tokens, fonts, base, scene, material, components and their modules. Never edited here. |
-| `css/theme.css`, `css/parts.css`, `css/app.css` | Layout tokens; Media Saver's own components (engine chip, window buttons, segmented variants, settings content, clipboard pill, ghosts, toast position); screen layout, the hero pill's placement. |
-| `js/main.js` | Boot, the theme (`applyTheme(settings.theme)` on connect and on every `settings` event, `localStorage['media-saver.theme']` for the next first paint), title bar, mode switch (four service glyphs, Alt+1..Alt+4), window buttons (Minimize, Close), entrance, auth -> auto retry of Instagram `login_required` jobs. |
+| `css/theme.css`, `css/parts.css`, `css/app.css` | The layout token; Media Saver's own components (engine chip, segmented variants, settings content, clipboard pill, ghosts, toast position); screen layout, the hero pill's placement. |
+| `js/main.js` | Boot, the theme (`applyTheme(settings.theme)` on connect and on every `settings` event, `localStorage['media-saver.theme']` for the next first paint), the kit's title bar (`mountTitlebar`: name, glyph, the window buttons call `window_minimize` / `window_close`, the gear toggles the settings sheet, the engine chip in the aside slot), mode switch in the centre slot (four service glyphs, Alt+1..Alt+4), entrance, auth -> auto retry of Instagram `login_required` jobs. |
 | `js/mode.js` | `PLATFORMS` (`instagram`, `youtube`, `tiktok`, `twitter`, in mode-switch order), `PLATFORM_NAME` (Instagram, YouTube, TikTok, X), `QUALITIES`, `QUALITY_KEY`; current mode, default format and per-platform quality (`settings.mode`, `format`, `quality_<platform>`): local apply at once, `set_settings` persist, revert on refusal, stale-echo guard, `onPref(key)` subscribers, `html[data-mode]`, `html[data-format]`. There is no "other platform" helper: a switch action always names the platform of the item in question. |
 | `js/quality.js` | Quality control of the composer's spec row: one `Segmented` per platform (only the mode's one visible), four steps Low / Medium / High / Max in both formats, hint line and option tooltips in resolution (MP4) or bitrate (MP3) wording, the H.264 note on YouTube Max in MP4 only. |
 | `js/api.js` | `window.__msEvent`, `pywebviewready` wait (1.5 s), mock fallback, `call()` / `on()`. |
@@ -251,24 +260,23 @@ well.
 | `js/composer.js` | Input capsule, live clean preview for the mode, chips of other platforms with "Switch to <their platform>", counters (one "N <platform>" pill per other platform present), tools (three plain `.btn-s`), Ctrl+V anywhere, drag and drop (text, URLs, `.txt`), format toggle, the `Download` hero pill with its five states and the liquid level (one batch per platform). |
 | `js/clipboard.js` | Clipboard prompt pill on start and on `window` focus when `clipboard_watch`; offers the mode's links, or else the links of one other platform (the one with the most fresh links) with "Add to <platform>". |
 | `js/queue.js` | Queue header (counts of the mode, "Clear finished", the "Open folder" split button with its folder menu, `open_output_dir` / `choose_output_dir`, the "Videos now go to ..." toast on an `output_dir` change), job cards of every platform (others `[hidden]`), card shape (`tall`: Reels, Shorts, TikTok; `wide`: YouTube videos and X posts, an X post turns `tall` once its width / height or its thumbnail shows a vertical video), placeholder glyph from `kindGlyph`, author with `@` on Instagram, TikTok and X (handles), plain on YouTube (channel names), preview skeleton (also for a started job without a title, section 4), strictly newest-first insertion (an equal `created_at` goes on top), per-item format toggle, actions by status, error row (sign-in for Instagram only), empty state per mode, `clear_finished(mode)`. |
-| `js/settings.js` | Settings sheet (Appearance first: the kit's theme row, applied at once and saved as `theme`, restored from the confirmed value with a toast when refused; no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), the "Updates" group from the kit's `mountSettings`; its controls are the kit's Segmented / Switch / Stepper / Select. |
+| `js/settings.js` | Settings sheet (Appearance first: the kit's theme row, applied at once and saved as `theme`, restored from the confirmed value with a toast when refused, and the kit's Scale row, saved through `set_scale`, which also zooms the window; no quality row: quality lives in the main window; the Instagram group shows in Instagram mode only; the file name example uses a platform-typical author and id: Instagram `studio.lumen` / `DAbC123xYz_`, YouTube `Lumen Studio` / `dQ4w9WgXcQ0`, TikTok `studio.lumen` / `7106594312292453675`, X `studio_lumen` / `1577855540407197696`), the "Updates" group from the kit's `mountSettings`; its controls are the kit's Segmented / Switch / Stepper / Select; `toggleSettings()` for the title bar's gear. |
 | `js/icons.js`, `js/format.js` | Original line icons registered into the kit's set (incl. `video`, `shorts`, `audio`, `swap`, `app`, `folderEdit`, the service glyphs `svcInstagram` / `svcYouTube` / `svcTikTok` / `svcX` with `SERVICE_GLYPH` by platform id) and `kindGlyph(platform, kind)` (Instagram `reel` / `post`, YouTube `video` / `shorts`, TikTok `shorts`, X `video`), en-US plurals / item nouns / short links / sizes / ETA / relative time / link error notes (all by platform). |
 | `assets/icon.svg`, `assets/icon-1024.png` | App icon: glass droplet with a down arrow (PNG rendered from the SVG with headless Edge). |
 
 ### 6.1 Placement decisions
 
-- Title bar layout: a three-column grid `1fr auto 1fr` with symmetric 7 px side padding. Left column: the brand
-  block (app glyph, "Media Saver", the version pill 12 px right of the name). Middle column: the mode switch,
-  centred on the window whatever the widths of the brand block and the right cluster (the side columns share the
-  free width equally). Right column, right-aligned: engine chip, gear, Minimize, Close. The window has a fixed
-  size (1180 x 780; the minimum of 940 x 640 is still checked in the mock): no Maximize button, no double-click on
-  the drag area, no maximized state in the page. Drag region: `.tb-drag` (absolute, under all three columns, no
-  grid cell) and the app name carry `pywebview-drag-region`; the brand block has `pointer-events: none`, so the
-  glyph and the name drag through to `.tb-drag`, and only the version pill takes pointer events back (it is a
-  sibling of the name, never inside a drag element, so it stays clickable). Measured in the mock: at 1180 the
-  switch spans x = 499..681 (centre 590), at 940 x = 379..561 (centre 470); the brand block ends at x = 224 and the
-  right cluster starts at x = 881 (1180) / 651 (940).
-- Mode switch (Instagram / YouTube / TikTok / X): a `Segmented` (`seg-tb seg-svc`, 34 px) whose options show one
+- Title bar: the kit's component (`mountTitlebar`, the kit's documentation, section 9.3), 44 px, a three-column
+  grid `1fr auto 1fr` with symmetric 10 px side padding. Left: the app glyph (20 px), "Media Saver" (label role),
+  the version pill. Centre slot: the mode switch, centred on the window whatever the side clusters measure. Right:
+  the aside slot with the engine chip (28 px pill lens, label-s), then the window cluster (a 34 px capsule with
+  settings | minimize, close). The window has a fixed size (1180 x 780; the minimum of 940 x 640 is still checked
+  in the mock): no Maximize button, no double-click on the drag area, no maximized state in the page. Drag region:
+  the kit's `.tb-drag` under everything carries `pywebview-drag-region`; the left cluster has `pointer-events:
+  none`, so the glyph and the name drag through to it, and only the version pill takes pointer events back (a
+  sibling of the drag layer, so it stays clickable). Measured in the mock at 1180 x 780: the switch spans
+  x = 499..681 (centre 590), the engine chip starts at x = 935, the window cluster at x = 1061.
+- Mode switch (Instagram / YouTube / TikTok / X): a `Segmented` (`seg-tb seg-svc`, 34 px, the kit's 28 px options) whose options show one
   service glyph each instead of a text label (`js/icons.js` `svcInstagram`: rounded square, lens, dot;
   `svcYouTube`: wide rounded screen with a play triangle; `svcTikTok`: a musical note; `svcX`: a crossed letter with
   one outlined heavy stroke; 24 x 24 grid, 1.8 px stroke, round caps, drawn at 18 px). The kit escapes option labels
@@ -282,13 +290,13 @@ well.
   the whole window (composer, queue, clipboard prompt, settings), so it sits above both columns as the app's
   top-level navigation. Alt+1..Alt+4 switch modes (matched on `KeyboardEvent.code` `Digit1..4`, so keyboard layouts
   that type another character with Alt+digit still work). Width: 4 x 44 px + 6 px track = 182 px.
-- Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 52 px tall, matching the hero pill) at the left of
+- Format toggle (MP4 / MP3): a `Segmented` (`seg-l` variant, 48 px tall, matching the hero pill) at the left of
   the composer's action row; `Download` takes the rest of the row (`.cmp-btn-slot`), so its width spring measures
   the slot. There is no keyboard shortcut for `Download` and no hint line under it.
 - Quality (per platform, Settings `quality_instagram` / `quality_youtube` / `quality_tiktok` / `quality_twitter`,
-  each `low` | `medium` | `high` | `max`): a spec row (`#cmp-spec`, 34 px) directly above the action row: caption
-  "QUALITY", a compact `Segmented` (`seg-q` variant, 28 px options, 9 px side padding, about 237 px for the four
-  options) and a hint line at the right. With the format toggle and `Download` below it, it reads as "what you
+  each `low` | `medium` | `high` | `max`): a spec row (`#cmp-spec`, 32 px) directly above the action row: caption
+  "QUALITY" (section role), a compact `Segmented` (`seg-q` variant, 26 px options, 8 px side padding, about 220 px
+  for the four options) and a hint line at the right. With the format toggle and `Download` below it, it reads as "what you
   get" right before the press. Not in the composer header: the counters live there and can show four pills. The
   same four steps apply to both formats: MP4 caps the resolution (short side), MP3 picks the bitrate; the control
   stays active in MP3 and only the hint and the option tooltips switch wording, so the layout never jumps. Fit:
@@ -347,6 +355,9 @@ well.
   (`applyTheme`: the root attribute, the scene retint) and saves `{ theme }`; the confirmed value from the answer
   or a `settings` event sets the row; a refusal shows the sentence as a toast and restores the confirmed theme.
   The persisted copy in `localStorage` only serves the first paint of the next launch; the bridge's value wins.
+  Below it the kit's Scale row ("Scale", "Size of the window and its text", 100 / 125 / 150 / 175 / 200 %): a
+  click calls `set_scale(value)`; the shell saves `ui_scale`, zooms the page and resizes the window at once
+  (ARCHITECTURE 5.8), and the confirmed value sets the row. The page itself never zooms.
 - Settings "Updates" group (between Engine and About): the kit's `mountSettings` rows: the status line with
   "Checked <date, time>" and the next action (Check for updates / Download / a percentage while downloading / Restart
   to update) and "Download updates automatically" (switch). They save their own keys and
@@ -406,7 +417,7 @@ everywhere.
   network log with the mock).
 - Screenshots with a hidden or background browser pane: WAAPI animations pause there, so entrance and fade-ins hold
   their first frame; finish them first (`document.getAnimations().forEach(a => a.finish())` for the finite ones).
-- Drag region: `.tb-drag` and the app name carry `pywebview-drag-region`; buttons (the version pill included) are
+- Drag region: the kit's `.tb-drag` carries `pywebview-drag-region`; buttons (the version pill included) are
   siblings, not children, because pywebview also drags from descendants of a drag element. The window has a fixed
   size: nothing maximizes it, and the `window` event carries `focused` only.
 - Screenshots of a hidden browser pane lag by one frame (the capture shows the state before the last change) and
@@ -498,8 +509,9 @@ everywhere.
   and toasts "This is a TikTok link" / "These are TikTok links" / "These are TikTok and X links" with the action
   "Switch to <the platform with the most links>". Valid chips note the cut: "−1 char", "−17 chars".
 
-- Theme copy is the kit's: group "Appearance", row "Theme" with the hint "Background colour and accent of the
-  window", names "Dusk", "Nova", "Frost", "Bloom".
+- Theme and scale copy is the kit's: group "Appearance", row "Theme" with the hint "Background colour and accent
+  of the window", names "Dusk", "Nova", "Frost", "Bloom"; row "Scale" with the hint "Size of the window and its
+  text", steps "100 %" .. "200 %".
 - Update copy: toast "Media Saver X.Y.Z is available" (action "View"); About line "Downloads Instagram Reels, YouTube,
   TikTok and X videos as MP4 or MP3"; the "Updates" rows are the kit's copy: switch "Download updates automatically"
   (hint "Checked every 5 minutes; installing still needs a restart"; the check itself always runs and its period is

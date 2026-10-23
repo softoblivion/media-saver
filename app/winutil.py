@@ -262,17 +262,35 @@ def set_border_color(hwnd: int, hex_color: str) -> bool:
 
 # --- window size (pure) ------------------------------------------------------------------------------------------
 
-def pick_window_size(ladder: Sequence[tuple[int, int]], work: Optional[tuple[int, int]]) -> tuple[int, int]:
-    """The largest size of `ladder` (largest first, logical px) that fits the work area `work` (logical px); the
-    smallest step when none fits, the first one when the work area is unknown."""
+def pick_window_size(ladder: Sequence[tuple[int, int]], work: Optional[tuple[int, int]],
+                     zoom: float = 1.0) -> tuple[int, int]:
+    """The largest size of `ladder` (largest first, logical px) whose size times `zoom` (the Scale setting as a
+    factor) fits the work area `work` (logical px); the smallest step when none fits, the first one when the work
+    area is unknown."""
     if not ladder:
         raise ValueError("empty size ladder")
     if work is None:
         return ladder[0]
     for width, height in ladder:
-        if width <= work[0] and height <= work[1]:
+        if width * zoom <= work[0] and height * zoom <= work[1]:
             return width, height
     return ladder[-1]
+
+
+def placed_rect(size: tuple[int, int], current: Optional[tuple[int, int]],
+                work: Optional[tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
+    """(x, y, w, h) of a window of `size` that keeps its `current` top-left corner where possible: moved left or
+    up so it stays inside the work area, never past the work area's top-left; centred when `current` is None."""
+    if current is None:
+        return centered_rect(size, work)
+    w, h = size
+    x, y = current
+    if work is not None:
+        x = min(x, work[2] - w)
+        y = min(y, work[3] - h)
+        x = max(work[0], x)
+        y = max(work[1], y)
+    return x, y, w, h
 
 
 def centered_rect(size: tuple[int, int], work: Optional[tuple[int, int, int, int]]) -> tuple[int, int, int, int]:
@@ -331,6 +349,8 @@ if IS_WINDOWS:
     _user32.GetDpiForWindow.argtypes = [wintypes.HWND]
     _user32.GetDpiForWindow.restype = wintypes.UINT
     _user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    _user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    _user32.GetWindowRect.restype = wintypes.BOOL
 
 
 class _MONITORINFO(ctypes.Structure):
@@ -368,6 +388,32 @@ def window_scale(hwnd) -> float:
         return 1.0
 
 
+def window_position(hwnd) -> Optional[tuple[int, int]]:
+    """(x, y) of the window's top-left corner in physical px, or None."""
+    if not IS_WINDOWS or not hwnd:
+        return None
+    rect = wintypes.RECT()
+    if not _user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return None
+    return rect.left, rect.top
+
+
+def set_zoom_factor(window: Any, factor: float) -> bool:
+    """The WebView2 zoom factor of a pywebview window (edgechromium backend): `window.native.webview` is the
+    WinForms WebView2 control. Zoom is a device-scale change: the page keeps its logical viewport and text stays
+    crisp. Call it on the UI thread. False when the control is not reachable."""
+    native = getattr(window, "native", None)
+    control = getattr(native, "webview", None)
+    if control is None:
+        return False
+    try:
+        control.ZoomFactor = float(factor)
+        return True
+    except Exception:  # noqa: BLE001 - a backend without the property
+        log.exception("zoom factor %.2f could not be set", factor)
+        return False
+
+
 class FixedSizeHook:
     """Window-procedure subclass that holds the window at one physical size; keep the instance alive as long as
     the window exists."""
@@ -393,23 +439,27 @@ class FixedSizeHook:
         self.installed = bool(self._prev_proc)
         return self.installed
 
-    def fit_size(self, ladder: Sequence[tuple[int, int]]) -> tuple[int, int]:
-        """Logical size from `ladder` for the work area of the window's monitor at the window's DPI."""
+    def fit_size(self, ladder: Sequence[tuple[int, int]], zoom: float = 1.0) -> tuple[int, int]:
+        """Logical size from `ladder` for the work area of the window's monitor at the window's DPI; `zoom` is the
+        Scale setting as a factor (the window takes `zoom` times the logical size)."""
         scale = window_scale(self.hwnd)
         work = monitor_work_area(self.hwnd)
         work_logical = None
         if work is not None:
             work_logical = (int((work[2] - work[0]) / scale), int((work[3] - work[1]) / scale))
-        return pick_window_size(ladder, work_logical)
+        return pick_window_size(ladder, work_logical, zoom)
 
     def lock(self, width: int, height: int,
-             apply: Optional[Callable[[int, int, int, int], None]] = None) -> tuple[int, int, int, int]:
-        """Fix the window at `width` x `height` logical px, centred on the work area. `apply(x, y, w, h)` performs
-        the move (pass the form's SetBounds so WinForms keeps its own bounds in sync); the default is SetWindowPos.
-        Returns the physical rect (x, y, w, h)."""
+             apply: Optional[Callable[[int, int, int, int], None]] = None, zoom: float = 1.0,
+             keep_position: bool = False) -> tuple[int, int, int, int]:
+        """Fix the window at `width` x `height` logical px times `zoom` (the Scale setting), centred on the work
+        area, or at its current top-left corner (kept inside the work area) with `keep_position`. `apply(x, y, w,
+        h)` performs the move (pass the form's SetBounds so WinForms keeps its own bounds in sync); the default is
+        SetWindowPos. Returns the physical rect (x, y, w, h)."""
         scale = window_scale(self.hwnd)
-        self.size = (int(round(width * scale)), int(round(height * scale)))
-        x, y, w, h = centered_rect(self.size, monitor_work_area(self.hwnd))
+        self.size = (int(round(width * zoom * scale)), int(round(height * zoom * scale)))
+        current = window_position(self.hwnd) if keep_position else None
+        x, y, w, h = placed_rect(self.size, current, monitor_work_area(self.hwnd))
         if apply is not None:
             apply(x, y, w, h)
         elif IS_WINDOWS and self.hwnd:

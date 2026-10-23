@@ -2,7 +2,7 @@
 
 import { connect, call, on, backendMode } from './api.js';
 import { initScene, setFocused, activity } from './scene.js';
-import { initLight, gel, Lens } from '../vendor/liquid_ui/js/glass.js';
+import { initLight } from '../vendor/liquid_ui/js/glass.js';
 import { SPRINGS, springAnimate, reducedMotion } from '../vendor/liquid_ui/js/motion.js';
 import { icon, appGlyph, SERVICE_GLYPH } from './icons.js';
 import { nItems } from './format.js';
@@ -10,7 +10,8 @@ import { initToasts, toast } from '../vendor/liquid_ui/js/toast.js';
 import { initEngine } from './engine.js';
 import { initComposer, focusInput } from './composer.js';
 import { initQueue, getJobs, retryLoginFailures } from './queue.js';
-import { initSettings } from './settings.js';
+import { initSettings, toggleSettings } from './settings.js';
+import { mountTitlebar } from '../vendor/liquid_ui/js/titlebar.js';
 import { initClipboard } from './clipboard.js';
 import { initUpdate } from './update.js';
 import { initSound } from './sound.js';
@@ -34,29 +35,27 @@ function syncTheme(settings) {
   }
 }
 
+let titlebar = null;
+
+/** The kit's title bar: glyph, name and version pill on the left, the mode switch in the centre slot, the
+ *  engine chip in the aside slot, settings | minimize, close on the right (docs/UI_DESIGN.md 6.1). */
 function initTitlebar() {
   document.querySelectorAll('.ic-slot[data-icon]').forEach((s) => (s.outerHTML = icon(s.dataset.icon)));
-  document.getElementById('tb-glyph').innerHTML = appGlyph(20);
-  const gear = document.getElementById('btn-settings');
-  gear.innerHTML = icon('gear');
-  new Lens(gear, 'pill');
-  gel(gear);
-  // The window has a fixed size: only Minimize and Close (no maximize, no double-click on the drag area).
-  const win = {
-    'win-min': ['min', 'window_minimize'],
-    'win-close': ['close', 'window_close'],
-  };
-  for (const [id, [ic, method]] of Object.entries(win)) {
-    const b = document.getElementById(id);
-    b.innerHTML = icon(ic);
-    b.addEventListener('click', async () => {
-      try {
-        await call(method);
-      } catch (err) {
-        toast('error', err.message);
-      }
-    });
-  }
+  const win = (method) => () => call(method).catch((err) => toast('error', err.message));
+  titlebar = mountTitlebar(document.getElementById('titlebar'), {
+    name: 'Media Saver',
+    glyph: appGlyph(20),
+    onSettings: () => toggleSettings(),
+    onMinimize: win('window_minimize'),
+    onClose: win('window_close'),
+  });
+  titlebar.gear.id = 'btn-settings';
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.id = 'engine-chip';
+  chip.className = 'eng-chip';
+  chip.setAttribute('aria-haspopup', 'dialog');
+  titlebar.aside.append(chip);
 }
 
 /** Mode switch in the title bar: it scopes the whole window (composer and queue). One service
@@ -77,7 +76,7 @@ function initModeSwitch() {
   }
   // The droplet is placed by the control's ResizeObserver, whose first callback runs once the
   // switch is laid out in the title bar, so it measures the icon-sized options, not the text labels.
-  document.getElementById('mode-slot').appendChild(seg.el);
+  titlebar.centre.appendChild(seg.el);
   onPref('mode', (m) => seg.set(m));
   // Alt+1..Alt+4 switch modes from anywhere (in the order of PLATFORMS). e.code also catches layouts
   // where Alt+digit produces another character.

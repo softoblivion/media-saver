@@ -281,9 +281,9 @@ export class Switch {
   _render() {
     const p = this.pos.value;
     const lift = this.press.value;
-    const W = 46, H = 28, pad = 2;
-    const tw = 24 + lift * 10 + Math.min(Math.abs(this.pos.velocity) * 2, 5);
-    const th = 24 + lift * 2;
+    const W = 40, H = 24, pad = 2;   // the track and thumb sizes of css/components.css (.switch)
+    const tw = 20 + lift * 8 + Math.min(Math.abs(this.pos.velocity) * 2, 4);
+    const th = 20 + lift * 2;
     const x = pad + p * (W - pad * 2 - tw);
     this.thumb.style.width = `${tw.toFixed(2)}px`;
     this.thumb.style.height = `${th.toFixed(2)}px`;

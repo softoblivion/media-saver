@@ -51,7 +51,8 @@ Stored in `media-saver_data\settings.json`. The second column names where the se
 | `auto_update` | Settings > Engine > **Auto-update engine** | `true` | Check engines on every start |
 | `update_channel` | Settings > Engine > **Update channel** | `nightly` | `nightly` or `stable` channel of yt-dlp |
 | `auto_download_updates` | Settings > Updates > **Download updates automatically** | `true` | Download a new version in the background; installing is always a click on **Restart** |
-| `theme` | Settings > Appearance | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` |
+| `theme` | Settings > Appearance > **Theme** | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` |
+| `ui_scale` | Settings > Appearance > **Scale** | `100` | Size of the whole window and its text in percent, on top of the Windows display scaling: `100`, `125`, `150`, `175` or `200`. The window grows with the step; on a small screen it takes a smaller layout step so it still fits |
 
 ## Link cleaning rules
 

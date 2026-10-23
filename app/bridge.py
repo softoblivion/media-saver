@@ -248,6 +248,7 @@ class Bridge:
         self._login_opener = login_opener
         self._on_close = on_close
         self._logout_hook: Optional[Callable[[], None]] = None
+        self._scale_applier: Optional[Callable[[int], None]] = None
         self._focused = True
         self._shutdown_lock = threading.Lock()
         self._shut_down = False
@@ -262,6 +263,10 @@ class Bridge:
 
     def _set_logout_hook(self, hook: Callable[[], None]) -> None:
         self._logout_hook = hook
+
+    def _set_scale_applier(self, applier: Callable[[int], None]) -> None:
+        """The shell's function that applies a Scale percentage to the window (zoom factor and window size)."""
+        self._scale_applier = applier
 
     def _toast(self, level: str, text: str) -> None:
         self._pump.emit("toast", {"level": level, "text": text})
@@ -403,6 +408,17 @@ class Bridge:
         if not isinstance(patch, dict):
             raise BridgeError("Expected a settings object.")
         return self._engine.set_settings(patch)
+
+    @_api
+    def set_scale(self, value):
+        """The Scale setting (BRIDGE_API Settings.ui_scale): saves the step and applies it to the window at once."""
+        new = self._engine.set_settings({"ui_scale": value})
+        if self._scale_applier is not None:
+            try:
+                self._scale_applier(int(new.get("ui_scale", 100)))
+            except Exception:  # noqa: BLE001 - the setting is saved; the window keeps its size
+                log.exception("scale could not be applied")
+        return new
 
     @_api
     def update_engine(self):

@@ -23,8 +23,8 @@ from app.bridge import Bridge, EventPump
 WINDOW_TITLE = "Media Saver"
 MUTEX_NAME = "Local\\MediaSaver.SingleInstance"
 BACKGROUND = "#0b0d14"
-# Window = page viewport, logical pixels, fixed (not resizable, no maximize). The first
-# size of the ladder that fits the monitor work area is used; the last step wins when even that does not fit.
+# Window = page viewport, logical pixels, fixed (not resizable, no maximize). The first size of the ladder whose
+# size times the Scale setting fits the monitor work area is used; the last step wins when even that does not fit.
 START_SIZE = (1180, 780)
 MIN_SIZE = (940, 640)
 SIZE_LADDER = ((1180, 780), (1120, 745), (1060, 710), (1000, 675), (940, 640))  # START_SIZE .. MIN_SIZE
@@ -219,9 +219,45 @@ def main(argv: Optional[list[str]] = None) -> int:
     os._exit(0)
 
 
+class WindowScale:
+    """The Scale setting applied to the window: the WebView2 zoom factor plus the locked window size (logical
+    size times the factor; the page keeps its logical layout). `apply` runs on the UI thread."""
+
+    def __init__(self, window: Any, hook: winutil.FixedSizeHook, ladder) -> None:
+        self._window = window
+        self._hook = hook
+        self._ladder = ladder
+        self.percent = 100
+
+    def apply(self, percent: int, keep_position: bool = False) -> None:
+        zoom = max(1, int(percent)) / 100.0
+        self.percent = int(percent)
+        winutil.set_zoom_factor(self._window, zoom)
+        width, height = self._hook.fit_size(self._ladder, zoom)
+        rect = self._hook.lock(width, height, apply=self._window.native.SetBounds, zoom=zoom,
+                               keep_position=keep_position)
+        log.info("window %sx%s logical at %s%%, %sx%s physical, dpi scale %.2f", width, height, self.percent,
+                 rect[2], rect[3], winutil.window_scale(self._hook.hwnd))
+
+
+def _on_ui_thread(window: Any, fn) -> None:
+    """Run `fn` on the WinForms UI thread (pywebview calls event handlers and API methods on worker threads)."""
+    native = getattr(window, "native", None)
+    try:
+        if native is not None and native.InvokeRequired:
+            from System import Action  # pythonnet
+
+            native.Invoke(Action(fn))
+            return
+    except Exception:  # noqa: BLE001
+        log.debug("UI-thread invoke failed; running directly", exc_info=True)
+    fn()
+
+
 def _setup_native_window(window: Any, bridge: Bridge) -> None:
-    """Runs on the UI thread after the form is shown: fixed size fitted to the work area, no maximize, DWM corners and
-    border colour, focus tracking."""
+    """After the form is shown: fixed size fitted to the work area at the saved Scale, no maximize, DWM corners and
+    border colour, focus tracking. The size and the zoom are set on the UI thread before the page shows anything
+    (the page waits for the bridge)."""
     native = window.native
     if native is None:
         return
@@ -232,10 +268,13 @@ def _setup_native_window(window: Any, bridge: Bridge) -> None:
         hook = winutil.FixedSizeHook(hwnd)
         if hook.install():
             _keep_alive.append(hook)  # the ctypes callback must outlive the window
-            width, height = hook.fit_size(SIZE_LADDER)
-            rect = hook.lock(width, height, apply=native.SetBounds)
-            log.info("window %sx%s logical, %sx%s physical, scale %.2f", width, height, rect[2], rect[3],
-                     winutil.window_scale(hwnd))
+            scale = WindowScale(window, hook, SIZE_LADDER)
+            try:
+                percent = int(bridge._engine.get_settings().get("ui_scale", 100))
+            except Exception:  # noqa: BLE001
+                percent = 100
+            _on_ui_thread(window, lambda: scale.apply(percent))
+            bridge._set_scale_applier(lambda value: _on_ui_thread(window, lambda: scale.apply(value, keep_position=True)))
         else:
             log.warning("fixed-size hook was not installed")
     except Exception:  # noqa: BLE001

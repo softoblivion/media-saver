@@ -272,6 +272,14 @@ title bar. The page draws its own title bar with minimize and close (`window_min
 whole client area, and DWM gives it rounded corners and a border colour equal to the page background. The size
 lock is `FixedSizeHook` in `app/winutil.py`; details in `BUILD.md`, section 5.
 
+Scale (`Settings.ui_scale`, 100 / 125 / 150 / 175 / 200 %): the shell sets the WebView2 zoom factor of the window's
+control to `ui_scale / 100` and locks the window at the logical size times that factor (times the monitor's DPI
+scale), so the page keeps its logical layout and text stays crisp. The ladder step is chosen for the scaled size
+(at 150 % on a 1920 x 1080 work area the window is 1000 x 675 logical, 1500 x 1013 physical); when even the
+smallest step does not fit, it is used anyway. The saved value is applied in `WindowScale.apply` on the window's
+`shown` event, before the page shows anything; `set_scale` applies a change at once and keeps the window's
+top-left corner inside the work area.
+
 ## 6. Engine facade (contract between `app/core` and `app/bridge.py`)
 
 `app/core/engine.py`:

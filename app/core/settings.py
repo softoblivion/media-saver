@@ -38,6 +38,8 @@ AUTH_MODES = ("auto", "always", "never")
 BROWSERS = ("", "firefox", "edge", "chrome", "brave", "opera")
 THEMES = ("dusk", "nova", "frost", "bloom")  # the UI kit's palettes; the UI applies the confirmed value
 DEFAULT_THEME = "dusk"
+SCALE_STEPS = (100, 125, 150, 175, 200)   # the Scale setting of the UI kit (BRIDGE_API Settings.ui_scale)
+DEFAULT_SCALE = 100
 TEMPLATE_TOKENS = ("author", "shortcode", "date", "title")
 CONCURRENCY_MIN, CONCURRENCY_MAX = 1, 4
 TEMPLATE_MAX_LEN = 100
@@ -68,10 +70,24 @@ def defaults() -> dict[str, Any]:
         "open_folder_when_done": False,
         "sound_on_done": True,
         "theme": DEFAULT_THEME,
+        "ui_scale": DEFAULT_SCALE,
     }
 
 
 KEYS = tuple(defaults().keys())
+
+
+def normalize_scale(value: Any) -> int:
+    """The nearest step of SCALE_STEPS for a number or a numeric string; the default for anything else."""
+    if isinstance(value, bool):
+        return DEFAULT_SCALE
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_SCALE
+    if number != number or number <= 0:  # NaN or junk
+        return DEFAULT_SCALE
+    return min(SCALE_STEPS, key=lambda step: (abs(step - number), -step))  # the larger step on a tie
 
 
 def _bool(key: str, value: Any) -> bool:
@@ -149,6 +165,8 @@ def validate_value(key: str, value: Any) -> Any:
     if key == "theme":
         # An unknown name (an older or edited file, a stale UI) falls back to the default rather than failing.
         return value if isinstance(value, str) and value in THEMES else DEFAULT_THEME
+    if key == "ui_scale":
+        return normalize_scale(value)
     raise KeyError(key)
 
 

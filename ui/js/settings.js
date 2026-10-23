@@ -9,6 +9,7 @@ import { gel } from '../vendor/liquid_ui/js/glass.js';
 import { Overlay } from '../vendor/liquid_ui/js/overlay.js';
 import { Segmented, Switch, Stepper, Select } from '../vendor/liquid_ui/js/controls.js';
 import { applyTheme, mountThemeControl } from '../vendor/liquid_ui/js/theme.js';
+import { mountScaleControl } from '../vendor/liquid_ui/js/scale.js';
 import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
 import { toast } from '../vendor/liquid_ui/js/toast.js';
@@ -45,8 +46,6 @@ export function initSettings(state) {
   overlay = new Overlay(sheet, { modal: true, preset: 'sheet' });
   body = sheet.querySelector('.ov-content');
   build();
-  const gear = document.getElementById('btn-settings');
-  gear.addEventListener('click', () => overlay.toggle(gear));
   on('settings', (s) => {
     S = s;
     sync();
@@ -65,6 +64,11 @@ export function initSettings(state) {
 
 export function openSettings() {
   overlay.show(document.getElementById('btn-settings'));
+}
+
+/** The gear of the title bar: open the sheet, or close it when it is open. */
+export function toggleSettings() {
+  overlay.toggle(document.getElementById('btn-settings'));
 }
 
 // Saves in flight per setting key. While a local change is unconfirmed, the echo of an older value
@@ -189,6 +193,23 @@ function build() {
       });
     },
   });
+  // Scale: the shell applies the step to the window at once (set_scale) and saves it as ui_scale; a refusal
+  // restores the confirmed step.
+  ctl.ui_scale = mountScaleControl(slot('appearance'), {
+    value: S.ui_scale,
+    onChange: async (v) => {
+      inflight.set('ui_scale', (inflight.get('ui_scale') || 0) + 1);
+      try {
+        const s = await call('set_scale', v);
+        if (s) S = s;
+      } catch (err) {
+        toast('error', err.message || 'Could not change the scale');
+      } finally {
+        inflight.set('ui_scale', inflight.get('ui_scale') - 1);
+      }
+      sync();
+    },
+  });
   const mkSwitch = (f, label) => {
     ctl[f] = new Switch({ label, checked: !!S[f], onChange: (v) => save({ [f]: v }, () => ctl[f].set(!v)) });
     slot(f).replaceWith(ctl[f].el);
@@ -310,6 +331,7 @@ function sync() {
   renderExample();
   for (const f of SWITCHES) if (!busy(f)) ctl[f].set(!!S[f]);
   if (!busy('theme') && S.theme) ctl.theme.set(S.theme);
+  if (!busy('ui_scale') && S.ui_scale) ctl.ui_scale.set(S.ui_scale);
   if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);

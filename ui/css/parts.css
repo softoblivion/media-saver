@@ -1,22 +1,23 @@
-/* Media Saver's own components on top of the Liquid UI kit (vendor/liquid_ui/css/components.css):
-   title bar parts (engine chip, gear, window buttons), the engine popover's component colours,
-   segmented control variants, settings sheet content (path, template tokens, engine versions,
-   Instagram sign-in), the clipboard pill, the thumbnail ghosts of the scene, and the places where
-   Media Saver's layout positions a kit component (update popover width, toasts). */
+/* Media Saver's own components on top of the Liquid UI kit (vendor/liquid_ui/css/components.css,
+   titlebar.css): the engine chip of the title bar's aside slot, the engine popover's component
+   colours, segmented control variants, settings sheet content (path, template tokens, engine
+   versions, Instagram sign-in), the clipboard pill, the thumbnail ghosts of the scene, and the
+   places where Media Saver's layout positions a kit component (update popover width, toasts).
+   Every text is a role of the kit's type scale. */
 
 /* ---------------------------------------------------------------------------------------------
-   Title bar: engine chip */
+   Title bar: engine chip (in the aside slot of the kit's title bar) */
 
 .eng-chip {
-  height: 30px;
+  height: var(--h-s);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 13px 0 9px;
+  gap: 7px;
+  padding: 0 12px 0 8px;
   border: 0;
   border-radius: var(--r-pill);
-  font: var(--t-control-s);
-  letter-spacing: var(--tr-control);
+  font: var(--t-label-s);
+  letter-spacing: var(--tr-label);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   --lens-tint: rgba(255, 255, 255, 0.05);
@@ -78,8 +79,9 @@
   display: flex;
   gap: 8px;
   padding: 8px 12px;
-  border-radius: 12px;
-  font: var(--t-meta);
+  border-radius: var(--r-10);
+  font: var(--t-caption);
+  letter-spacing: var(--tr-caption);
   color: var(--ink-2);
   white-space: nowrap;
   pointer-events: none;
@@ -91,68 +93,16 @@
 .eng-hover i { font-style: normal; color: var(--ink-4); }
 
 /* ---------------------------------------------------------------------------------------------
-   Title bar: gear lens and window buttons (minimize, close; the window has a fixed size) */
-
-.round-lens {
-  width: 32px;
-  height: 32px;
-  border: 0;
-  padding: 0;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  color: var(--ink-1);
-  cursor: pointer;
-  --lens-tint: rgba(255, 255, 255, 0.05);
-  --lens-shadow: var(--shadow-s);
-}
-
-.round-lens .ic {
-  width: 18px;
-  height: 18px;
-  transition: rotate var(--d-4) var(--ease-spring);
-}
-
-.round-lens:hover .ic,
-.round-lens.is-source .ic {
-  rotate: 45deg;
-}
-
-.win-btns {
-  display: flex;
-  gap: 2px;
-  margin-left: 6px;
-}
-
-.win-btn {
-  width: 40px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--ink-2);
-  cursor: pointer;
-  transition: background-color var(--d-1) ease, color var(--d-2) ease;
-}
-
-.win-btn .ic { width: 16px; height: 16px; }
-.win-btn:hover { background: var(--fill-3); color: var(--ink-1); }
-.win-close:hover { background: #e5484d; color: #fff; }
-
-/* ---------------------------------------------------------------------------------------------
    Popovers: the update popover is wider than the kit's default (room for the release notes);
    the engine popover's component rows are mint when ready, rose when broken. */
 
 .popover.pop-wide {
-  width: min(384px, calc(100vw - 24px));
+  width: min(376px, calc(100vw - 24px));
 }
 
 #engine-pop .comp-ic { color: var(--mint); }
 #engine-pop .comp.is-bad .comp-ic { color: var(--rose); }
-.comp-empty { padding: 12px; color: var(--ink-3); font: var(--t-callout); }
+.comp-empty { padding: 12px; color: var(--ink-3); font: var(--t-body); }
 
 /* ---------------------------------------------------------------------------------------------
    Settings sheet content */
@@ -166,8 +116,8 @@
 .path-text {
   flex: 1;
   min-width: 0;
-  padding: 8px 12px;
-  border-radius: 12px;
+  padding: 7px 11px;
+  border-radius: var(--r-10);
   background: var(--well);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
   font: var(--t-mono);
@@ -190,18 +140,18 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 9px;
+  height: var(--h-xs);
+  padding: 0 8px;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--r-8);
   background: var(--fill-2);
   cursor: pointer;
   transition: background-color var(--d-1) ease;
 }
 
 .token:hover { background: var(--fill-3); }
-.token code { font-size: 12px; color: var(--accent-ink); }
-.token span { font: var(--t-caption); color: var(--ink-3); }
+.token code { font: var(--t-mono-s); color: var(--accent-ink); }
+.token span { font: var(--t-caption); letter-spacing: var(--tr-caption); color: var(--ink-3); }
 
 .versions {
   display: grid;
@@ -213,23 +163,23 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  padding: 9px 11px;
+  border-radius: var(--r-10);
   background: var(--well);
   min-width: 0;
 }
 
-.ver span { font: var(--t-caption); color: var(--ink-3); }
+.ver span { font: var(--t-caption); letter-spacing: var(--tr-caption); color: var(--ink-3); }
 .ver b {
   font: var(--t-mono);
-  font-weight: 500;
+  font-weight: var(--w-medium);
   --ff-feat: var(--ff-mono);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   user-select: text;
 }
-.ver em { font: var(--t-micro); font-style: normal; color: #8ff3dc; }
+.ver em { font: var(--t-section); letter-spacing: var(--tr-section); text-transform: uppercase; font-style: normal; color: var(--mint-ink); }
 .ver.is-bad b { color: var(--rose-ink); }
 
 .ver-foot {
@@ -241,7 +191,7 @@
   padding-top: 2px;
 }
 
-.ver-foot small { font: var(--t-caption); color: var(--ink-4); }
+.ver-foot small { font: var(--t-caption); letter-spacing: var(--tr-caption); color: var(--ink-4); }
 
 .auth-status {
   display: flex;
@@ -251,8 +201,8 @@
 
 .auth-ic {
   flex: none;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -260,10 +210,10 @@
   color: var(--ink-2);
 }
 
-.auth-ic .ic { width: 20px; height: 20px; }
+.auth-ic .ic { width: 18px; height: 18px; }
 .auth-status.is-on .auth-ic { background: rgba(63, 226, 193, 0.16); color: var(--mint); }
-.auth-status b { display: block; font: var(--t-card); letter-spacing: var(--tr-card); }
-.auth-status small { display: block; font: var(--t-meta); line-height: 1.35; color: var(--ink-3); }
+.auth-status b { display: block; font: var(--t-label); letter-spacing: var(--tr-label); }
+.auth-status small { display: block; font: var(--t-caption); letter-spacing: var(--tr-caption); color: var(--ink-3); }
 
 .auth-actions {
   display: flex;
@@ -281,19 +231,10 @@
 /* ---------------------------------------------------------------------------------------------
    Segmented control variants */
 
-/* Title bar variant (mode switch): a little shorter, on the scene rather than on glass. */
+/* Title bar variant (mode switch): on the scene rather than on glass; the kit's 28 px options. */
 .seg.seg-tb {
   background: rgba(0, 0, 0, 0.22);
 }
-
-.seg-tb .seg-opt {
-  height: 28px;
-  padding: 0 14px;
-  font: var(--t-control-s);
-  letter-spacing: var(--tr-control);
-}
-
-.seg-tb .seg-drop { height: 28px; }
 
 /* Service glyphs in the mode switch (js/main.js swaps each text label for its svc* icon). The
    glyph never takes pointer events: the kit resolves pointer selection on the track's drag handler.
@@ -321,32 +262,32 @@
           drop-shadow(0 0 10px color-mix(in srgb, var(--accent) 45%, transparent));
 }
 
-/* Large variant (format toggle next to Download): matches the 52 px primary button. */
+/* Large variant (format toggle next to Download): matches the 48 px hero pill. */
 .seg.seg-l {
   flex: none;
   padding: 3px;
 }
 
 .seg-l .seg-opt {
-  height: 46px;
-  min-width: 52px;
-  padding: 0 14px;
-  font-weight: 650;
+  height: 42px;
+  min-width: 50px;
+  padding: 0 13px;
+  font-weight: var(--w-title);
   letter-spacing: 0.03em;
 }
 
-.seg-l .seg-drop { height: 46px; }
+.seg-l .seg-drop { height: 42px; }
 
-/* Compact variant (quality in the composer's spec row): 34 px, like the title bar switch. Four
-   options (Low / Medium / High / Max): 9 px side padding, about 237 px in all (UI_DESIGN 6.1). */
+/* Compact variant (quality in the composer's spec row): the kit's panel size (26 px options). Four
+   options (Low / Medium / High / Max): 8 px side padding, about 220 px in all (UI_DESIGN 6.1). */
 .seg-q .seg-opt {
-  height: 28px;
-  padding: 0 9px;
-  font: var(--t-control-s);
-  letter-spacing: var(--tr-control);
+  height: 26px;
+  padding: 0 8px;
+  font: var(--t-label-s);
+  letter-spacing: var(--tr-label);
 }
 
-.seg-q .seg-drop { height: 28px; }
+.seg-q .seg-drop { height: 26px; }
 
 /* ---------------------------------------------------------------------------------------------
    Toasts: centred over the queue column (the composer keeps its own column), like the clipboard pill */
@@ -375,12 +316,11 @@ body:has(#update-pop.is-open) .toasts {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 54px;
-  padding: 0 8px 0 18px;
+  height: 48px;
+  padding: 0 8px 0 16px;
   border-radius: var(--r-pill);
   font: var(--t-body);
-  font-size: 14px;
-  letter-spacing: -0.006em;
+  letter-spacing: var(--tr-body);
   font-weight: var(--w-medium);
   white-space: nowrap;
   --lens-tint: rgba(26, 30, 58, 0.34);
@@ -388,8 +328,8 @@ body:has(#update-pop.is-open) .toasts {
 }
 
 .clip-ic { color: var(--accent-ink); }
-.clip-ic .ic { width: 20px; height: 20px; }
-.clip-text b { font-weight: var(--w-display); font-variant-numeric: tabular-nums; }
+.clip-ic .ic { width: 18px; height: 18px; }
+.clip-text b { font-weight: var(--w-title); font-variant-numeric: tabular-nums; }
 .clip-add { margin-left: 6px; }
 
 /* The clipboard pill lives outside #app: its loops hold with the scene as well. */

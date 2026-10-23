@@ -354,6 +354,7 @@ const DEFAULT_SETTINGS = {
   open_folder_when_done: false,
   sound_on_done: true,
   theme: 'dusk',
+  ui_scale: 100,
 };
 
 const APP_VERSION = '2.0.0';
@@ -882,6 +883,7 @@ export function createMock({ params, emit }) {
     open_folder_when_done: (v) => typeof v === 'boolean',
     sound_on_done: (v) => typeof v === 'boolean',
     theme: (v) => ['dusk', 'nova', 'frost', 'bloom'].includes(v),
+    ui_scale: (v) => [100, 125, 150, 175, 200].includes(Number(v)),
   };
 
   // ---- the API --------------------------------------------------------------------------------
@@ -989,6 +991,13 @@ export function createMock({ params, emit }) {
       return settings.output_dir;
     },
     async get_settings() { return clone(settings); },
+    async set_scale(value) {
+      // The shell zooms the window; the browser mock only stores the step (an unknown value snaps to 100).
+      await sleep(60);
+      settings.ui_scale = [100, 125, 150, 175, 200].includes(Number(value)) ? Number(value) : 100;
+      emit('settings', clone(settings));
+      return clone(settings);
+    },
     async set_settings(patch) {
       await sleep(60);
       for (const [k, v] of Object.entries(patch || {})) {

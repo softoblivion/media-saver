@@ -4,7 +4,7 @@
 import unittest
 
 from app.main import MIN_SIZE, SIZE_LADDER, START_SIZE
-from app.winutil import centered_rect, colorref, pick_window_size
+from app.winutil import centered_rect, colorref, pick_window_size, placed_rect
 
 
 class SizeLadderTest(unittest.TestCase):
@@ -38,6 +38,32 @@ class SizeLadderTest(unittest.TestCase):
     def test_empty_ladder_is_an_error(self):
         with self.assertRaises(ValueError):
             pick_window_size((), (1920, 1080))
+
+
+class ScaledLadderTest(unittest.TestCase):
+    """The Scale setting multiplies the window size: the ladder step is chosen for the scaled size."""
+
+    def test_scaled_size_must_fit(self):
+        self.assertEqual(pick_window_size(SIZE_LADDER, (1920, 1032), 1.25), (1180, 780))   # 1475 x 975 fits
+        self.assertEqual(pick_window_size(SIZE_LADDER, (1920, 1032), 1.5), (1000, 675))    # 1500 x 1013 fits
+        self.assertEqual(pick_window_size(SIZE_LADDER, (2560, 1400), 1.5), (1180, 780))    # 1770 x 1170 fits
+        self.assertEqual(pick_window_size(SIZE_LADDER, (1366, 728), 1.25), (940, 640))     # nothing fits: the smallest
+
+    def test_smallest_step_when_nothing_fits_at_the_scale(self):
+        self.assertEqual(pick_window_size(SIZE_LADDER, (1920, 1032), 2.0), (940, 640))
+        self.assertEqual(pick_window_size(SIZE_LADDER, None, 2.0), (1180, 780))
+
+
+class PlacedRectTest(unittest.TestCase):
+    def test_keeps_the_corner_when_the_window_still_fits(self):
+        self.assertEqual(placed_rect((1180, 780), (300, 120), (0, 0, 1920, 1040)), (300, 120, 1180, 780))
+
+    def test_moves_back_inside_the_work_area(self):
+        self.assertEqual(placed_rect((1770, 1170), (300, 120), (0, 0, 1920, 1040)), (150, 0, 1770, 1170))
+        self.assertEqual(placed_rect((1770, 1170), (2200, 60), (1920, 0, 3840, 1040)), (2070, 0, 1770, 1170))
+
+    def test_centres_without_a_corner(self):
+        self.assertEqual(placed_rect((1000, 600), None, (0, 0, 1920, 1040)), centered_rect((1000, 600), (0, 0, 1920, 1040)))
 
 
 class CenteredRectTest(unittest.TestCase):

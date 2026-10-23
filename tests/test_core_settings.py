@@ -21,8 +21,9 @@ class SettingsTest(unittest.TestCase):
                                   "quality_youtube", "quality_tiktok", "quality_twitter", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
                                   "auto_download_updates", "auth_mode", "browser_cookies", "clipboard_watch", "sound_on_done",
-                                  "open_folder_when_done", "theme"})
+                                  "open_folder_when_done", "theme", "ui_scale"})
         self.assertEqual(d["theme"], "dusk")
+        self.assertEqual(d["ui_scale"], 100)
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
         self.assertEqual(d["quality_instagram"], "max")
         self.assertEqual(d["quality_youtube"], "max")
@@ -84,6 +85,23 @@ class SettingsTest(unittest.TestCase):
                     with self.assertRaises(ValueError) as ctx:
                         S.apply_patch(S.defaults(), {key: value})
                     self.assertIn("Invalid value for", str(ctx.exception))
+
+    def test_ui_scale_snaps_to_a_step(self):
+        self.assertEqual(S.normalize_scale(150), 150)
+        self.assertEqual(S.normalize_scale("125"), 125)
+        self.assertEqual(S.normalize_scale(140), 150)       # nearest step, the larger one on a tie
+        self.assertEqual(S.normalize_scale(112.5), 125)
+        self.assertEqual(S.normalize_scale(300), 200)
+        self.assertEqual(S.normalize_scale(0), 100)
+        for junk in (None, "big", True, float("nan"), -50):
+            with self.subTest(junk=junk):
+                self.assertEqual(S.normalize_scale(junk), 100)
+        new = S.apply_patch(S.defaults(), {"ui_scale": 175})
+        self.assertEqual(new["ui_scale"], 175)
+        self.assertEqual(S.apply_patch(S.defaults(), {"ui_scale": "huge"})["ui_scale"], 100)
+        with open(self.path, "w", encoding="utf-8") as fh:
+            json.dump({"ui_scale": 155}, fh)
+        self.assertEqual(S.load(self.path)["ui_scale"], 150)
 
     def test_unknown_keys_ignored(self):
         new = S.apply_patch(S.defaults(), {"nope": 1, "quality": "1080", "quality_youtube": "low"})  # "quality" is the 1.x key
