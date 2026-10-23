@@ -23,7 +23,7 @@ from app.bridge import Bridge, EventPump
 WINDOW_TITLE = "Media Saver"
 MUTEX_NAME = "Local\\MediaSaver.SingleInstance"
 BACKGROUND = "#0b0d14"
-# Window = page viewport, logical pixels, fixed (not resizable, no maximize: workspace rule of 2026-10-21). The first
+# Window = page viewport, logical pixels, fixed (not resizable, no maximize). The first
 # size of the ladder that fits the monitor work area is used; the last step wins when even that does not fit.
 START_SIZE = (1180, 780)
 MIN_SIZE = (940, 640)

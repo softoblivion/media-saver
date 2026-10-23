@@ -1,6 +1,6 @@
 # App self-update
 
-Owner: self-update worker. Code: `app/core/selfupdate.py` (Media Saver's configuration, an adapter) on top of the
+Scope: how the app finds, downloads, verifies and installs its own new releases. Code: `app/core/selfupdate.py` (Media Saver's configuration, an adapter) on top of the
 vendored package `app/vendor/selfupdate/` (the mechanism); tests: `tests/test_core_selfupdate.py`. The facade calls
 (`check_updates`, `download_update`, `apply_update`, the `update` event) are defined in `ARCHITECTURE.md` section 6
 and `BRIDGE_API.md`; the payload is `UpdateStatus` there. This file owns the Media Saver side: the release layout,

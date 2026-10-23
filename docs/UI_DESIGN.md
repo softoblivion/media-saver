@@ -1,6 +1,6 @@
 # UI design — Liquid Glass for Media Saver
 
-Owner: ui worker. Scope: everything under `ui/`. The JS <-> Python contract is `docs/BRIDGE_API.md`; this document
+Scope: everything under `ui/`. The JS <-> Python contract is `docs/BRIDGE_API.md`; this document
 describes the material, the design system and the motion of the UI that codes against it.
 
 ## 0. Liquid UI kit and the app
@@ -435,7 +435,7 @@ everywhere.
 
 ## 9. Copy and locale rules
 
-- Neutral, factual copy (workspace rule, `_workspace/CONVENTIONS.md`, "UI copy"): say what the control does or
+- Neutral, factual copy: say what the control does or
   what happened, in as few words as that takes. No emotion, hooks, filler or salesmanship ("just", "already",
   "any junk", "magic", exclamation marks, "Media Saver strips the junk"). One line where one line does.
 - The UI is English only (US). Buttons, labels and titles use sentence case: "Download", "Paste", "Clean links",

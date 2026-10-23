@@ -1,6 +1,6 @@
 # Engine (app/core) — update flow, command lines, formats, preview, error codes, site quirks
 
-Owner: core worker. Contract: `docs/ARCHITECTURE.md` (sections 4–6) and `docs/BRIDGE_API.md` (payloads).
+Scope: everything under `app/core/`. Contract: `docs/ARCHITECTURE.md` (sections 4–6) and `docs/BRIDGE_API.md` (payloads).
 Measured on 2026-10-20 with yt-dlp nightly 2026.10.10.233141, gallery-dl 1.32.17, ffmpeg 9.0.2 (Gyan, PATH) and
 the FFmpeg-Builds master build N-127709 (bundled path). The format tables of §4 were probed without a JavaScript
 runtime; since 2.1.0 the updater installs deno (2.9.7 on 2026-10-20) and yt-dlp runs its challenge solver with it
@@ -16,7 +16,7 @@ runtime; since 2.1.0 the updater installs deno (2.9.7 on 2026-10-20) and yt-dlp 
 | `updater.py` | Engine bootstrap / update (`Updater`), `Net` (urllib with UA, timeouts, retries), SHA-256 verification. |
 | `linkclean.py` | Link extraction from free text and canonicalisation for Instagram, YouTube, TikTok and X (`clean_text(text, platform)`, `clean_link`); rules in its docstring. |
 | `downloader.py` | `ProcessRunner` (hidden subprocess, Job Object tree kill), `BinaryGate`, progress parsing, error classification per platform, format selection, auth ladder per platform, `Downloader` (job table, download workers, preview worker pool, history). |
-| `engine.py` | `Engine` facade of ARCHITECTURE section 6 (integrator); `logs/app.log` rotating handler on the `mediasaver` logger. |
+| `engine.py` | `Engine` facade of ARCHITECTURE section 6 (defined there); `logs/app.log` rotating handler on the `mediasaver` logger. |
 | `cli.py` | Headless harness: `python -m app.core.cli` (§7). |
 
 `Downloader` public surface used by `engine.py`: `add(url, shortcode, platform, kind, fmt)`,
@@ -254,7 +254,7 @@ Findings:
   `efg` query parameter (base64 JSON) says `xpv_progressive … <height>.dash_baseline_N` = baseline H.264 at
   ≤ 720p. They are never the best choice. Direct ffprobe of these URLs gets 403 (needs yt-dlp's headers).
 - Bitrates are low (VP9 1080p 0.8–2 Mbit/s). Some reels top out at 576p or 360p anonymously (Messi, Garrix);
-  whether a logged-in session gets more could not be tested (no login in this worker). To check at integration.
+  whether a logged-in session gets more has not been measured (the measurements ran without a login).
 - `fps` is missing in the info json of VP9 formats; ffprobe of the file gives it (23.976 / 25 / 30, even 2 fps on
   a photo-slideshow reel).
 

@@ -18,7 +18,7 @@ import sys
 
 from ..vendor.selfupdate.fileio import atomic_write_bytes, atomic_write_json, atomic_write_text  # noqa: F401  (shared)
 
-DATA_DIR_NAME = "media-saver_data"  # <project>_data (workspace rule "Portable projects")
+DATA_DIR_NAME = "media-saver_data"  # <project>_data beside the executable
 DOWNLOADS_DIR_NAME = "Downloads"      # output folder under %MEDIA_SAVER_HOME% (tests, scratch runs)
 OUTPUT_DIR_NAME = "Media-Saver"       # subfolder of the user's Videos folder (default output)
 _FOLDERID_VIDEOS = "{18989B1D-99B5-455B-841C-AB7C74E4DDFC}"

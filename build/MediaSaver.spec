@@ -12,7 +12,7 @@ from app import __version__  # noqa: E402
 UI_DIR = ROOT / "ui"
 ICON = ROOT / "build" / "icon.ico"
 if not (UI_DIR / "index.html").is_file():
-    raise SystemExit(f"ui/index.html not found in {UI_DIR}: the UI worker's files are required for the build")
+    raise SystemExit(f"ui/index.html not found in {UI_DIR}: the UI files are required for the build")
 
 # --- Windows version resource ------------------------------------------------------------------------------------
 _parts = (tuple(int(p) for p in __version__.split(".")) + (0, 0, 0, 0))[:4]

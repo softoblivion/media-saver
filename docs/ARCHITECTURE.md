@@ -75,15 +75,15 @@ source (`media-saver_data/`, `Downloads/`) are not tracked.
 Rules for all code: comments, docs and user-facing strings in English; `app/core` uses the Python standard library
 and `app/vendor` only (the vendored packages are stdlib-only too); tests use `unittest` (`python -m unittest discover -s tests`). Each module keeps its owning document current.
 
-Module table (owner = the session that may write there during a task; see `_workspace/PARALLEL.md`):
+Module table (each module is described by its owning document):
 
-| Module | Path | Owning doc | Owner |
-|---|---|---|---|
-| Core engine (links, queue, formats, preview, engine updater) | `app/core/linkclean.py`, `downloader.py`, `updater.py`, `cli.py`; `tests/test_linkclean.py`, `tests/test_core_*` except settings and engine | `ENGINE.md` | engine worker |
-| Self-update | `app/core/selfupdate.py` (adapter); `app/vendor/selfupdate/` (vendored, replaced only by the sync described in `SELF_UPDATE.md`); `tests/test_core_selfupdate.py`; `build/`; `app/fake_engine.py`; `tests/test_bridge_*` | `SELF_UPDATE.md`, `BUILD.md` | self-update worker |
-| UI | `ui/**` except `ui/vendor/` | `UI_DESIGN.md` | ui worker |
-| Liquid UI kit (vendored) | `ui/vendor/liquid_ui/` (replaced only by the sync described in `UI_DESIGN.md`, section 0) | `UI_DESIGN.md` | integrator |
-| Shell and contracts | `app/main.py`, `bridge.py`, `login.py`, `winutil.py`, `app/core/engine.py`, `paths.py`, `settings.py`, `auth.py`; `tests/test_core_settings.py`, `tests/test_core_engine.py`; `README.md`, `ARCHITECTURE.md`, `BRIDGE_API.md`, release notes | `ARCHITECTURE.md`, `BRIDGE_API.md` | integrator |
+| Module | Path | Owning doc |
+|---|---|---|
+| Core engine (links, queue, formats, preview, engine updater) | `app/core/linkclean.py`, `downloader.py`, `updater.py`, `cli.py`; `tests/test_linkclean.py`, `tests/test_core_*` except settings and engine | `ENGINE.md` |
+| Self-update | `app/core/selfupdate.py` (adapter); `app/vendor/selfupdate/` (vendored, replaced only by the sync described in `SELF_UPDATE.md`); `tests/test_core_selfupdate.py`; `build/`; `app/fake_engine.py`; `tests/test_bridge_*` | `SELF_UPDATE.md`, `BUILD.md` |
+| UI | `ui/**` except `ui/vendor/` | `UI_DESIGN.md` |
+| Liquid UI kit (vendored) | `ui/vendor/liquid_ui/` (replaced only by the sync described in `UI_DESIGN.md`, section 0) | `UI_DESIGN.md` |
+| Shell and contracts | `app/main.py`, `bridge.py`, `login.py`, `winutil.py`, `app/core/engine.py`, `paths.py`, `settings.py`, `auth.py`; `tests/test_core_settings.py`, `tests/test_core_engine.py`; `README.md`, `ARCHITECTURE.md`, `BRIDGE_API.md`, release notes | `ARCHITECTURE.md`, `BRIDGE_API.md` |
 
 ## 4. Runtime data (portable)
 
@@ -92,7 +92,7 @@ Module table (owner = the session that may write there during a task; see `_work
 - app dir = the folder of `MediaSaver.exe` (frozen) or the project root (from source); never the PyInstaller
   extraction folder.
 - root = `%MEDIA_SAVER_HOME%` if set (tests set it to a scratch folder), else `<app dir>\media-saver_data`
-  (`<project>_data`, workspace rule "Portable projects").
+  (the data folder sits beside the executable).
 - `bin/` — yt-dlp.exe, gallery-dl.exe, ffmpeg.exe, ffprobe.exe (only when not taken from PATH), `versions.json`.
 - `auth/cookies.txt` — Netscape cookie jar of the in-app Instagram sign-in.
 - `settings.json`, `history.json` (finished / failed jobs of every platform survive restarts, last 300).
@@ -101,12 +101,10 @@ Module table (owner = the session that may write there during a task; see `_work
 - `webview/` — WebView2 profile (`storage_path`) of the sign-in window.
 - `updates/` — downloaded `MediaSaver-<version>.exe`, `apply.log`, the "applied" marker.
 - default output dir: `<Videos>\Media-Saver` (the Windows known folder Videos, so a redirected or localized
-  library is followed; `%MEDIA_SAVER_HOME%\Downloads` under the override). This is the project's deliberate
-  deviation from the workspace rule "Portable projects" (the user's decision, 2026-10-20): the app's state is
-  portable, the user's videos belong with the user's videos.
+  library is followed; `%MEDIA_SAVER_HOME%\Downloads` under the override). The output dir is the one
+  path outside the data folder: the app's state is portable, the user's videos belong with the user's videos.
 
-No path in the app depends on `%LOCALAPPDATA%`, `%USERPROFILE%` or a drive letter (workspace rule "Portable
-projects" in `_workspace/CONVENTIONS.md`). Moving the exe together with its `media-saver_data\` folder moves the
+No path in the app depends on `%LOCALAPPDATA%`, `%USERPROFILE%` or a drive letter. Moving the exe together with its `media-saver_data\` folder moves the
 whole app's state; the saved videos stay where the user chose.
 
 ## 5. Behaviour
@@ -252,16 +250,14 @@ the configuration values in `docs/SELF_UPDATE.md`):
    the process with `os._exit(0)`; a half-downloaded update stays as a `.part` file and is downloaded again on the
    next run. Nothing keeps running after the window is closed.
 
-Deviation from the workspace recipe (`_workspace/RECIPES.md`, section 1, "Apply"): the recipe lets the running
-app rename itself and relaunch; Media Saver lets the downloaded exe do the swap after the app exited (verified
-with real builds on 2026-10-20). Both avoid helper scripts and consoles; the swap-by-the-new-exe variant keeps
+Apply: instead of the running app renaming itself and relaunching, Media Saver lets the downloaded exe do the
+swap after the app exited (verified with real builds). Both variants avoid helper scripts and consoles; the swap-by-the-new-exe variant keeps
 the shutdown path of the app unchanged and tolerates the PyInstaller bootloader still holding the old file
 for a moment.
 
 The version lives in `app/__init__.py` only; the build writes it into the exe's version resource.
 
-Update notice: the kit's update sheet (`ui/vendor/liquid_ui/js/update.js`; the workspace template in
-`_workspace/RECIPES.md`, section 1, "Update notice"): the first time in a run that a newer version is reported,
+Update notice: the kit's update sheet (`ui/vendor/liquid_ui/js/update.js`): the first time in a run that a newer version is reported,
 a modal sheet opens with the new version, the installed version with size and date, the release notes and the
 buttons Install / Later; Install downloads when needed and calls `apply_update` as soon as the file is verified
 (through the restart warning while downloads run); Later closes it until the version pill is clicked. The page
@@ -272,8 +268,7 @@ still never downloads by itself: the background download stays the engine's job 
 The window is frameless and has a fixed size: 1180 x 780 logical pixels, scaled down in steps (1120 x 745,
 1060 x 710, 1000 x 675, 940 x 640) to fit the work area of a small monitor, never below 940 x 640. It cannot be
 resized or maximized: no sizing border, no maximize button, no maximize by system command or double click on the
-title bar (workspace rule "Fixed window size by default", 2026-10-21, `_workspace/CONVENTIONS.md`, "Application
-windows"). The page draws its own title bar with minimize and close (`window_minimize`, `window_close`), covers the
+title bar. The page draws its own title bar with minimize and close (`window_minimize`, `window_close`), covers the
 whole client area, and DWM gives it rounded corners and a border colour equal to the page background. The size
 lock is `FixedSizeHook` in `app/winutil.py`; details in `BUILD.md`, section 5.
 
@@ -321,8 +316,8 @@ class Engine:
     def import_cookies_file(self, path: str) -> dict: ...  # validate + copy a user cookies.txt, emit "auth"
 ```
 
-Inside the core the facade delegates to these classes (their public surface is the contract between the
-integrator's `engine.py` and the workers' modules):
+Inside the core the facade delegates to these classes (their public surface is the contract between
+`engine.py` and the core modules):
 
 ```python
 # app/core/linkclean.py

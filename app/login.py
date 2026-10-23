@@ -82,7 +82,7 @@ def has_session(cookies: Iterable[dict]) -> bool:
 
 
 def default_cookie_writer(cookies: list[dict], path: Any) -> None:
-    from app.core.auth import write_netscape_cookies  # core worker's module; imported late on purpose
+    from app.core.auth import write_netscape_cookies  # imported late on purpose
 
     write_netscape_cookies(cookies, path)
 

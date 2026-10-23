@@ -2,7 +2,7 @@
 
     python build/make_icon.py
 
-Uses ui/assets/icon-1024.png when the UI worker provides it; otherwise draws a placeholder glass droplet with a down
+Uses ui/assets/icon-1024.png when it exists; otherwise draws a placeholder glass droplet with a down
 arrow. No Instagram logo or colours are used on purpose.
 """
 

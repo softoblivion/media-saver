@@ -1,7 +1,7 @@
 # Build, run and troubleshoot
 
-Owner: self-update worker (build, release); the shell sections (5) follow the shell code. Architecture and
-contracts: `ARCHITECTURE.md`, `BRIDGE_API.md`; the updater: `SELF_UPDATE.md`.
+Scope: the toolchain, building and releasing the exe, and troubleshooting; section 5 describes the shell code.
+Architecture and contracts: `ARCHITECTURE.md`, `BRIDGE_API.md`; the updater: `SELF_UPDATE.md`.
 
 ## 1. Toolchain (decision and verified versions)
 
@@ -97,7 +97,7 @@ a minute once `.venv` exists.
 - The window is created `frameless=True, easy_drag=False`; the page draws its own title bar. Dragging works on elements
   with the class `pywebview-drag-region` (pywebview moves the window through the bridge); buttons call
   `window_minimize` and `window_close`. There is no maximize button.
-- **Fixed size** (rule: an application window is not resizable unless a task asks for it, 2026-10-21): the window is created with
+- **Fixed size**: the window is created with
   `resizable=False` and cannot be resized or maximized: no sizing border, no maximize button, no maximize by system
   command, double click or keyboard. The page covers the whole client area, so the window size equals the viewport.
   `resizable=False` alone is not enough with pywebview 6.2.1 on Windows (the form keeps `WS_MAXIMIZEBOX`, accepts
@@ -149,8 +149,7 @@ action of the UI opens this folder.
 
 ## 7. Release procedure
 
-Publishing is a public action: the maintainer approves it in chat before `gh` runs (workspace rule: the maintainer says yes
-in chat for that repository, then the pre-publish checklist of the workspace is run). Steps:
+Publishing is a public action: a release is made by the maintainer, after the pre-publish checks pass. Steps:
 
 1. Bump `__version__` in `app/__init__.py` (SemVer; the updater compares `X.Y.Z` numerically and only offers a
    higher version than the installed one).
@@ -161,9 +160,9 @@ in chat for that repository, then the pre-publish checklist of the workspace is 
    printed.
 4. Smoke test: start `release\MediaSaver.exe` with `MEDIA_SAVER_HOME` set to a scratch folder; the window opens and
    `logs\shell.log` has no errors.
-5. Commit on `dev` and tag the commit: `git tag vX.Y.Z` (the tag lives on `dev`; there is no other release branch).
-   Commits, pushes and the tag push are done only when the maintainer asks for them.
-6. Create the release (this needs the maintainer's yes for the repository):
+5. Commit on `dev` and tag the commit: `git tag vX.Y.Z` (the tag lives on `dev`; there is no other release branch),
+   then push `dev` and the tag.
+6. Create the release:
 
    ```powershell
    gh release create vX.Y.Z release\MediaSaver.exe release\SHA256SUMS --target dev `
