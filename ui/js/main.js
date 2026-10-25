@@ -44,7 +44,7 @@ function initTitlebar() {
   const win = (method) => () => call(method).catch((err) => toast('error', err.message));
   titlebar = mountTitlebar(document.getElementById('titlebar'), {
     name: 'Media Saver',
-    glyph: appGlyph(20),
+    glyph: appGlyph(24),
     onSettings: () => toggleSettings(),
     onMinimize: win('window_minimize'),
     onClose: win('window_close'),

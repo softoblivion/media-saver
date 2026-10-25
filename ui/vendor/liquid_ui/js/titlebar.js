@@ -1,7 +1,7 @@
 // The title bar (the kit's documentation, "Title bar"): one layout for every app.
 //   left    app glyph, app name, the version pill (#ver-pill; the update control mounts on it)
 //   centre  the app's own controls, centred on the window
-//   aside   optional status chips of the app, right before the window cluster
+//   aside   optional status chips or .icon-btn-l buttons of the app, right before the window cluster
 //   right   one capsule lens with settings | minimize, close
 // The drag layer carries `dragClass` (the host's window-drag class); the buttons are siblings of
 // it. The kit knows no window API: the app passes the three callbacks.
@@ -15,7 +15,7 @@ import { escapeHtml } from './format.js';
  * @param {HTMLElement} host
  * @param {{
  *   name: string,                 // app name
- *   glyph?: string,               // inline SVG of the app glyph (20 px)
+ *   glyph?: string,               // inline SVG of the app glyph (drawn at 24 px)
  *   version?: string,             // text of the version pill until the update control renders it
  *   pillId?: string,              // id of the version pill (default "ver-pill")
  *   pill?: boolean,               // false: no version pill (default true)

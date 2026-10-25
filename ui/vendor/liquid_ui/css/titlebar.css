@@ -1,14 +1,14 @@
 /* The title bar (js/titlebar.js builds it; the kit's documentation, "Title bar"). One layout for
    every app: three columns on a grid (1fr auto 1fr), so the centre slot is centred on the window
    whatever the side clusters measure.
-     left    app glyph 20 px, app name (label role), the version pill (a 24 px capsule lens, owned
+     left    app glyph 24 px, app name (title role), the version pill (a 26 px capsule lens, owned
              by the update control)
      centre  the app's own controls (a mode switch, tabs); empty in most apps
-     aside   optional status chips of the app, right before the window cluster
-     right   one capsule lens of 34 px with three fills: settings | minimize, close
+     aside   optional status chips or .icon-btn-l buttons of the app, right before the window cluster
+     right   one capsule lens of 38 px with three fills: settings | minimize, close
    The drag layer (.tb-drag) sits under everything; the left cluster lets the pointer through
    to it (only the pill takes events back), the buttons are siblings of the drag layer, never
-   its children. Height: --titlebar-h (44 px). */
+   its children. Height: --titlebar-h (52 px). */
 
 .titlebar {
   position: fixed;
@@ -21,7 +21,7 @@
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   column-gap: 10px;
-  padding: 0 10px;   /* symmetric, so the centre column is centred on the window */
+  padding: 0 10px 0 12px;   /* the centre slot sits 1 px right of the window centre */
 }
 
 .tb-drag {
@@ -39,7 +39,7 @@
   justify-self: start;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
   pointer-events: none;
 }
@@ -52,19 +52,19 @@
 .tb-glyph {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   filter: drop-shadow(0 2px 8px var(--glyph-glow));
 }
 
 .tb-glyph svg {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 
 .tb-name {
-  font: var(--t-label);
-  letter-spacing: var(--tr-label);
+  font: var(--t-title);
+  letter-spacing: var(--tr-title);
   color: var(--ink-1);
   text-shadow: var(--ink-shadow);
   white-space: nowrap;
@@ -95,7 +95,7 @@
 
 /* Version pill: a small capsule lens; a dot when an update is available. */
 .ver-pill {
-  height: var(--h-xs);
+  height: 26px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -141,7 +141,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 34px;
+  height: 38px;
   padding: 3px;
   border-radius: var(--r-pill);
   --lens-tint: rgba(255, 255, 255, 0.035);
@@ -149,8 +149,8 @@
 }
 
 .tb-btn {
-  width: 30px;
-  height: 28px;
+  width: 34px;
+  height: 32px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -162,19 +162,19 @@
   transition: background-color var(--d-1) ease, color var(--d-2) ease;
 }
 
-.tb-btn .ic { width: 15px; height: 15px; }
+.tb-btn .ic { width: 17px; height: 17px; }
 .tb-btn:hover, .tb-btn.is-hover { background: var(--fill-3); color: var(--ink-1); }
 .tb-btn.is-pressed { background: var(--fill-4); color: var(--ink-1); }
 .tb-close:hover, .tb-close.is-hover { background: #e5484d; color: #fff; }
 .tb-close.is-pressed { background: #c93c41; color: #fff; }
-.tb-gear .ic { width: 17px; height: 17px; transition: rotate var(--d-4) var(--ease-spring); }
+.tb-gear .ic { width: 19px; height: 19px; transition: rotate var(--d-4) var(--ease-spring); }
 .tb-gear:hover .ic,
 .tb-gear.is-source .ic { rotate: 60deg; }
 .tb-gear.is-source { background: var(--fill-3); color: var(--ink-1); }
 
 .tb-sep {
   width: 1px;
-  height: 15px;
+  height: 17px;
   margin: 0 3px;
   background: var(--stroke-2);
 }
