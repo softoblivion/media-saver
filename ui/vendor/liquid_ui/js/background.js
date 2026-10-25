@@ -29,17 +29,6 @@ export const TREATMENTS = ['deep', 'horizon', 'mono'];
 export const DEFAULT_HUE = '#2f5fe0';
 export const DEFAULT_ACCENT = '#ff8a4a';
 
-/** Fields of kit 1.x / 2.x (cobalt, teal, violet, ember); kept for apps that still pass them. */
-export const DEFAULT_FIELDS = [
-  { c: '#2f62ff', x: 18, y: 38, s: 92, a: 0.46, d: 58, anim: 'drift-a' },
-  { c: '#12b8b0', x: 86, y: 78, s: 84, a: 0.3, d: 72, anim: 'drift-b' },
-  { c: '#7a48ff', x: 78, y: 26, s: 70, a: 0.3, d: 46, anim: 'drift-c' },
-  { c: '#ff8a4a', x: 12, y: 92, s: 58, a: 0.12, d: 78, anim: 'drift-d' },
-];
-
-/** Speck tints of kit 1.x / 2.x ("r,g,b"); kept for apps that still pass them. */
-export const DEFAULT_SPECK_TINTS = ['200,225,255', '150,210,255', '255,255,255', '255,190,140', '175,160,255'];
-
 /**
  * The colour fields of a treatment for a hue and an accent.
  * c: colour, x/y: centre in % of the scene, s: diameter (vmax), a: alpha, d: period (s),

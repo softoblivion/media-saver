@@ -173,8 +173,6 @@
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.2, 1.3, 0.4, 1);   /* small overshoots without JS (icon turns, chevrons) */
-  --t-fast: var(--d-2);   /* kept for older app CSS */
-  --t-med: var(--d-3);
 
   /* ---- Buttons (css/base.css): the plate every plain button sits on ------------------- */
   --btn-fill: var(--fill-2);
