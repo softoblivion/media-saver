@@ -83,15 +83,9 @@ network access the app keeps working with the binaries it already has.
 | Document | What it covers |
 |---|---|
 | [User guide](docs/USER_GUIDE.md) | Usage, keyboard, settings, link cleaning rules, data folder, updates, FAQ |
-| [Architecture](docs/ARCHITECTURE.md) | Stack, layout, modules, runtime data, behaviour, engine facade |
-| [Bridge API](docs/BRIDGE_API.md) | The JS ↔ Python contract between the page and the app |
-| [Engine](docs/ENGINE.md) | Engine updates, command lines, formats, previews, error codes, site quirks, headless CLI |
-| [Self-update](docs/SELF_UPDATE.md) | Release layout, check, verify and apply of the app's own updates |
-| [UI design](docs/UI_DESIGN.md) | Design system, Liquid Glass material, typography, motion, copy rules |
 | [Build](docs/BUILD.md) | Running from source, tests, building the exe, releasing, troubleshooting |
 | [Release notes](docs/releases/) | What changed in every version |
 | [Third-party components](docs/THIRD_PARTY.md) | What is bundled or downloaded, with licences |
-| [Roadmap](docs/ROADMAP.md) | Planned work |
 
 ## Building from source
 
