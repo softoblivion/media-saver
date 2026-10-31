@@ -576,16 +576,28 @@
   user-select: text;
 }
 
-/* The update sheet (update.js): a centred modal sheet sized to its content, the notes scroll inside. */
+/* The update sheet (update.js): a centred modal sheet sized to its content, the notes scroll inside.
+   The sheet's height is content-based (indefinite), so `.ov-content { height: 100% }` would not follow
+   its max-height: the column itself carries the bound, the notes scroller takes what is left, and the
+   head and the foot (Later / the action) always stay inside the window. */
 .upd-sheet {
+  --upd-max-h: calc(100vh - 2 * var(--titlebar-h));
   top: 0;
   bottom: 0;
   margin: auto;
   width: min(500px, calc(100vw - 28px));
   height: fit-content;
-  max-height: calc(100vh - 2 * var(--titlebar-h));
+  max-height: var(--upd-max-h);
   border-radius: var(--r-28);
 }
+
+.upd-sheet .ov-content {
+  height: auto;
+  max-height: var(--upd-max-h);
+}
+
+.upd-sheet-head,
+.upd-sheet-foot { flex: none; }
 
 .upd-sheet-head { padding: 18px 14px 8px 22px; align-items: flex-start; }
 .upd-sheet-title { min-width: 0; }
@@ -598,13 +610,20 @@
   color: var(--ink-3);
 }
 
-.upd-sheet-scroll { padding: 4px 18px 10px 22px; }
+.upd-major {
+  margin-top: 8px;
+  font: var(--t-body);
+  letter-spacing: var(--tr-body);
+  color: var(--ink-2);
+}
+
+.upd-sheet-scroll { padding: 4px 18px 10px 22px; min-height: 96px; }
 .upd-sheet .upd-notes { max-height: none; margin: 0; }
 .upd-none { font: var(--t-body); color: var(--ink-3); }
 
 .upd-sheet-foot { padding: 0 18px 18px 22px; }
 .upd-sheet-foot .pop-progress { margin: 0; }
-.upd-sheet-foot .upd-msg { margin: 0; }
+.upd-sheet-foot .upd-msg { margin: 0; max-height: 96px; overflow-y: auto; }
 .upd-sheet-btns {
   display: flex;
   justify-content: flex-end;

@@ -136,6 +136,12 @@
 .ver-pill[data-stage="ready"] .ver-dot { background: var(--mint); box-shadow: 0 0 8px var(--mint); }
 .ver-pill[data-stage="downloading"] .ver-dot { animation: ver-pulse 1.4s ease-in-out infinite; }
 
+/* A new major version the user chose to skip: the pill stays quiet (neutral text, a dim dot without
+   glow) and still opens the sheet with the choice. */
+.ver-pill[data-skipped] { color: var(--ink-3); }
+.ver-pill[data-skipped]:hover { color: var(--ink-1); }
+.ver-pill[data-skipped] .ver-dot { background: var(--ink-4); box-shadow: none; }
+
 /* Window cluster: settings | minimize, close in one capsule lens. Buttons inside are fills. */
 .tb-cluster {
   display: flex;

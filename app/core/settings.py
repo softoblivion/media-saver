@@ -64,6 +64,7 @@ def defaults() -> dict[str, Any]:
         "update_channel": "nightly",
         "auto_update": True,
         "auto_download_updates": True,
+        "skipped_major": None,   # the new major version the user chose to stay away from, or None
         "auth_mode": "auto",
         "browser_cookies": "",
         "clipboard_watch": True,
@@ -88,6 +89,18 @@ def normalize_scale(value: Any) -> int:
     if number != number or number <= 0:  # NaN or junk
         return DEFAULT_SCALE
     return min(SCALE_STEPS, key=lambda step: (abs(step - number), -step))  # the larger step on a tie
+
+
+def normalize_major(value: Any) -> int | None:
+    """`skipped_major`: a whole number of at least 1 (an integral float or a digit string is accepted), else None.
+    Never refused: a stale or edited value only means that no major version is skipped."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return value if isinstance(value, int) and value >= 1 else None
 
 
 def _bool(key: str, value: Any) -> bool:
@@ -167,6 +180,8 @@ def validate_value(key: str, value: Any) -> Any:
         return value if isinstance(value, str) and value in THEMES else DEFAULT_THEME
     if key == "ui_scale":
         return normalize_scale(value)
+    if key == "skipped_major":
+        return normalize_major(value)
     raise KeyError(key)
 
 

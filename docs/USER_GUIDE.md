@@ -50,7 +50,8 @@ Stored in `media-saver_data\settings.json`. The second column names where the se
 | `auth_mode` | Settings > Instagram > **When to sign in** | `auto` | Instagram: `auto` (anonymous first), `always` (session first), `never` |
 | `auto_update` | Settings > Engine > **Auto-update engine** | `true` | Check engines on every start |
 | `update_channel` | Settings > Engine > **Update channel** | `nightly` | `nightly` or `stable` channel of yt-dlp |
-| `auto_download_updates` | Settings > Updates > **Download updates automatically** | `true` | Download a new version in the background; installing is always a click on **Restart** |
+| `auto_download_updates` | Settings > Updates > **Download updates automatically** | `true` | Download a new version in the background; installing is always a click on **Restart**; a new major version is never downloaded this way |
+| `skipped_major` | **Stay on N.x** in the sheet of a new major version | `null` | The major version whose notice stays off; **Switch to X.0** clears it |
 | `theme` | Settings > Appearance > **Theme** | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` |
 | `ui_scale` | Settings > Appearance > **Scale** | `100` | Size of the whole window and its text in percent, on top of the Windows display scaling: `100`, `125`, `150`, `175` or `200`. The window grows with the step; on a small screen it takes a smaller layout step so it still fits |
 
@@ -126,7 +127,10 @@ network access the app keeps working with the binaries it already has.
   a growing wait of up to an hour, and nothing is checked without a network connection. **Check for updates** in the
   popover of the version pill next to the app name or in Settings > Updates checks at once. **Download updates
   automatically** (`auto_download_updates`, on by default) fetches a new version in the background and a notice
-  offers **Restart**; installing still needs **Restart to update**, the app never restarts by itself. A new release
+  offers **Restart**; installing still needs **Restart to update**, the app never restarts by itself. A new major
+  version (for example 4.0) is never fetched on its own: its sheet offers **Switch to 4.0** (fetch, verify,
+  restart) and **Stay on 3.x**, which keeps the current version and stops the notice for that major version;
+  clicking the version pill still offers the switch. A new release
   is downloaded to `media-saver_data\updates\`, verified by byte size and SHA-256 against the `SHA256SUMS` asset of
   the release, and installed by **Restart to update**: the downloaded exe waits for the app to exit, swaps
   `MediaSaver.exe` (keeping the previous file as `MediaSaver.exe.old` until the new one started) and relaunches it.

@@ -21,7 +21,8 @@ class SettingsTest(unittest.TestCase):
                                   "quality_youtube", "quality_tiktok", "quality_twitter", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
                                   "auto_download_updates", "auth_mode", "browser_cookies", "clipboard_watch", "sound_on_done",
-                                  "open_folder_when_done", "theme", "ui_scale"})
+                                  "open_folder_when_done", "theme", "ui_scale", "skipped_major"})
+        self.assertIsNone(d["skipped_major"])
         self.assertEqual(d["theme"], "dusk")
         self.assertEqual(d["ui_scale"], 100)
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
@@ -158,6 +159,23 @@ class SettingsTest(unittest.TestCase):
         store.update({"concurrency": 4})                   # the next save drops the stale key
         with open(self.path, "r", encoding="utf-8") as fh:
             self.assertNotIn("update_check_interval", json.load(fh))
+
+    def test_skipped_major_roundtrip_and_values(self):
+        store = S.SettingsStore(self.path)
+        new, changed = store.update({"skipped_major": 3})
+        self.assertEqual((new["skipped_major"], changed), (3, {"skipped_major": None}))
+        self.assertEqual(S.load(self.path)["skipped_major"], 3)            # persisted across a restart
+        self.assertEqual(S.SettingsStore(self.path).get()["skipped_major"], 3)
+        self.assertIsNone(store.update({"skipped_major": None})[0]["skipped_major"])
+        self.assertIsNone(S.load(self.path)["skipped_major"])
+        for value, want in ((3, 3), (10, 10), (3.0, 3), ("4", 4), (0, None), (-2, None), (True, None),
+                            (None, None), ("x", None), (2.5, None), ([3], None)):
+            self.assertEqual(S.normalize_major(value), want, value)
+        with open(self.path, "w", encoding="utf-8") as fh:
+            json.dump({"skipped_major": "junk", "concurrency": 3}, fh)
+        data = S.load(self.path)
+        self.assertIsNone(data["skipped_major"])
+        self.assertEqual(data["concurrency"], 3)
 
     def test_save_load_roundtrip_atomic(self):
         store = S.SettingsStore(self.path)

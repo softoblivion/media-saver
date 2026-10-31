@@ -56,6 +56,8 @@ class UpdateStatus(TypedDict):
     message: str                 # one user-facing sentence
     checked_at: Optional[float]  # time of the last successful check
     can_apply: bool              # True when stage is ready and the app runs as the packaged exe
+    major: bool                  # True when `latest` is newer and its major version is greater than the running
+                                 # one (a new major version: offered as a choice, never downloaded automatically)
 
 
 @dataclass(frozen=True)
@@ -155,6 +157,10 @@ class Messages:
     def available(version: str) -> str:
         return f"Version {version} is available"
 
+    @staticmethod
+    def major_available(version: str) -> str:
+        return f"Version {version} is available as a new major version"
+
     def downloading(self, version: str, pct: int) -> str:
         return f"Downloading {self.app_name} {version}… {pct}%"
 
@@ -189,6 +195,17 @@ def _padded(version: tuple[int, ...], length: int = 3) -> tuple[int, ...]:
 def is_newer(latest: tuple[int, ...], current: tuple[int, ...]) -> bool:
     n = max(len(latest), len(current), 3)
     return _padded(latest, n) > _padded(current, n)
+
+
+def major_of(text: str) -> int | None:
+    """`v3.1.0` / `3` / `3.0.0-rc.1` -> 3; None when the text has no leading number."""
+    parsed = parse_version(text)
+    return parsed[0] if parsed else None
+
+
+def is_major_upgrade(latest: tuple[int, ...], current: tuple[int, ...]) -> bool:
+    """True when `latest` has a greater major version than `current` (2.9.9 -> 3.0.0, 2.9 -> 10.0)."""
+    return bool(latest) and bool(current) and latest[0] > current[0]
 
 
 def _iso_to_epoch(text: Any) -> float | None:
@@ -241,6 +258,7 @@ class SelfUpdater:
         self._status: dict[str, Any] = {
             "stage": "idle", "current": config.version, "latest": None, "notes": None, "size": None,
             "published_at": None, "progress": None, "message": MSG_IDLE, "checked_at": None, "can_apply": False,
+            "major": False,
         }
 
     # --- status --------------------------------------------------------------------------------------
@@ -399,7 +417,7 @@ class SelfUpdater:
             self._check_release()
         except _Fail as exc:
             self._release = None
-            self._fail(str(exc), latest=None, notes=None, size=None, published_at=None)
+            self._fail(str(exc), latest=None, notes=None, size=None, published_at=None, major=False)
 
     def _check_release(self) -> None:
         release = self._fetch_release()
@@ -411,17 +429,20 @@ class SelfUpdater:
         if current_t is not None and not is_newer(latest_t, current_t):
             self._set(stage="up_to_date", latest=release["version"], notes=release["notes"], size=None,
                       published_at=release["published_at"], progress=None, message=self.msg.up_to_date,
-                      checked_at=now, can_apply=False)
+                      checked_at=now, can_apply=False, major=False)
             return
         info = self._describe_assets(release)
+        major = current_t is not None and is_major_upgrade(latest_t, current_t)
+        info["major"] = major
         self._release = info
         common = dict(latest=info["version"], notes=info["notes"], size=info["size"],
-                      published_at=info["published_at"], progress=None, checked_at=now)
+                      published_at=info["published_at"], progress=None, checked_at=now, major=major)
         if self._verify_existing(info):
             self._set(stage="ready", message=self.msg.ready(info["version"], self.exe_path is not None),
                       can_apply=self.exe_path is not None, **common)
             return
-        self._set(stage="available", message=self.msg.available(info["version"]), can_apply=False, **common)
+        message = self.msg.major_available(info["version"]) if major else self.msg.available(info["version"])
+        self._set(stage="available", message=message, can_apply=False, **common)
 
     # --- release lookup ------------------------------------------------------------------------------
     def _fetch_release(self) -> dict[str, Any]:
@@ -556,19 +577,27 @@ class SelfUpdater:
         return True
 
     # --- download ------------------------------------------------------------------------------------
-    def _can_download(self) -> bool:
+    def _can_download(self, auto: bool) -> bool:
         with self._lock:
-            return self._release is not None and self._status["stage"] in ("available", "error")
+            if self._release is None or self._status["stage"] not in ("available", "error"):
+                return False
+            if auto and self._release.get("major"):
+                self.log.info("new major version %s is not downloaded automatically", self._release["version"])
+                return False
+            return True
 
-    def download_background(self) -> None:
-        if not self._can_download() or not self._begin("download"):
+    def download_background(self, *, auto: bool = False) -> None:
+        """Start the download in a thread. `auto=True` marks the host app's automatic download, which is refused
+        for a new major version (status `major`): that one is downloaded only when the user asks for it."""
+        if not self._can_download(auto) or not self._begin("download"):
             return
         self._set(stage="downloading", progress=0.0, can_apply=False,
                   message=self.msg.downloading(self._release["version"], 0))  # type: ignore[index]
         threading.Thread(target=self._run, args=(self._do_download,), name="selfupdate-download", daemon=True).start()
 
-    def download(self) -> dict:
-        if not self._can_download() or not self._begin("download"):
+    def download(self, *, auto: bool = False) -> dict:
+        """Blocking download; `auto` as for download_background()."""
+        if not self._can_download(auto) or not self._begin("download"):
             return self.status()
         self._set(stage="downloading", progress=0.0, can_apply=False,
                   message=self.msg.downloading(self._release["version"], 0))  # type: ignore[index]

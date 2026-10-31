@@ -81,8 +81,8 @@ class EngineTest(unittest.TestCase):
         calls, state = [], {"stage": stage}
         self.engine.selfupdate.status = lambda: {"stage": state["stage"], "latest": "9.10.0"}
 
-        def download_background():
-            calls.append(1)
+        def download_background(auto=False):
+            calls.append("auto" if auto else "user")
             state["stage"] = "downloading"
 
         self.engine.selfupdate.download_background = download_background
@@ -118,6 +118,24 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.engine.set_settings({"auto_download_updates": True})
         self.assertTrue(self._wait(lambda: len(calls) == 1))
+        self.assertEqual(calls, ["auto"])
+
+    def test_new_major_version_is_never_downloaded_in_the_background(self):
+        calls, _ = self._stub_updater()
+        self.engine.selfupdate.status = lambda: {"stage": "available", "latest": "10.0.0", "major": True}
+        self.engine._on_update_status({"stage": "available", "latest": "10.0.0", "major": True})
+        self.engine.set_settings({"auto_download_updates": False})
+        self.engine.set_settings({"auto_download_updates": True})  # turning it on does not fetch a major either
+        time.sleep(0.3)
+        self.assertEqual(calls, [])
+        self.assertEqual([p for t, p in self.events if t == "update"][-1]["major"], True)
+
+    def test_skipped_major_is_saved_and_survives_a_restart(self):
+        self.assertIsNone(self.engine.get_settings()["skipped_major"])
+        self.assertEqual(self.engine.set_settings({"skipped_major": 10})["skipped_major"], 10)
+        from app.core import settings as settings_mod
+        self.assertEqual(settings_mod.load(self.engine._settings.path)["skipped_major"], 10)
+        self.assertIsNone(self.engine.set_settings({"skipped_major": None})["skipped_major"])
 
     def test_paths_from_env(self):
         self.assertEqual(self.engine.paths.root, os.path.join(self.tmp, "home"))
@@ -127,7 +145,7 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(set(st), {"app_version", "engine", "update", "auth", "settings", "jobs"})
         self.assertEqual(st["app_version"], "9.9.9")
         self.assertEqual(set(st["update"]), {"stage", "current", "latest", "notes", "size", "published_at",
-                                             "progress", "message", "checked_at", "can_apply"})
+                                             "progress", "message", "checked_at", "can_apply", "major"})
         self.assertEqual(st["update"]["current"], "9.9.9")
         self.assertFalse(st["update"]["can_apply"])
         self.assertEqual(set(st["engine"]), {"stage", "message", "progress", "components", "last_check"})

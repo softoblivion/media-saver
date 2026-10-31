@@ -5,7 +5,8 @@ engine / update / auth events. No network access, no yt-dlp. It is a development
 regexes instead of importing the real link cleaner.
 
 Simulated app update: `MEDIA_SAVER_FAKE_UPDATE` = `uptodate` (the check finds nothing) | `error` (the check fails
-with "No internet connection"); anything else (default) offers the next minor version, downloads it for about three
+with "No internet connection") | `major` (the next major version, a choice: no background download); anything else
+(default) offers the next minor version, downloads it for about three
 seconds and "applies" it (the bridge then closes the window).
 """
 
@@ -175,6 +176,11 @@ def _bump_minor(version: str) -> str:
     return f"{parts[0]}.{parts[1] + 1}.0"
 
 
+def _bump_major(version: str) -> str:
+    head = re.split(r"[.\-+]", version)[0]
+    return f"{(int(head) if head.isdigit() else 0) + 1}.0.0"
+
+
 class FakeEngine:
     def __init__(self, emit: EmitFn, app_version: str, root: Optional[str] = None) -> None:
         self._emit = emit
@@ -205,6 +211,7 @@ class FakeEngine:
             "update_channel": "nightly",
             "auto_update": True,
             "auto_download_updates": True,
+            "skipped_major": None,
             "auth_mode": "auto",
             "browser_cookies": "",
             "clipboard_watch": True,
@@ -231,7 +238,7 @@ class FakeEngine:
         self._update: dict[str, Any] = {
             "stage": "idle", "current": app_version, "latest": None, "notes": None, "size": None,
             "published_at": None, "progress": None, "message": "Updates are not checked yet", "checked_at": None,
-            "can_apply": False,
+            "can_apply": False, "major": False,
         }
         self._update_busy = False
         self._auto_download_for: Optional[str] = None   # `latest` the background download was started for
@@ -631,6 +638,10 @@ class FakeEngine:
                 raise ValueError("Invalid mode.")
             if "format" in patch and patch["format"] not in FORMATS:
                 raise ValueError("Format must be mp4 or mp3.")
+            if "skipped_major" in patch:
+                value = patch["skipped_major"]
+                ok = isinstance(value, int) and not isinstance(value, bool) and value >= 1
+                patch = dict(patch, skipped_major=value if ok else None)  # as the core: never refused
             if "theme" in patch and patch["theme"] not in THEMES:
                 patch = dict(patch, theme="dusk")  # as the core: an unknown name becomes the default
             turned_on = patch.get("auto_download_updates") is True and not self._settings["auto_download_updates"]
@@ -678,15 +689,21 @@ class FakeEngine:
             now = time.time()
             if mode == "error":
                 self._set_update(stage="error", latest=None, notes=None, size=None, published_at=None, progress=None,
-                                 message="No internet connection", can_apply=False)
+                                 message="No internet connection", can_apply=False, major=False)
             elif mode == "uptodate":
                 self._set_update(stage="up_to_date", latest=self._app_version, notes=None, size=None, published_at=None,
-                                 progress=None, message="Media Saver is up to date", checked_at=now, can_apply=False)
+                                 progress=None, message="Media Saver is up to date", checked_at=now, can_apply=False,
+                                 major=False)
+            elif mode == "major":
+                latest = _bump_major(self._app_version)
+                self._set_update(stage="available", latest=latest, notes=FAKE_UPDATE_NOTES, size=13_100_000,
+                                 published_at=now - 86_400, progress=None, checked_at=now, can_apply=False,
+                                 message=f"Version {latest} is available as a new major version", major=True)
             else:
                 latest = _bump_minor(self._app_version)
                 self._set_update(stage="available", latest=latest, notes=FAKE_UPDATE_NOTES, size=13_100_000,
                                  published_at=now - 86_400, progress=None, checked_at=now, can_apply=False,
-                                 message=f"Version {latest} is available")
+                                 message=f"Version {latest} is available", major=False)
         finally:
             with self._lock:
                 self._update_busy = False
@@ -697,6 +714,8 @@ class FakeEngine:
         with self._lock:
             if not self._settings.get("auto_download_updates") or self._update["stage"] != "available":
                 return
+            if self._update.get("major"):
+                return  # as the core: a new major version waits for the user's "Switch"
             latest = self._update["latest"]
             if not latest or self._auto_download_for == latest:
                 return

@@ -3,7 +3,7 @@
 // app only through the bridge functions the app passes in (the kit's documentation, "Bridge
 // contract of the update control"):
 //   methods  update_status(), check_updates(), download_update(), apply_update(), open_url(url),
-//            get_settings(), set_settings({auto_download_updates})
+//            get_settings(), set_settings({auto_download_updates} | {skipped_major})
 //   event    update  (UpdateStatus)
 // The control never downloads or restarts on its own: the app's updater downloads by itself when
 // auto_download_updates is on; the user starts every other step. The app's updater checks on
@@ -17,6 +17,12 @@
 // again for that version by itself (the pill opens it while a newer version is known). `ready` still
 // raises one sticky toast with "Restart" when the sheet is not open at that moment.
 //
+// A new major version (UpdateStatus.major) is a choice, never an update by itself: the app's updater
+// does not download it in the background, and the sheet asks "Switch to <X>.<Y>" or "Stay on
+// <N>.x". Stay saves set_settings({skipped_major: X}); for that major the sheet no longer opens by
+// itself and no toast is raised, while the pill still opens the sheet with the choice. Switch clears
+// skipped_major and works as Install.
+//
 // Popover stages: idle / up_to_date -> "Check for updates"; checking -> indeterminate bar;
 // available -> latest version, size, date, release notes, "Download"; downloading -> determinate
 // bar; ready -> "Restart to update" (apply_update); error -> the message and "Try again".
@@ -28,7 +34,7 @@ import { icon } from './icons.js';
 import { escapeHtml, bytes, shortDate, shortDateTime, timeAgo } from './format.js';
 import { toast } from './toast.js';
 
-const IDLE = { stage: 'idle', current: '', latest: null, notes: null, size: null, published_at: null, progress: null, message: '', checked_at: null, can_apply: false };
+const IDLE = { stage: 'idle', current: '', latest: null, notes: null, size: null, published_at: null, progress: null, message: '', checked_at: null, can_apply: false, major: false };
 const CAN_CHECK = new Set(['idle', 'up_to_date', 'error']);
 const NEWER = new Set(['available', 'downloading', 'ready']);
 const SHEET_FIRST_DELAY_MS = 700; // a status known at mount opens the sheet after the page's entrance
@@ -189,6 +195,53 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     return NEWER.has(u.stage) && !!u.latest && u.latest !== u.current;
   }
 
+  /** A newer release with a greater major version is known (the choice of 10.1). */
+  function majorKnown() {
+    return !!u.major && newerKnown();
+  }
+
+  /** The user chose "Stay" for the major of `latest` (settings.skipped_major). */
+  function majorSkipped() {
+    if (!majorKnown() || !settings || settings.skipped_major == null) return false;
+    return Number(settings.skipped_major) === majorOf(u.latest);
+  }
+
+  /** Save a settings patch of the control itself; a refusal shows the sentence as a toast. */
+  function saveSettings(patch) {
+    return Promise.resolve()
+      .then(() => call('set_settings', patch))
+      .then((s) => {
+        if (s) {
+          setSettings(s);
+          o.onSettings && o.onSettings(s);
+        }
+        return s;
+      })
+      .catch((err) => {
+        toast('error', err.message);
+        return null;
+      });
+  }
+
+  /** "Stay on N.x": remember the major so the notice stops for it; the pill still offers the switch. */
+  function stayOnMajor() {
+    const m = majorOf(u.latest);
+    sheet.close();
+    if (m == null) return Promise.resolve(null);
+    settings = { ...(settings || {}), skipped_major: m };
+    renderPill();
+    return saveSettings({ skipped_major: m });
+  }
+
+  /** "Switch to X.Y": forget a skipped major, then download (and, from the sheet, restart when verified). */
+  function switchMajor(arm = true) {
+    if (settings && settings.skipped_major != null) {
+      settings = { ...settings, skipped_major: null };
+      saveSettings({ skipped_major: null });
+    }
+    return arm ? install() : download();
+  }
+
   /** Open the update sheet (from the pill, a toast or the app). */
   function openSheet() {
     if (!newerKnown()) return;
@@ -209,7 +262,7 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
       idle: 'Updates come from GitHub Releases',
       checking: 'Checking for updates…',
       up_to_date: 'You have the latest version',
-      available: `Version ${s.latest} is available`,
+      available: s.major ? `Version ${s.latest} is available as a new major version` : `Version ${s.latest} is available`,
       downloading: `Downloading version ${s.latest}…`,
       ready: `Version ${s.latest} is ready to install`,
     }[s.stage];
@@ -222,35 +275,17 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     const prev = u;
     u = { ...IDLE, ...next };
     if (u.stage === 'checking' || u.stage === 'downloading') lastBusy = u.stage;
-    pill.dataset.stage = u.stage;
-    pill.querySelector('.ver-text').textContent = u.current ? `v${u.current}` : 'Version';
-    const tip = {
-      available: `${product} ${u.latest} is available`,
-      downloading: `Downloading ${product} ${u.latest}`,
-      ready: `${product} ${u.latest} is ready to install`,
-    }[u.stage] || 'Version and updates';
-    pill.title = tip;
-    pill.setAttribute('aria-label', tip);
+    renderPill();
     // Install was clicked and the file is verified: restart now (the restart warning still applies).
     if (u.stage === 'ready' && u.latest && installArmed === u.latest) {
       installArmed = null;
       readyToasted = u.latest; // no toast for a restart the user asked for
       restart();
     }
-    // The sheet announces a newly reported version once per run; the sticky toast covers the case
-    // that a background download finishes while the sheet is closed.
-    if (newerKnown() && sheetShown !== u.latest && o.autoOpenSheet) {
-      sheetShown = u.latest;
-      if (mounted) openSheet();
-      else {
-        sheetPending = true;
-        setTimeout(() => {
-          sheetPending = false;
-          if (sheetShown === u.latest && newerKnown()) openSheet();
-        }, SHEET_FIRST_DELAY_MS);
-      }
-    }
-    if (u.stage === 'ready' && u.latest && readyToasted !== u.latest && !sheet.open && !sheetPending) {
+    maybeAutoOpen();
+    // The sticky toast covers a background download that finishes while the sheet is closed; a
+    // skipped major raises none.
+    if (u.stage === 'ready' && u.latest && readyToasted !== u.latest && !sheet.open && !sheetPending && !majorSkipped()) {
       readyToasted = u.latest;
       toast('success', `${product} ${u.latest} is ready`, {
         sticky: true,
@@ -266,9 +301,40 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     o.onStatus && o.onStatus({ ...u });
   }
 
+  /** The pill: version text, stage colour and dot, tooltip; a skipped major keeps the pill quiet. */
+  function renderPill() {
+    pill.dataset.stage = u.stage;
+    if (majorSkipped()) pill.dataset.skipped = '1';
+    else delete pill.dataset.skipped;
+    pill.querySelector('.ver-text').textContent = u.current ? `v${u.current}` : 'Version';
+    const tip = {
+      available: majorKnown() ? `${product} ${lineOf(u.latest)} is available` : `${product} ${u.latest} is available`,
+      downloading: `Downloading ${product} ${u.latest}`,
+      ready: `${product} ${u.latest} is ready to install`,
+    }[u.stage] || 'Version and updates';
+    pill.title = tip;
+    pill.setAttribute('aria-label', tip);
+  }
+
+  /** The sheet announces a newly reported version once per run. A new major waits for the settings
+   *  (it may be skipped) and never opens by itself once skipped. */
+  function maybeAutoOpen() {
+    if (!o.autoOpenSheet || !newerKnown() || sheetShown === u.latest) return;
+    if (majorKnown() && (!settings || majorSkipped())) return;
+    sheetShown = u.latest;
+    if (mounted) openSheet();
+    else {
+      sheetPending = true;
+      setTimeout(() => {
+        sheetPending = false;
+        if (sheetShown === u.latest && newerKnown() && !majorSkipped()) openSheet();
+      }, SHEET_FIRST_DELAY_MS);
+    }
+  }
+
   /** The update sheet: title, installed / size / date line, release notes, progress, Later and Install. */
   function renderSheet(full) {
-    const key = [u.stage, u.current, u.latest, u.size, u.published_at, !!u.notes, u.can_apply, u.message, u.progress == null].join('|');
+    const key = [u.stage, u.current, u.latest, u.size, u.published_at, !!u.notes, u.can_apply, u.message, u.progress == null, !!u.major].join('|');
     if (!full && key === sheetKey) {
       // Progress only: patch the bar and the percentages, keep the notes and their scroll position.
       const bar = sheetContent.querySelector('.pop-progress');
@@ -297,10 +363,25 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
       progress += `<div class="upd-pct"><b>${p == null ? '' : `${Math.round(p * 100)}%`}</b><span>${escapeHtml(p != null && u.size ? `${bytes(u.size * p)} of ${bytes(u.size)}` : p == null ? 'Verifying…' : '')}</span></div>`;
     }
     const box = u.stage === 'error' && u.message ? `<p class="upd-msg" role="alert">${escapeHtml(u.message)}</p>` : '';
+    // A new major version: the title names the line, a note explains the choice, the buttons are
+    // "Stay on N.x" and "Switch to X.Y" while nothing is downloaded yet.
+    const major = majorKnown();
+    const line = lineOf(u.latest);
+    const stayLabel = `Stay on ${majorOf(u.current) ?? ''}.x`;
+    const title = major ? `${product} ${line} is available` : `${product} ${u.latest || ''}`;
+    const note = major
+      ? `<p class="upd-major">${escapeHtml(`${line} is a new major version and may work differently. You can stay on ${majorOf(u.current) ?? ''}.x and switch later from the version in the title bar.`)}</p>`
+      : '';
     let action;
+    let later = '<button type="button" class="btn" data-act="later">Later</button>';
     switch (u.stage) {
       case 'available':
-        action = `<button type="button" class="btn btn-tinted ov-focus" data-act="install">${icon('down')}<span>Install</span></button>`;
+        if (major) {
+          later = `<button type="button" class="btn" data-act="stay">${escapeHtml(stayLabel)}</button>`;
+          action = `<button type="button" class="btn btn-tinted ov-focus" data-act="switch">${icon('down')}<span>${escapeHtml(`Switch to ${line}`)}</span></button>`;
+        } else {
+          action = `<button type="button" class="btn btn-tinted ov-focus" data-act="install">${icon('down')}<span>Install</span></button>`;
+        }
         break;
       case 'downloading':
         action = `<button type="button" class="btn ov-focus" data-act="downloading" disabled>${icon('down')}<span>${u.progress == null ? 'Downloading…' : `Downloading… ${Math.round(u.progress * 100)}%`}</span></button>`;
@@ -317,8 +398,9 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     sheetContent.innerHTML = `
       <div class="sheet-head upd-sheet-head">
         <div class="upd-sheet-title">
-          <h2>${escapeHtml(product)} ${escapeHtml(u.latest || '')}</h2>
+          <h2>${escapeHtml(title)}</h2>
           <p class="upd-sub">${escapeHtml(parts.join(' · '))}</p>
+          ${note}
         </div>
         <button type="button" class="icon-btn sheet-x" data-act="later" aria-label="Later">${icon('close')}</button>
       </div>
@@ -327,7 +409,7 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
         ${progress}
         ${box}
         <div class="upd-sheet-btns">
-          <button type="button" class="btn" data-act="later">Later</button>
+          ${later}
           ${action}
         </div>
       </div>`;
@@ -381,7 +463,9 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
         action = `<button type="button" class="btn ov-focus" disabled>${icon('refresh')}<span>Checking…</span></button>`;
         break;
       case 'available':
-        action = `<button type="button" class="btn btn-tinted ov-focus" data-act="download">${icon('down')}<span>Download</span></button>`;
+        action = majorKnown()
+          ? `<button type="button" class="btn btn-tinted ov-focus" data-act="switch-download">${icon('down')}<span>${escapeHtml(`Switch to ${lineOf(u.latest)}`)}</span></button>`
+          : `<button type="button" class="btn btn-tinted ov-focus" data-act="download">${icon('down')}<span>Download</span></button>`;
         break;
       case 'downloading':
         action = `<button type="button" class="btn ov-focus" disabled>${icon('down')}<span>Downloading…</span></button>`;
@@ -422,6 +506,12 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
         return download();
       case 'install':
         return install();
+      case 'switch':
+        return switchMajor(true);
+      case 'switch-download':
+        return switchMajor(false);
+      case 'stay':
+        return stayOnMajor();
       case 'later':
         return sheet.close();
       case 'retry':
@@ -456,6 +546,8 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     settings = { ...(settings || {}), ...s };
     for (const b of blocks) b.refresh();
     if (overlay.open && wasAuto !== !!settings.auto_download_updates) renderPop();
+    renderPill();
+    if (mounted) maybeAutoOpen();
   }
 
   /**
@@ -514,7 +606,8 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
       renderStatus() {
         st.innerHTML = `<b>${escapeHtml(statusLine(u))}</b>${u.checked_at ? `<small>Checked ${escapeHtml(shortDateTime(u.checked_at))}</small>` : ''}`;
         let html = '';
-        if (u.stage === 'available') html = `<button type="button" class="btn btn-s btn-tinted" data-act="download">${icon('down')}<span>Download</span></button>`;
+        if (u.stage === 'available' && majorKnown()) html = `<button type="button" class="btn btn-s btn-tinted" data-act="switch-download">${icon('down')}<span>${escapeHtml(`Switch to ${lineOf(u.latest)}`)}</span></button>`;
+        else if (u.stage === 'available') html = `<button type="button" class="btn btn-s btn-tinted" data-act="download">${icon('down')}<span>Download</span></button>`;
         else if (u.stage === 'ready') html = `<button type="button" class="btn btn-s btn-tinted" data-act="apply" ${u.can_apply ? '' : 'disabled'}>${icon('refresh')}<span>Restart to update</span></button>`;
         else if (u.stage === 'downloading') html = `<button type="button" class="btn btn-s" disabled>${icon('down')}<span>${u.progress != null ? `${Math.round(u.progress * 100)}%` : 'Downloading…'}</span></button>`;
         else html = `<button type="button" class="btn btn-s" data-act="check" ${u.stage === 'checking' ? 'disabled' : ''}>${icon('refresh')}<span>${u.stage === 'checking' ? 'Checking…' : 'Check for updates'}</span></button>`;
@@ -551,6 +644,9 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     download,
     install,
     restart,
+    stay: stayOnMajor,
+    switchMajor,
+    isMajorSkipped: majorSkipped,
     status: () => ({ ...u }),
     statusLine,
     setSettings,
@@ -560,6 +656,18 @@ export function mountUpdateControl({ pill, popoverHost, sheetHost, call, on, opt
     overlay,
     sheet,
   };
+}
+
+/** Major version of a version text: `v3.1.0` / `3` / `3.0.0-rc.1` -> 3; null without a leading number. */
+export function majorOf(version) {
+  const m = /^\s*[vV]?(\d+)/.exec(version || '');
+  return m ? Number(m[1]) : null;
+}
+
+/** The release line shown in the major-version choice: `3.0.0` -> `3.0`, `v3.2.1` -> `3.2`, `10` -> `10.0`. */
+export function lineOf(version) {
+  const m = /^\s*[vV]?(\d+)(?:\.(\d+))?/.exec(version || '');
+  return m ? `${m[1]}.${m[2] ?? '0'}` : String(version || '');
 }
 
 // ---------------------------------------------------------------------------------------------
