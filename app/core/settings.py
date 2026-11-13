@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -72,6 +73,7 @@ def defaults() -> dict[str, Any]:
         "sound_on_done": True,
         "theme": DEFAULT_THEME,
         "ui_scale": DEFAULT_SCALE,
+        "window": None,   # the window's last place and size (normalize_window), None before the first move
     }
 
 
@@ -101,6 +103,35 @@ def normalize_major(value: Any) -> int | None:
     if isinstance(value, float) and value.is_integer():
         value = int(value)
     return value if isinstance(value, int) and value >= 1 else None
+
+
+# Settings the shell writes on its own (the window's place and size after every move): a change of these alone is
+# saved without a `settings` event, since no control of the page shows them.
+SILENT_SETTINGS = frozenset({"window"})
+WINDOW_SIZE_RANGE = (100, 20000)       # width / height of the stored window, layout px
+WINDOW_POSITION_RANGE = (-100000, 100000)  # x / y of the stored window, screen px
+
+
+def normalize_window(value: Any) -> dict[str, int] | None:
+    """`window`: {"x", "y", "width", "height"} whole numbers; x / y are the screen position of the window's page
+    area (physical px, any monitor), width / height its size in layout px (CSS px of the page at Scale 100 %, the
+    same at every Scale step and DPI). Anything else gives None (the window opens centred at its start size): the
+    value is written by the shell, never typed by a person, so it is never refused."""
+    if not isinstance(value, dict):
+        return None
+    result: dict[str, int] = {}
+    for key, (low, high) in (("x", WINDOW_POSITION_RANGE), ("y", WINDOW_POSITION_RANGE),
+                             ("width", WINDOW_SIZE_RANGE), ("height", WINDOW_SIZE_RANGE)):
+        number = value.get(key)
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
+            return None
+        if isinstance(number, float) and not number.is_integer():
+            number = round(number)
+        number = int(number)
+        if not low <= number <= high:
+            return None
+        result[key] = number
+    return result
 
 
 def _bool(key: str, value: Any) -> bool:
@@ -182,6 +213,8 @@ def validate_value(key: str, value: Any) -> Any:
         return normalize_scale(value)
     if key == "skipped_major":
         return normalize_major(value)
+    if key == "window":
+        return normalize_window(value)
     raise KeyError(key)
 
 

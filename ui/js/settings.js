@@ -9,7 +9,7 @@ import { gel } from '../vendor/liquid_ui/js/glass.js';
 import { Overlay } from '../vendor/liquid_ui/js/overlay.js';
 import { Segmented, Switch, Stepper, Select } from '../vendor/liquid_ui/js/controls.js';
 import { applyTheme, mountThemeControl } from '../vendor/liquid_ui/js/theme.js';
-import { mountScaleControl } from '../vendor/liquid_ui/js/scale.js';
+import { mountScaleControl, SCALE_STEPS } from '../vendor/liquid_ui/js/scale.js';
 import { icon } from './icons.js';
 import { escapeHtml, dateTime } from './format.js';
 import { toast } from '../vendor/liquid_ui/js/toast.js';
@@ -209,6 +209,14 @@ function build() {
       }
       sync();
     },
+  });
+  // A step whose smallest window does not fit the screen is dimmed (the `window` event's `scales`, which follow
+  // the monitor the window is on).
+  on('window', (w) => {
+    if (!w || !Array.isArray(w.scales)) return;
+    for (const s of SCALE_STEPS) {
+      ctl.ui_scale.control.setOptionDisabled(String(s), !w.scales.includes(s), w.scales.includes(s) ? '' : 'Too large for this screen');
+    }
   });
   const mkSwitch = (f, label) => {
     ctl[f] = new Switch({ label, checked: !!S[f], onChange: (v) => save({ [f]: v }, () => ctl[f].set(!v)) });

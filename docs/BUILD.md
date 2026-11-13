@@ -93,34 +93,39 @@ a minute once `.venv` exists.
 
 ## 5. Window behaviour (frameless)
 
-- The window is created `frameless=True, easy_drag=False`; the page draws its own title bar. Dragging works on elements
-  with the class `pywebview-drag-region` (pywebview moves the window through the bridge); buttons call
-  `window_minimize` and `window_close`. There is no maximize button.
-- **Fixed size**: the window is created with
-  `resizable=False` and cannot be resized or maximized: no sizing border, no maximize button, no maximize by system
-  command, double click or keyboard. The page covers the whole client area, so the window size equals the viewport.
-  `resizable=False` alone is not enough with pywebview 6.2.1 on Windows (the form keeps `WS_MAXIMIZEBOX`, accepts
-  `SC_MAXIMIZE` / `ShowWindow(SW_MAXIMIZE)` and any `SetWindowPos` size), so `app/winutil.py` (`FixedSizeHook`,
-  installed from `_setup_native_window` after the `shown` event) subclasses the window procedure:
-  - every size proposal of the restored window is replaced by the locked size (`WM_WINDOWPOSCHANGING`);
-  - `SC_MAXIMIZE` is swallowed (system menu, keyboard), and a maximized state that still arrives from outside
-    (`WM_SIZE` / `SIZE_MAXIMIZED`) is answered with a posted `SC_RESTORE`;
-  - `WS_MAXIMIZEBOX` and `WS_THICKFRAME` are cleared, `WS_MINIMIZEBOX` is set (taskbar click and `Win+Down` minimize).
-- **Size**: start size 1180x780 logical pixels. On a small work area (for example 1366x768 with a taskbar) the
-  shell takes the first step of `SIZE_LADDER` in `app/main.py` that fits the work area of the monitor the window is
-  on at its DPI: 1180x780, 1120x745, 1060x710, 1000x675, 940x640. The smallest step wins when even that does not
-  fit. The choice is pure (`pick_window_size`, unit-tested); the size is applied once through the form's
-  `SetBounds` and the window is centred on the work area.
-- **Restore keeps the size**: without `WS_THICKFRAME` the window size equals the client size, so WinForms re-applies
-  the right size after minimize and restore (the frame-width shrink of versions up to 2.4.x came from the thick
-  frame and no longer applies), and the hook holds the size anyway.
+- The window is created `frameless=True, easy_drag=False, resizable=False`; the page draws its own title bar with
+  minimize and close (`window_minimize`, `window_close`) and covers the whole client area. There is no maximize
+  button. The process is per-monitor DPI aware (v2) before pywebview loads.
+- **Resizable from every edge and corner**, with a minimum of 940 x 640 layout px (the size the layout is designed
+  for); the first start opens at 1180 x 780, centred. A layout px is a CSS px: physical px = layout px x Scale
+  factor x the monitor's DPI scale. pywebview's own `resizable=True` is not used: it adds the maximize box and its
+  minimum size does not follow the Scale step. `app/winutil.py` (`ResizableHook`, installed from
+  `_setup_native_window` after the `shown` event) subclasses the window procedure:
+  - `WS_THICKFRAME` and `WS_MINIMIZEBOX` on, `WS_MAXIMIZEBOX` off, re-applied on `WM_STYLECHANGING`;
+  - `WM_NCCALCSIZE` keeps the system's invisible sizing border on the left, right and bottom and gives the top to
+    the page; the page draws a 4 px strip and two 8 px corners along its top edge whose presses, like the title
+    bar's drag area, call `window_drag`, which hands the press to the system's move or size loop
+    (`WM_NCLBUTTONDOWN` with `HTCAPTION`, `HTTOP`, `HTTOPLEFT` or `HTTOPRIGHT`), so moves snap and every edge shows
+    the system resize cursor;
+  - `WM_GETMINMAXINFO` and `WM_WINDOWPOSCHANGING` hold the minimum at the current Scale step and DPI;
+  - `SC_MAXIMIZE` is swallowed (system menu, title-bar double click, Win+Up), and a maximized state that still
+    arrives (`WM_SIZE` / `SIZE_MAXIMIZED`, for example a drag to the top edge of the screen) is answered with a
+    posted `SC_RESTORE`. Snapping to the left or right half of the screen stays. The page has no F11 handler;
+  - `WM_DPICHANGED` keeps the page's layout size on the new monitor at the place the system suggests.
+- **Place and size are remembered** in `Settings.window` (x, y of the page's top-left in physical px, width and
+  height in layout px), written shortly after a move or resize ends and when the window closes. At start the
+  stored rectangle is clamped into the work area of the monitor it overlaps most; when that monitor is gone, the
+  window opens centred on the primary monitor.
+- **Scale**: the WebView2 zoom factor is `ui_scale / 100`; a Scale change multiplies the window size by the ratio
+  of the steps around its centre, clamped to the work area. A step whose minimum window does not fit the work area
+  is dimmed in Settings and refused by `set_scale`.
 - **DWM**: `set_rounded_corners` asks for Windows 11 rounded corners (`DWMWA_WINDOW_CORNER_PREFERENCE`), and
   `set_border_color` sets `DWMWA_BORDER_COLOR` to the page background (`BACKGROUND` in `app/main.py`, `#0b0d14`) so
   no light frame line shows. Both are no-ops before Windows 11.
-- Check by hand after a change to the hook (a short ctypes probe against the running `run_dev.bat --fake` window): the style has neither
-  `WS_THICKFRAME` nor `WS_MAXIMIZEBOX`; `ShowWindow(SW_MAXIMIZE)` and `SetWindowPos` to another size leave the
-  size unchanged; minimize and restore keep it; `GetClientRect` equals the locked size.
-- Aero Snap by dragging is not available (pywebview moves the window itself); snapping does not resize the window.
+- Check after a change to the hook, against `run_dev.bat --fake`: the style has `WS_THICKFRAME` and no
+  `WS_MAXIMIZEBOX`; `SetWindowPos` below the minimum is clamped to it; `WM_SYSCOMMAND` / `SC_MAXIMIZE`, a title-bar
+  double click, Win+Up and F11 leave the size unchanged; every edge and corner drags with its resize cursor;
+  minimize and restore keep the size; a restart restores size and place; a Scale change keeps the centre.
 
 ## 6. Troubleshooting
 

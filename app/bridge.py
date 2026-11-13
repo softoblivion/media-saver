@@ -17,6 +17,9 @@ import time
 from typing import Any, Callable, Optional
 
 from app import winutil
+from app.core.settings import DEFAULT_SCALE, SCALE_STEPS, normalize_scale
+
+WINDOW_DRAG_PARTS = ("move", "top", "top-left", "top-right")
 
 log = logging.getLogger("mediasaver.bridge")
 
@@ -246,8 +249,9 @@ class Bridge:
         self._window: Any = None
         self._login_opener = login_opener
         self._logout_hook: Optional[Callable[[], None]] = None
-        self._scale_applier: Optional[Callable[[int], None]] = None
+        self._frame: Any = None  # the shell's window frame (main.WindowFrame): Scale, drag, fitting steps
         self._focused = True
+        self._scales: list[int] = list(SCALE_STEPS)  # the Scale steps whose minimum window fits the screen
         self._shutdown_lock = threading.Lock()
         self._shut_down = False
 
@@ -262,9 +266,11 @@ class Bridge:
     def _set_logout_hook(self, hook: Callable[[], None]) -> None:
         self._logout_hook = hook
 
-    def _set_scale_applier(self, applier: Callable[[int], None]) -> None:
-        """The shell's function that applies a Scale percentage to the window (zoom factor and window size)."""
-        self._scale_applier = applier
+    def _set_window_frame(self, frame: Any) -> None:
+        """The shell's window frame: `apply_scale(percent)` (zoom factor and window size), `begin_drag(part)` (the
+        system move or size loop) and `fitting_scales()` (the Scale steps whose minimum window fits the screen)."""
+        self._frame = frame
+        self._on_window_state(scales=frame.fitting_scales())
 
     def _toast(self, level: str, text: str, action: Optional[dict] = None) -> None:
         payload: dict[str, Any] = {"level": level, "text": text}
@@ -279,12 +285,20 @@ class Bridge:
             action = {"label": "Download again", "method": "download_again", "id": job_id}
         self._toast("warning", "File not found. It may have been moved or deleted.", action)
 
-    def _on_window_state(self, focused: Optional[bool] = None) -> None:
-        """Called by the native focus events; emits `window` ({"focused": bool}) when the focus state changed.
-        The window has a fixed size and cannot be maximized, so focus is the only window state."""
+    def _window_state(self) -> dict:
+        return {"focused": self._focused, "scales": list(self._scales)}
+
+    def _on_window_state(self, focused: Optional[bool] = None, scales: Optional[list[int]] = None) -> None:
+        """Called by the native focus events and by the window frame when the window reaches a monitor of another
+        size or DPI; emits `window` ({"focused": bool, "scales": [int]}) when either changed. The window cannot be
+        maximized, so focus and the fitting Scale steps are the whole window state."""
+        changed = False
         if focused is not None and focused != self._focused:
-            self._focused = focused
-            self._pump.emit("window", {"focused": self._focused})
+            self._focused, changed = focused, True
+        if scales is not None and list(scales) != self._scales:
+            self._scales, changed = [int(s) for s in scales], True
+        if changed:
+            self._pump.emit("window", self._window_state())
 
     def _shutdown(self) -> None:
         """Idempotent: stop the pump and shut the engine down (<= 3 s by contract)."""
@@ -292,6 +306,11 @@ class Bridge:
             if self._shut_down:
                 return
             self._shut_down = True
+        if self._frame is not None:
+            try:
+                self._frame.save_now()  # the window's last place and size, while the engine still saves settings
+            except Exception:  # noqa: BLE001
+                log.exception("window place could not be stored")
         try:
             self._engine.shutdown()
         except Exception:  # noqa: BLE001
@@ -325,7 +344,7 @@ class Bridge:
             start()
         state = self._engine.get_state()
         self._pump.set_ready()
-        self._pump.emit("window", {"focused": self._focused})
+        self._pump.emit("window", self._window_state())
         return state
 
     # -- links and jobs
@@ -431,11 +450,15 @@ class Bridge:
 
     @_api
     def set_scale(self, value):
-        """The Scale setting (BRIDGE_API Settings.ui_scale): saves the step and applies it to the window at once."""
-        new = self._engine.set_settings({"ui_scale": value})
-        if self._scale_applier is not None:
+        """The Scale setting (BRIDGE_API Settings.ui_scale): saves the step and applies it to the window at once.
+        A step whose minimum window does not fit the screen (not in the `window` event's `scales`) is refused."""
+        step = normalize_scale(value)
+        if step not in self._scales:
+            raise BridgeError(f"Scale {step}% does not fit this screen.")
+        new = self._engine.set_settings({"ui_scale": step})
+        if self._frame is not None:
             try:
-                self._scale_applier(int(new.get("ui_scale", 100)))
+                self._frame.apply_scale(int(new.get("ui_scale", DEFAULT_SCALE)))
             except Exception:  # noqa: BLE001 - the setting is saved; the window keeps its size
                 log.exception("scale could not be applied")
         return new
@@ -512,7 +535,17 @@ class Bridge:
     def open_url(self, url):
         return bool(winutil.open_url(_as_text(url)))
 
-    # -- window control (fixed-size frameless window: the HTML title bar offers minimize and close only)
+    # -- window control (resizable frameless window: the HTML title bar offers minimize and close only, no maximize)
+    @_api
+    def window_drag(self, part):
+        """A press on the title bar ("move") or on the page's top edge ("top", "top-left", "top-right") hands the
+        mouse to the system's move or size loop. Nothing happens once the button is already up."""
+        if part not in WINDOW_DRAG_PARTS:
+            raise BridgeError(f"Unknown window part: {part!r}")
+        if self._frame is not None:
+            self._frame.begin_drag(part)
+        return None
+
     @_api
     def window_minimize(self):
         if self._window is not None:

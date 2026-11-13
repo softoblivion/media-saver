@@ -412,6 +412,25 @@ class QualitySettingsTests(FakeBase):
         self.assertEqual(events[-1]["quality_twitter"], "max")
 
 
+class KeptSettingsTests(FakeBase):
+    """The fake keeps the theme, the Scale step and the window's place and size between launches."""
+
+    def test_window_place_is_kept_across_a_restart_without_an_event(self):
+        place = {"x": 120, "y": 60, "width": 1300, "height": 820}
+        self.assertIsNone(self.engine.get_settings()["window"])
+        self.engine.set_settings({"window": place, "ui_scale": 125})
+        before = len([t for t, _ in list(self.events) if t == "settings"])
+        self.engine.set_settings({"window": dict(place, x=200)})
+        self.assertEqual(len([t for t, _ in list(self.events) if t == "settings"]), before)
+        again = FakeEngine(lambda *_: None, "2.0.0", root=self.tmp)
+        self.addCleanup(again.shutdown)
+        self.assertEqual(again.get_settings()["window"], dict(place, x=200))
+        self.assertEqual(again.get_settings()["ui_scale"], 125)
+
+    def test_damaged_window_value_is_dropped(self):
+        self.assertIsNone(self.engine.set_settings({"window": {"x": "a"}})["window"])
+
+
 class AppUpdateTests(FakeBase):
     def test_found_version_downloads_by_itself_while_auto_download_is_on(self):
         self.assertTrue(self.engine.get_settings()["auto_download_updates"])

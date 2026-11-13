@@ -361,6 +361,7 @@ const DEFAULT_SETTINGS = {
   sound_on_done: true,
   theme: 'dusk',
   ui_scale: 100,
+  window: null,
 };
 
 const APP_VERSION = '2.0.0';
@@ -913,8 +914,10 @@ export function createMock({ params, emit }) {
   preload();
 
   // ---- window focus -> "window" events ------------------------------------------------------
-  addEventListener('focus', () => emit('window', { focused: true }));
-  addEventListener('blur', () => emit('window', { focused: false }));
+  // A browser has no screen to fit: every Scale step is offered.
+  const SCALES = [100, 125, 150, 175, 200];
+  addEventListener('focus', () => emit('window', { focused: true, scales: SCALES }));
+  addEventListener('blur', () => emit('window', { focused: false, scales: SCALES }));
 
   const state = () => ({
     app_version: APP_VERSION,
@@ -954,6 +957,7 @@ export function createMock({ params, emit }) {
     sound_on_done: (v) => typeof v === 'boolean',
     theme: (v) => ['dusk', 'nova', 'frost', 'bloom'].includes(v),
     ui_scale: (v) => [100, 125, 150, 175, 200].includes(Number(v)),
+    window: (v) => v === null || (typeof v === 'object' && ['x', 'y', 'width', 'height'].every((k) => Number.isFinite(v[k]))),
   };
 
   // ---- the API --------------------------------------------------------------------------------
@@ -1145,6 +1149,7 @@ export function createMock({ params, emit }) {
       toast('info', `(demo) Would open ${url}`);
       return true;
     },
+    async window_drag() { return null; },
     async window_minimize() { toast('info', '(demo) The window would minimize'); return null; },
     async window_close() { toast('warning', '(demo) The app would close here'); return null; },
 

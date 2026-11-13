@@ -294,8 +294,8 @@
 
 .toasts {
   top: calc(var(--titlebar-h) + 6px);
-  left: calc(var(--cmp-w) + 36px + (100vw - var(--cmp-w) - 54px) / 2);
-  max-width: min(560px, calc(100vw - var(--cmp-w) - 70px));
+  left: var(--queue-mid);
+  max-width: min(560px, var(--queue-room));
 }
 
 /* The update popover opens under the version pill at the right, where the toasts drop: while it is
@@ -310,7 +310,7 @@ body:has(#update-pop.is-open) .toasts {
 .clip-pill {
   position: fixed;
   z-index: 30;
-  left: calc(var(--cmp-w) + 36px + (100vw - var(--cmp-w) - 54px) / 2);
+  left: var(--queue-mid);
   bottom: 22px;
   transform: translateX(-50%);
   display: flex;

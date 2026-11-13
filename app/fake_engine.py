@@ -27,7 +27,10 @@ import zlib
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from app.core.settings import SILENT_SETTINGS, normalize_scale, normalize_window
+
 EmitFn = Callable[[str, dict], None]
+KEPT_SETTINGS = {"theme", "ui_scale", "window"}  # the settings the fake keeps between launches
 
 PLATFORMS = ("instagram", "youtube", "tiktok", "twitter")
 FORMATS = ("mp4", "mp3")
@@ -219,11 +222,12 @@ class FakeEngine:
             "sound_on_done": True,
             "theme": "dusk",
             "ui_scale": 100,
+            "window": None,
         }
-        # The theme is the one setting the fake keeps between launches (the UI checks that a chosen
-        # theme survives a restart); everything else starts from the defaults above.
+        # The fake keeps the theme, the Scale step and the window's place and size between launches (the
+        # checks of a restart); everything else starts from the defaults above.
         self._settings_file = self.paths.root / "settings.json"
-        self._load_theme()
+        self._load_kept()
         self._engine_status: dict[str, Any] = {
             "stage": "starting",
             "message": "Starting…",
@@ -661,19 +665,24 @@ class FakeEngine:
         with self._lock:
             return dict(self._settings)
 
-    def _load_theme(self) -> None:
+    def _load_kept(self) -> None:
         try:
             with open(self._settings_file, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, ValueError):
             return
-        if isinstance(data, dict) and data.get("theme") in THEMES:
+        if not isinstance(data, dict):
+            return
+        if data.get("theme") in THEMES:
             self._settings["theme"] = data["theme"]
+        if "ui_scale" in data:
+            self._settings["ui_scale"] = normalize_scale(data["ui_scale"])
+        self._settings["window"] = normalize_window(data.get("window"))
 
-    def _save_theme(self) -> None:
+    def _save_kept(self) -> None:
         try:
             with open(self._settings_file, "w", encoding="utf-8") as fh:
-                json.dump({"theme": self._settings["theme"]}, fh)
+                json.dump({k: self._settings[k] for k in KEPT_SETTINGS}, fh)
         except OSError:
             pass
 
@@ -698,14 +707,20 @@ class FakeEngine:
                 patch = dict(patch, skipped_major=value if ok else None)  # as the core: never refused
             if "theme" in patch and patch["theme"] not in THEMES:
                 patch = dict(patch, theme="dusk")  # as the core: an unknown name becomes the default
+            if "ui_scale" in patch:
+                patch = dict(patch, ui_scale=normalize_scale(patch["ui_scale"]))
+            if "window" in patch:
+                patch = dict(patch, window=normalize_window(patch["window"]))
             turned_on = patch.get("auto_download_updates") is True and not self._settings["auto_download_updates"]
+            loud = not patch or bool(set(patch) - SILENT_SETTINGS)
             self._settings.update(patch)
             snapshot = dict(self._settings)
             if turned_on:
                 self._auto_download_for = None
-            if "theme" in patch:
-                self._save_theme()
-        self._emit("settings", snapshot)
+            if KEPT_SETTINGS & set(patch):
+                self._save_kept()
+        if loud:
+            self._emit("settings", snapshot)
         if turned_on:
             self._maybe_auto_download()
         return snapshot

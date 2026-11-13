@@ -14,7 +14,7 @@ CONTRACT_METHODS = {
     "ready", "clean_links", "enqueue", "set_job_format", "cancel", "retry", "remove", "clear_finished", "open_file",
     "reveal_file", "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings",
     "update_engine", "update_status", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
-    "read_clipboard", "copy_text", "open_url", "window_minimize", "window_close", "set_scale",
+    "read_clipboard", "copy_text", "open_url", "window_drag", "window_minimize", "window_close", "set_scale",
     "retry_failed", "resume_interrupted", "download_again",
 }
 
@@ -155,6 +155,30 @@ class RecordingEngine:
 
     def shutdown(self):
         self._rec("shutdown")
+
+
+class FakeFrame:
+    """The shell's window frame as the bridge sees it (app.main.WindowFrame)."""
+
+    def __init__(self, scales=(100, 125, 150, 175, 200)) -> None:
+        self.scales = list(scales)
+        self.calls: list = []
+        self.engine_calls: list = []
+        self.fail = False
+
+    def fitting_scales(self):
+        return list(self.scales)
+
+    def apply_scale(self, percent):
+        self.calls.append(("scale", percent))
+
+    def begin_drag(self, part):
+        self.calls.append(("drag", part))
+
+    def save_now(self):
+        if self.fail:
+            raise OSError("gone")
+        self.calls.append(("save", ("shutdown",) in self.engine_calls))
 
 
 def make_bridge():
@@ -488,10 +512,73 @@ class WindowTests(unittest.TestCase):
         self.assertEqual(window.calls, ["minimize"])
 
     def test_no_maximize_method(self):
-        # the window is fixed-size: nothing in the API can maximize or restore it
+        # the window resizes but never maximizes: nothing in the API can maximize or restore it
         bridge, *_ = make_bridge()
         self.assertFalse(hasattr(bridge, "window_toggle_maximize"))
         self.assertFalse(hasattr(bridge, "_maximized"))
+
+    def test_drag_hands_the_part_to_the_frame(self):
+        bridge, *_ = make_bridge()
+        self.assertIsNone(bridge.window_drag("move"))  # no frame yet: nothing happens
+        frame = FakeFrame()
+        bridge._set_window_frame(frame)
+        for part in ("move", "top", "top-left", "top-right"):
+            self.assertIsNone(bridge.window_drag(part))
+        self.assertEqual(frame.calls, [("drag", "move"), ("drag", "top"), ("drag", "top-left"), ("drag", "top-right")])
+        for bad in ("left", "", None, 3):
+            with self.subTest(part=bad), self.assertRaises(BridgeError):
+                bridge.window_drag(bad)
+        self.assertEqual(len(frame.calls), 4)
+
+    def test_scale_is_saved_and_applied(self):
+        bridge, engine, *_ = make_bridge()
+        frame = FakeFrame([100, 125, 150])
+        bridge._set_window_frame(frame)
+        self.assertEqual(bridge.set_scale(125)["ui_scale"], 125)
+        self.assertIn(("set_settings", {"ui_scale": 125}), engine.calls)
+        self.assertEqual(frame.calls, [("scale", 125)])
+
+    def test_scale_that_does_not_fit_is_refused(self):
+        bridge, engine, *_ = make_bridge()
+        frame = FakeFrame([100, 125, 150])
+        bridge._set_window_frame(frame)
+        for value in (175, 200):
+            with self.subTest(value=value), self.assertRaises(BridgeError) as ctx:
+                bridge.set_scale(value)
+            self.assertEqual(str(ctx.exception), f"Scale {value}% does not fit this screen.")
+        self.assertNotIn("set_settings", [c[0] for c in engine.calls])
+        self.assertEqual(frame.calls, [])
+
+    def test_fitting_scales_reach_the_page(self):
+        bridge, _, window, pump, _ = make_bridge()
+        bridge.ready()
+        bridge._set_window_frame(FakeFrame([100, 125, 150]))
+        bridge._on_window_state(scales=[100, 125, 150])  # unchanged: no second event
+        bridge._on_window_state(scales=[100])            # the window reached a smaller screen
+        pump.flush()
+        text = "".join(window.scripts)
+        self.assertIn('"window",{"focused":true,"scales":[100,125,150,175,200]}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100,125,150]}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100]}', text)
+        self.assertEqual(text.count('"window"'), 3)
+
+    def test_shutdown_stores_the_window_place_first(self):
+        bridge, engine, *_ = make_bridge()
+        frame = FakeFrame()
+        frame.engine_calls = engine.calls
+        bridge._set_window_frame(frame)
+        bridge._shutdown()
+        self.assertEqual(frame.calls, [("save", False)])  # stored while the engine still saves settings
+        self.assertEqual(engine.calls[-1], ("shutdown",))
+
+    def test_a_failing_frame_does_not_stop_the_shutdown(self):
+        bridge, engine, *_ = make_bridge()
+        frame = FakeFrame()
+        frame.fail = True
+        bridge._set_window_frame(frame)
+        with self.assertLogs("mediasaver.bridge", logging.ERROR):
+            bridge._shutdown()
+        self.assertEqual(engine.calls[-1], ("shutdown",))
 
     def test_window_event_only_when_state_changes(self):
         bridge, _, window, pump, _ = make_bridge()
@@ -509,8 +596,8 @@ class WindowTests(unittest.TestCase):
         bridge._on_window_state(focused=False)
         pump.flush()
         text = "".join(window.scripts)
-        self.assertIn('"window",{"focused":true}', text)
-        self.assertIn('"window",{"focused":false}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100,125,150,175,200]}', text)
+        self.assertIn('"window",{"focused":false,"scales":[100,125,150,175,200]}', text)
         self.assertNotIn("maximized", text)
 
     def test_close_shuts_engine_down_once_then_destroys(self):

@@ -265,7 +265,7 @@ class Engine:
 
     def set_settings(self, patch: dict) -> dict:
         new, changed = self._settings.update(patch or {})
-        if changed:
+        if set(changed) - settingsmod.SILENT_SETTINGS:
             self._emit("settings", new)
             if "concurrency" in changed:
                 self.downloader.set_concurrency(new["concurrency"])

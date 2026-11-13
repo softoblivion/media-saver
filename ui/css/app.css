@@ -13,6 +13,18 @@ body:not(.is-ready) #app {
   visibility: hidden;
 }
 
+/* The window's top edge (js/main.js initWindowEdges): the sides and the bottom are the system's own sizing
+   borders; along the top, which is page area, these strips carry the resize cursors above every layer. */
+.win-edge {
+  position: fixed;
+  z-index: 2147483000;
+  top: 0;
+}
+
+.win-edge-top { left: 8px; right: 8px; height: 4px; cursor: ns-resize; }
+.win-edge-top-left { left: 0; width: 8px; height: 8px; cursor: nwse-resize; }
+.win-edge-top-right { right: 0; width: 8px; height: 8px; cursor: nesw-resize; }
+
 /* The title bar (vendor/liquid_ui/css/titlebar.css) is a fixed layer; the page's entrance animates it
    together with the columns below, so it is positioned by the kit and only placed here. */
 #titlebar {
@@ -24,6 +36,8 @@ body:not(.is-ready) #app {
 
 #main {
   grid-row: 2;   /* the title bar is out of flow; the first row keeps its room */
+  width: var(--main-w);   /* the window's width up to the content's maximum, centred beyond it */
+  justify-self: center;
   display: grid;
   grid-template-columns: var(--cmp-w) minmax(0, 1fr);
   gap: 16px;
@@ -521,9 +535,12 @@ body:not(.is-ready) #app {
   flex: none;
 }
 
-/* "Retry failed" shows only while the list has a failed item, beside "Clear finished": its icon alone
-   (the cards' Retry icon), so the counts keep their room in the header. */
-.q-actions .q-ic-btn { width: 28px; padding: 0; }
+/* "Retry failed" shows only while the list has a failed item, beside "Clear finished". Below a wide
+   queue it keeps its icon alone (the cards' Retry icon), so the counts keep their room in the header. */
+@container (max-width: 819px) {
+  .q-actions .q-ic-btn { width: 28px; padding: 0; }
+  .q-actions .q-ic-btn > span { display: none; }
+}
 
 /* "Open folder" split button: the kit's `.split` (two .btn-s halves sharing one pill); the main
    half opens the folder, the chevron half opens a two-item menu (Open folder / Change folder...).
@@ -595,7 +612,6 @@ body:not(.is-ready) #app {
 
 @container (max-width: 640px) {
   /* Narrow queue: the header buttons keep their icons only (layout: the labels would not fit). */
-  .q-title-wrap { flex-direction: column; gap: 2px; }
   .q-actions .btn > span { display: none; }
   .q-actions .btn { width: 28px; padding: 0; }
   .q-actions .split-main { width: 30px; padding: 0 0 0 2px; }
@@ -621,6 +637,12 @@ body:not(.is-ready) #app {
 }
 
 .jc-thumb {
+/* Below a wide queue the counts go under the title, so three counts of three digits keep their room beside the
+   labelled header buttons. */
+@container (max-width: 719px) {
+  .q-title-wrap { flex-direction: column; gap: 2px; }
+}
+
   position: relative;
   flex: 0 0 54px;
   height: 96px;

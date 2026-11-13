@@ -4,6 +4,13 @@
    (docs/UI_DESIGN.md, section 3). */
 
 :root {
-  /* Layout: the composer column (the clipboard pill and toasts centre on the rest) */
-  --cmp-w: clamp(360px, 37vw, 450px);
+  /* Layout. The content (composer and queue) grows with the window up to --main-max and stays centred
+     beyond it: wider, a job card's title row would only stretch into empty glass. */
+  --main-max: 1360px;
+  --main-w: min(100vw, var(--main-max));
+  --main-x: calc((100vw - var(--main-w)) / 2);
+  /* The composer column (the clipboard pill and toasts centre on the queue column beside it) */
+  --cmp-w: clamp(360px, calc(var(--main-w) * 0.37), 450px);
+  --queue-mid: calc(var(--main-x) + var(--cmp-w) + 36px + (var(--main-w) - var(--cmp-w) - 54px) / 2);
+  --queue-room: calc(var(--main-w) - var(--cmp-w) - 70px);
 }

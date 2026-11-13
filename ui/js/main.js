@@ -37,6 +37,28 @@ function syncTheme(settings) {
 
 let titlebar = null;
 
+/** A press with the primary button hands the window to the system's move loop ("move") or size loop (the top
+ *  edge: "top", "top-left", "top-right"); a double click does nothing (the window has no maximized state). */
+function windowDrag(part) {
+  return (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    call('window_drag', part).catch(() => {});
+  };
+}
+
+/** The top edge of the window is page area (no system border there): thin strips along it carry the system
+ *  resize cursors and start the size loop. The other edges are the system's own sizing borders. */
+function initWindowEdges() {
+  for (const part of ['top', 'top-left', 'top-right']) {
+    const el = document.createElement('div');
+    el.className = `win-edge win-edge-${part}`;
+    el.setAttribute('aria-hidden', 'true');
+    el.addEventListener('mousedown', windowDrag(part));
+    document.body.append(el);
+  }
+}
+
 /** The kit's title bar: glyph, name and version pill on the left, the mode switch in the centre slot, the
  *  engine chip in the aside slot, settings | minimize, close on the right (docs/UI_DESIGN.md 6.1). */
 function initTitlebar() {
@@ -48,7 +70,11 @@ function initTitlebar() {
     onSettings: () => toggleSettings(),
     onMinimize: win('window_minimize'),
     onClose: win('window_close'),
+    // The shell moves the window with the system's own move loop (window_drag), not pywebview's script drag:
+    // its class is left off the drag layer.
+    dragClass: 'app-drag',
   });
+  titlebar.el.querySelector('.tb-drag').addEventListener('mousedown', windowDrag('move'));
   titlebar.gear.id = 'btn-settings';
   const chip = document.createElement('button');
   chip.type = 'button';
@@ -134,6 +160,7 @@ function toastAction(a) {
 function offerResume(jobs) {
   const n = jobs.filter((j) => j.interrupted).length;
   if (!n) return;
+  initWindowEdges();
   const text = n === 1 ? '1 download was interrupted when the app closed' : `${n} downloads were interrupted when the app closed`;
   toast('info', text, {
     sticky: true,

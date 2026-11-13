@@ -21,8 +21,9 @@ class SettingsTest(unittest.TestCase):
                                   "quality_youtube", "quality_tiktok", "quality_twitter", "h264_compat",
                                   "skip_existing", "concurrency", "update_channel", "auto_update",
                                   "auto_download_updates", "auth_mode", "browser_cookies", "clipboard_watch", "sound_on_done",
-                                  "open_folder_when_done", "theme", "ui_scale", "skipped_major"})
+                                  "open_folder_when_done", "theme", "ui_scale", "skipped_major", "window"})
         self.assertIsNone(d["skipped_major"])
+        self.assertIsNone(d["window"])
         self.assertEqual(d["theme"], "dusk")
         self.assertEqual(d["ui_scale"], 100)
         self.assertEqual(d["filename_template"], "{author}_{shortcode}")
@@ -51,8 +52,11 @@ class SettingsTest(unittest.TestCase):
             self.assertEqual(os.path.basename(out), "Media-Saver")
             self.assertEqual(os.path.dirname(out), P.videos_dir())
             self.assertTrue(os.path.isabs(out))
+            # The root sits beside the app, never in a profile folder of its own; an app that itself runs from a
+            # profile folder (a copy under %LOCALAPPDATA%\Temp) keeps its root beside it there.
             for forbidden in (os.environ.get("LOCALAPPDATA", "<unset>"), os.environ.get("APPDATA", "<unset>")):
-                self.assertFalse(root.lower().startswith(forbidden.lower()))
+                if not P.app_dir().lower().startswith(forbidden.lower()):
+                    self.assertFalse(root.lower().startswith(forbidden.lower()))
         finally:
             if old is not None:
                 os.environ[P.HOME_ENV] = old
@@ -176,6 +180,32 @@ class SettingsTest(unittest.TestCase):
         data = S.load(self.path)
         self.assertIsNone(data["skipped_major"])
         self.assertEqual(data["concurrency"], 3)
+
+    def test_window_roundtrip_and_values(self):
+        store = S.SettingsStore(self.path)
+        place = {"x": -1500, "y": 40, "width": 1200, "height": 800}
+        new, changed = store.update({"window": place})
+        self.assertEqual((new["window"], changed), (place, {"window": None}))
+        self.assertEqual(S.load(self.path)["window"], place)  # persisted across a restart
+        good = {"x": 10, "y": 20, "width": 940, "height": 640}
+        for value, want in ((good, good),
+                            ({"x": 10.4, "y": 20.6, "width": 940.0, "height": 640}, {"x": 10, "y": 21, "width": 940,
+                                                                                     "height": 640}),
+                            (dict(good, extra=1), good),
+                            (dict(good, x=True), None), (dict(good, width=float("inf")), None),
+                            (dict(good, height=float("nan")), None), (dict(good, width=50), None),
+                            (dict(good, height=30000), None), (dict(good, y=-200000), None),
+                            ({"x": 1, "y": 2, "width": 940}, None), (dict(good, x="10"), None),
+                            ([10, 20, 940, 640], None), (None, None), ("x", None)):
+            with self.subTest(value=value):
+                self.assertEqual(S.normalize_window(value), want)
+                self.assertEqual(S.validate_value("window", value), want)  # never refused: the shell writes it
+        with open(self.path, "w", encoding="utf-8") as fh:
+            json.dump({"window": {"x": "junk"}, "concurrency": 3}, fh)
+        data = S.load(self.path)
+        self.assertIsNone(data["window"])
+        self.assertEqual(data["concurrency"], 3)
+        self.assertIn("window", S.SILENT_SETTINGS)
 
     def test_save_load_roundtrip_atomic(self):
         store = S.SettingsStore(self.path)

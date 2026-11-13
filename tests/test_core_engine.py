@@ -162,6 +162,14 @@ class EngineTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.engine.set_settings({"concurrency": 9})
 
+    def test_window_place_is_saved_without_an_event(self):
+        place = {"x": 100, "y": 80, "width": 1200, "height": 800}
+        self.assertEqual(self.engine.set_settings({"window": place})["window"], place)
+        self.assertEqual(self.events, [])  # no control of the page shows it
+        self.assertEqual(self.engine.get_settings()["window"], place)
+        self.engine.set_settings({"window": dict(place, x=5), "concurrency": 3})
+        self.assertEqual([t for t, _ in self.events], ["settings"])
+
     def test_emit_failure_is_contained(self):
         def boom(t, p):
             raise RuntimeError("ui gone")
