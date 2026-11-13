@@ -119,6 +119,17 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual((jobs["c0000001"]["kind"], jobs["c0000001"]["format"]), ("shorts", "mp4"))
         self.assertEqual((jobs["c0000002"]["platform"], jobs["c0000002"]["kind"]), ("instagram", "reel"))
 
+    def test_retry_is_saved(self):
+        dl = self.make()
+        dl._save_soon = dl.save_history  # the background save, run in line
+        job = dl.get(dl.add("https://www.instagram.com/reel/AAA", "AAA", "instagram", "reel", "mp4")["id"])
+        job.status = "error"
+        dl.save_history()
+        self.assertTrue(dl.retry(job.id))
+        with open(self.paths.history_file, encoding="utf-8") as fh:
+            item = json.load(fh)["jobs"][0]
+        self.assertEqual(item["status"], "queued")  # a crash now restores the retried job, not the old failure
+
     def test_remove_and_clear(self):
         events = []
         dl = Downloader(self.paths, lambda: self.settings, lambda t, p: events.append((t, p)), binaries=lambda: {},

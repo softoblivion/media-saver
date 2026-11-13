@@ -1311,6 +1311,7 @@ class Downloader:
             self._order.append(job_id)
             self._cond.notify_all()
         self._emit_job(job, force=True)
+        self._save_soon()
         return True
 
     def remove(self, job_id: str) -> bool:
