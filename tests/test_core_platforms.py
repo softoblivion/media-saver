@@ -179,7 +179,22 @@ class PipelineTest(CoreTestBase, unittest.TestCase):
         job = self.run_job(runner, TT_SHARE_URL, "ZMabcdef1", "tiktok", "share")
         self.assertEqual(job.status, "done", job.error)
         self.assertEqual(runner.ytdlp_calls("-J")[0][-1], TT_SHARE_URL)
-        self.assertEqual(os.path.basename(job.filepath), "tiktok_ZMabcdef1.mp4")
+        # the probe names the video: the job takes its id, so the file is named as from the full link
+        self.assertEqual((job.shortcode, job.kind, job.url), (TT_ID, "video", TT_URL))
+        self.assertEqual(os.path.basename(job.filepath), f"tiktok_{TT_ID}.mp4")
+
+    def test_tiktok_share_link_of_a_video_already_in_the_queue_is_not_downloaded_again(self):
+        runner = ScriptedRunner(TT_INFO)
+        dl = self.make(runner)
+        full = dl.get(dl.add(TT_URL, TT_ID, "tiktok", "video", "mp4")["id"])
+        full.status = "downloading"  # another worker has it
+        share = dl.get(dl.add(TT_SHARE_URL, "ZMabcdef1", "tiktok", "share", "mp4")["id"])
+        dl._run_job(share)
+        self.assertEqual((share.status, share.stage_text), ("canceled", "Already in the queue"))
+        self.assertEqual(share.error["message"], "The same video is already in the queue.")
+        self.assertEqual(runner.ytdlp_calls("--load-info-json"), [])
+        self.assertEqual((share.shortcode, share.kind), (TT_ID, "video"))
+        self.assertFalse(dl.retry(share.id))  # while the other job runs, a retry would download it twice
 
     def test_blocked_tiktok_stops_the_ladder(self):
         runner = ScriptedRunner(TT_INFO, probes=[("fail", TT_BLOCKED), ("fail", TT_BLOCKED)])
@@ -197,6 +212,43 @@ class PipelineTest(CoreTestBase, unittest.TestCase):
         probes = runner.ytdlp_calls("-J")
         self.assertEqual(len(probes), 2)
         self.assertIn("--cookies-from-browser", probes[1])
+
+
+class ShareLinkPreviewTest(CoreTestBase, unittest.TestCase):
+    def preview_once(self, dl):
+        job, cancel = dl._next_preview()
+        try:
+            dl._run_preview(job, cancel)
+        finally:
+            dl._preview_release(job.id)
+        return job
+
+    def test_the_preview_gives_a_share_job_the_video_id(self):
+        dl = self.make(ScriptedRunner(TT_INFO))
+        share = dl.get(dl.add(TT_SHARE_URL, "ZMabcdef1", "tiktok", "share", "mp4")["id"])
+        self.preview_once(dl)
+        self.assertEqual((share.status, share.shortcode, share.kind, share.url), ("queued", TT_ID, "video", TT_URL))
+        self.assertEqual(dl.active_keys(), {f"tiktok:{TT_ID}"})  # a later full link is skipped as a duplicate
+        last = self.job_events(share.id)[-1]
+        self.assertEqual((last["shortcode"], last["kind"]), (TT_ID, "video"))
+
+    def test_the_preview_finds_the_full_link_already_queued(self):
+        dl = self.make(ScriptedRunner(TT_INFO))
+        share = dl.get(dl.add(TT_SHARE_URL, "ZMabcdef1", "tiktok", "share", "mp4")["id"])
+        full = dl.get(dl.add(TT_URL, TT_ID, "tiktok", "video", "mp4")["id"])
+        full.previewed = True  # the share job is the one the preview picks
+        self.preview_once(dl)
+        self.assertEqual((share.status, share.stage_text), ("canceled", "Already in the queue"))
+        self.assertNotIn(share.id, dl._queue)
+        self.assertEqual(full.status, "queued")
+        self.assertEqual(dl.active_keys(), {f"tiktok:{TT_ID}"})
+
+    def test_an_id_that_is_not_a_video_id_changes_nothing(self):
+        dl = self.make(ScriptedRunner(dict(TT_INFO, id="ZMabcdef1", webpage_url=TT_SHARE_URL)))
+        share = dl.get(dl.add(TT_SHARE_URL, "ZMabcdef1", "tiktok", "share", "mp4")["id"])
+        self.preview_once(dl)
+        self.assertEqual((share.status, share.shortcode, share.kind, share.url),
+                         ("queued", "ZMabcdef1", "share", TT_SHARE_URL))
 
 
 class JobTableTest(CoreTestBase, unittest.TestCase):

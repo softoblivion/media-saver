@@ -1097,6 +1097,10 @@ class JobCanceled(Exception):
     pass
 
 
+class JobDuplicate(Exception):
+    """The probe found that the job's link names a video another queued or running job already has."""
+
+
 def data_url_jpeg(path: str) -> str | None:
     try:
         with open(path, "rb") as fh:
@@ -1464,6 +1468,32 @@ class Downloader:
         job.finished_at = time.time()
         job.error = {"code": "canceled", "message": MESSAGES["canceled"], "can_login": False, "log_path": None}
 
+    def _finish_duplicate(self, job: Job) -> None:
+        """Caller holds the lock."""
+        self._finish_canceled(job)
+        job.stage_text = "Already in the queue"
+        job.error = {"code": "canceled", "message": "The same video is already in the queue.", "can_login": False,
+                     "log_path": None}
+
+    def _resolve_share(self, job: Job, info: dict) -> bool:
+        """Caller holds the lock. A TikTok short link names its video only in the info json: the job takes the
+        video's id, kind and link, so duplicate detection (platform + id) and the file name match the full link's.
+        True when another queued or running job already has that video."""
+        if job.platform != "tiktok" or job.kind != "share":
+            return False
+        vid = str(info.get("id") or "")
+        if not re.fullmatch(r"[0-9]{15,25}", vid):
+            return False
+        from . import linkclean  # imported here, as in engine.py, so the downloader loads without it
+        res = linkclean.clean_link(str(info.get("webpage_url") or ""))
+        url = (res.clean if res.clean and res.platform == "tiktok" and res.shortcode == vid
+               else f"https://www.tiktok.com/@/video/{vid}")
+        duplicate = any(j is not job and j.platform == "tiktok" and j.shortcode == vid and j.status in ACTIVE
+                        for j in self._jobs.values())
+        job.shortcode, job.kind, job.url = vid, "video", url
+        log.info("job %s: share link resolved to video %s%s", job.id, vid, " (already in the queue)" if duplicate else "")
+        return duplicate
+
     # --- workers -------------------------------------------------------------------------------------
     def _next_job(self) -> Job | None:
         with self._cond:
@@ -1585,6 +1615,10 @@ class Downloader:
             final = (pick_final_error(failures) if failures
                      else Failure(ladder[0], "unknown", message_for("unknown", job.platform)))
             self._fail(job, final, "\n".join(logs), logged_in=logged_in)
+        except JobDuplicate:
+            with self._lock:
+                self._finish_duplicate(job)
+            self._emit_job(job, force=True)
         except JobCanceled:
             with self._lock:
                 self._finish_canceled(job)
@@ -1741,10 +1775,21 @@ class Downloader:
                 if job.id not in self._running:
                     shutil.rmtree(job_dir, ignore_errors=True)
                 return
+            duplicate = False
             if queued and job.status == "queued":
-                job.preview_path, job.preview_at = path, time.time()  # the download reuses it (_take_preview)
+                if self._resolve_share(job, info):
+                    duplicate = True
+                    if job.id in self._queue:
+                        self._queue.remove(job.id)
+                    self._finish_duplicate(job)
+                    self._drop_job_cache(job)
+                else:
+                    job.preview_path, job.preview_at = path, time.time()  # the download reuses it (_take_preview)
             self._fill_meta(job, meta, overwrite=False)
         self._emit_job(job, force=True)
+        if duplicate:
+            self._save_soon()
+            return
         if not job.thumbnail and not cancel.is_set():
             self._make_thumbnail(job, info, job_dir, src_name="preview_thumb_src")
         self._preview_done(job, None)
@@ -1860,6 +1905,9 @@ class Downloader:
                 raise JobFailed("not_found", message_for("no_video", job.platform), res.stderr)
         if info.get("is_live") or info.get("live_status") in ("is_live", "is_upcoming", "post_live"):
             raise JobFailed("not_found", message_for("live", job.platform))
+        with self._lock:
+            if self._resolve_share(job, info):
+                raise JobDuplicate()
         info_path = os.path.join(job_dir, "info.json")
         with open(info_path, "w", encoding="utf-8") as fh:
             json.dump(info, fh, ensure_ascii=False)
