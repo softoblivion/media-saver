@@ -194,15 +194,18 @@ class CleanTextTests(unittest.TestCase):
             for i in range(1000)
         ]
         text = "\n".join(lines)
-        best = min(self._timed(text) for _ in range(3))
-        self.assertLess(best, 0.05)
+        best = min(self._cpu_per_run(text, runs=10) for _ in range(3))
+        self.assertLess(best, 0.05)  # 50 ms of CPU per 1000 links
         self.assertEqual(clean_text(text)["valid"], 1000)
 
     @staticmethod
-    def _timed(text):
-        t = time.perf_counter()
-        clean_text(text)
-        return time.perf_counter() - t
+    def _cpu_per_run(text, runs):
+        # CPU time of this thread, not wall time: other threads of the suite (GIL hand-offs) and other processes
+        # do not count. thread_time() ticks in 15.6 ms steps on Windows, so a batch of runs is timed as a whole.
+        t = time.thread_time()
+        for _ in range(runs):
+            clean_text(text)
+        return (time.thread_time() - t) / runs
 
 
 YID = "dQw4w9WgXcQ"
