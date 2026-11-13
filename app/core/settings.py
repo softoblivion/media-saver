@@ -2,8 +2,8 @@
 
 Validation errors are ValueError with an English message (the bridge passes it to the UI as is).
 Loading never fails: a missing or broken file gives defaults, bad values fall back per key, unknown keys
-are dropped (2.4.x - 2.6.x files carry `update_check_interval`), and quality values of versions before the
-four-step ladder are mapped (`load_quality`).
+are dropped (2.4.x - 2.6.x files carry `update_check_interval`, 3.3.1 files `skipped_major`), and
+quality values of versions before the four-step ladder are mapped (`load_quality`).
 """
 from __future__ import annotations
 
@@ -65,7 +65,6 @@ def defaults() -> dict[str, Any]:
         "update_channel": "nightly",
         "auto_update": True,
         "auto_download_updates": True,
-        "skipped_major": None,   # the new major version the user chose to stay away from, or None
         "auth_mode": "auto",
         "browser_cookies": "",
         "clipboard_watch": True,
@@ -91,18 +90,6 @@ def normalize_scale(value: Any) -> int:
     if number != number or number <= 0:  # NaN or junk
         return DEFAULT_SCALE
     return min(SCALE_STEPS, key=lambda step: (abs(step - number), -step))  # the larger step on a tie
-
-
-def normalize_major(value: Any) -> int | None:
-    """`skipped_major`: a whole number of at least 1 (an integral float or a digit string is accepted), else None.
-    Never refused: a stale or edited value only means that no major version is skipped."""
-    if isinstance(value, bool) or value is None:
-        return None
-    if isinstance(value, str) and value.strip().isdigit():
-        value = int(value.strip())
-    if isinstance(value, float) and value.is_integer():
-        value = int(value)
-    return value if isinstance(value, int) and value >= 1 else None
 
 
 # Settings the shell writes on its own (the window's place and size after every move): a change of these alone is
@@ -211,8 +198,6 @@ def validate_value(key: str, value: Any) -> Any:
         return value if isinstance(value, str) and value in THEMES else DEFAULT_THEME
     if key == "ui_scale":
         return normalize_scale(value)
-    if key == "skipped_major":
-        return normalize_major(value)
     if key == "window":
         return normalize_window(value)
     raise KeyError(key)

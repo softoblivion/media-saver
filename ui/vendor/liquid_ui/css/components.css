@@ -610,13 +610,6 @@
   color: var(--ink-3);
 }
 
-.upd-major {
-  margin-top: 8px;
-  font: var(--t-body);
-  letter-spacing: var(--tr-body);
-  color: var(--ink-2);
-}
-
 .upd-sheet-scroll { padding: 4px 18px 10px 22px; min-height: 96px; }
 .upd-sheet .upd-notes { max-height: none; margin: 0; }
 .upd-none { font: var(--t-body); color: var(--ink-3); }

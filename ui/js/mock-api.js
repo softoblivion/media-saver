@@ -16,9 +16,8 @@
 //   &mode=youtube       start in that mode (also: tiktok, twitter; default: the persisted setting,
 //                       "instagram")
 //   &format=mp3         start with MP3 as the default format
-//   &update=available   the launch check finds 2.1.0 (also: uptodate, error, major; default uptodate)
-//                       "error" fails the first check and finds 2.1.0 on "Try again"; "major" finds 3.0.0,
-//                       a new major version (offered as a choice, never downloaded in the background)
+//   &update=available   the launch check finds 2.1.0 (also: uptodate, error; default uptodate)
+//                       "error" fails the first check and finds 2.1.0 on "Try again"
 //   &notes=long         the found release has 40 bullets of release notes
 //   &autodownload=0     start with "Download updates automatically" off
 //   &hold=1             queued jobs never start (to look at previews and format toggles)
@@ -354,7 +353,6 @@ const DEFAULT_SETTINGS = {
   update_channel: 'nightly',
   auto_update: true,
   auto_download_updates: true,
-  skipped_major: null,
   auth_mode: 'auto',
   browser_cookies: '',
   clipboard_watch: true,
@@ -367,7 +365,6 @@ const DEFAULT_SETTINGS = {
 
 const APP_VERSION = '2.0.0';
 const NEXT_VERSION = '2.1.0';
-const MAJOR_VERSION = '3.0.0';
 const NEXT_NOTES = `# Media Saver 2.1.0
 
 ## Added
@@ -418,7 +415,7 @@ export function createMock({ params, emit }) {
   };
   let update = {
     stage: 'idle', current: APP_VERSION, latest: null, notes: null, size: null, published_at: null,
-    progress: null, message: '', checked_at: null, can_apply: false, major: false,
+    progress: null, message: '', checked_at: null, can_apply: false,
   };
   const updateFlag = params.get('update') || 'uptodate';
   const LONG_NOTES = ['## What changes', '', 'A long release body.', '', '### Changed', '']
@@ -531,23 +528,15 @@ export function createMock({ params, emit }) {
       setUpdate({ stage: 'error', message: 'Could not reach GitHub. Check your internet connection.', checked_at: now() });
       return;
     }
-    if (updateFlag === 'major') {
-      setUpdate({
-        stage: 'available', latest: MAJOR_VERSION, notes: nextNotes, size: 12703247, published_at: now() - 2 * 86400,
-        message: `Version ${MAJOR_VERSION} is available as a new major version`, checked_at: now(), progress: null, major: true,
-      });
-      autoDownload();
-      return;
-    }
     if (updateFlag === 'available' || updateFlag === 'error') {
       setUpdate({
         stage: 'available', latest: NEXT_VERSION, notes: nextNotes, size: 12703247, published_at: now() - 2 * 86400,
-        message: '', checked_at: now(), progress: null, major: false,
+        message: '', checked_at: now(), progress: null,
       });
       autoDownload();
       return;
     }
-    setUpdate({ stage: 'up_to_date', latest: APP_VERSION, notes: null, size: null, published_at: now() - 9 * 86400, message: '', checked_at: now(), major: false });
+    setUpdate({ stage: 'up_to_date', latest: APP_VERSION, notes: null, size: null, published_at: now() - 9 * 86400, message: '', checked_at: now() });
   }
 
   // Background download (Settings.auto_download_updates), as the core does it: once per `latest`,
@@ -555,7 +544,6 @@ export function createMock({ params, emit }) {
   let autoDownloadFor = null;
   function autoDownload() {
     if (!settings.auto_download_updates || update.stage !== 'available' || !update.latest) return;
-    if (update.major) return; // a new major version waits for the user's "Switch"
     if (autoDownloadFor === update.latest) return;
     autoDownloadFor = update.latest;
     runDownloadUpdate();
@@ -953,7 +941,6 @@ export function createMock({ params, emit }) {
     update_channel: (v) => ['nightly', 'stable'].includes(v),
     auto_update: (v) => typeof v === 'boolean',
     auto_download_updates: (v) => typeof v === 'boolean',
-    skipped_major: (v) => v === null || (Number.isInteger(v) && v >= 1),
     auth_mode: (v) => ['auto', 'always', 'never'].includes(v),
     browser_cookies: (v) => ['', 'firefox', 'edge', 'chrome', 'brave', 'opera'].includes(v),
     clipboard_watch: (v) => typeof v === 'boolean',

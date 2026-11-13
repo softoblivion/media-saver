@@ -1,5 +1,7 @@
 """Engine facade shape and enqueue rules (no network: the updater is never started)."""
+import hashlib
 import importlib.util
+import json
 import logging
 import os
 import shutil
@@ -7,10 +9,46 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 
 from app.core.engine import Engine
 
 HAS_LINKCLEAN = importlib.util.find_spec("app.core.linkclean") is not None
+
+RELEASE_API = "https://api.github.com/repos/softoblivion/media-saver/releases/latest"
+PAYLOAD = b"MZ" + b"new-exe-content" * 100
+
+
+def _download_url(tag: str, name: str) -> str:
+    return f"https://github.com/softoblivion/media-saver/releases/download/{tag}/{name}"
+
+
+class _ReleaseNet:
+    """GitHub stand-in for the self-updater: one release `tag` with the exe and its SHA256SUMS."""
+
+    def __init__(self, tag: str) -> None:
+        digest = hashlib.sha256(PAYLOAD).hexdigest()
+        self.texts = {
+            RELEASE_API: json.dumps({"tag_name": tag, "body": "notes", "published_at": "2026-11-01T10:00:00Z",
+                                     "assets": [{"name": name, "size": len(PAYLOAD),
+                                                 "browser_download_url": _download_url(tag, name)}
+                                                for name in ("MediaSaver.exe", "SHA256SUMS")]}),
+            _download_url(tag, "SHA256SUMS"): f"{digest}  MediaSaver.exe\n",
+        }
+        self.downloads: list[str] = []
+
+    def get_text(self, url):
+        if url not in self.texts:
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        return self.texts[url]
+
+    def download(self, url, dest, on_progress=None):
+        self.downloads.append(url)
+        with open(dest, "wb") as fh:
+            fh.write(PAYLOAD)
+        if on_progress:
+            on_progress(len(PAYLOAD), len(PAYLOAD))
+        return hashlib.sha256(PAYLOAD).hexdigest()
 
 
 class EngineTest(unittest.TestCase):
@@ -84,8 +122,8 @@ class EngineTest(unittest.TestCase):
         calls, state = [], {"stage": stage}
         self.engine.selfupdate.status = lambda: {"stage": state["stage"], "latest": "9.10.0"}
 
-        def download_background(auto=False):
-            calls.append("auto" if auto else "user")
+        def download_background():
+            calls.append("download")
             state["stage"] = "downloading"
 
         self.engine.selfupdate.download_background = download_background
@@ -121,24 +159,27 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(calls, [])
         self.engine.set_settings({"auto_download_updates": True})
         self.assertTrue(self._wait(lambda: len(calls) == 1))
-        self.assertEqual(calls, ["auto"])
+        self.assertEqual(calls, ["download"])
 
-    def test_new_major_version_is_never_downloaded_in_the_background(self):
-        calls, _ = self._stub_updater()
-        self.engine.selfupdate.status = lambda: {"stage": "available", "latest": "10.0.0", "major": True}
-        self.engine._on_update_status({"stage": "available", "latest": "10.0.0", "major": True})
-        self.engine.set_settings({"auto_download_updates": False})
-        self.engine.set_settings({"auto_download_updates": True})  # turning it on does not fetch a major either
-        time.sleep(0.3)
-        self.assertEqual(calls, [])
-        self.assertEqual([p for t, p in self.events if t == "update"][-1]["major"], True)
-
-    def test_skipped_major_is_saved_and_survives_a_restart(self):
-        self.assertIsNone(self.engine.get_settings()["skipped_major"])
-        self.assertEqual(self.engine.set_settings({"skipped_major": 10})["skipped_major"], 10)
-        from app.core import settings as settings_mod
-        self.assertEqual(settings_mod.load(self.engine._settings.path)["skipped_major"], 10)
-        self.assertIsNone(self.engine.set_settings({"skipped_major": None})["skipped_major"])
+    def test_a_newer_major_version_is_downloaded_in_the_background_and_becomes_ready(self):
+        # The real self-updater against a fake GitHub: a release one major version ahead is an ordinary update.
+        net = _ReleaseNet("v10.0.0")
+        events = []
+        engine = Engine(lambda t, p: events.append((t, p)), "9.9.9", home=os.path.join(self.tmp, "home2"),
+                        net=net, use_system_ffmpeg=False, app_updates=False)
+        self.addCleanup(engine.downloader.shutdown, 0.5)
+        self.assertTrue(engine.get_settings()["auto_download_updates"])
+        found = engine.selfupdate.check()
+        self.assertEqual((found["stage"], found["message"]), ("available", "Version 10.0.0 is available"))
+        self.assertTrue(self._wait(lambda: engine.update_status()["stage"] == "ready", timeout=5.0))
+        status = engine.update_status()
+        self.assertEqual(status["latest"], "10.0.0")
+        # from source the message adds that only the packaged exe applies it (can_apply False); the exe's own
+        # ready state and Restart are covered by the end-to-end update test of docs/BUILD.md
+        self.assertTrue(status["message"].startswith("Version 10.0.0 is ready to install"), status["message"])
+        self.assertEqual(net.downloads, [_download_url("v10.0.0", "MediaSaver.exe")])
+        self.assertTrue(os.path.isfile(os.path.join(engine.paths.updates_dir, "MediaSaver-10.0.0.exe")))
+        self.assertEqual([p["stage"] for t, p in events if t == "update"][-1], "ready")
 
     def test_paths_from_env(self):
         self.assertEqual(self.engine.paths.root, os.path.join(self.tmp, "home"))
@@ -148,7 +189,7 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(set(st), {"app_version", "engine", "update", "auth", "settings", "jobs"})
         self.assertEqual(st["app_version"], "9.9.9")
         self.assertEqual(set(st["update"]), {"stage", "current", "latest", "notes", "size", "published_at",
-                                             "progress", "message", "checked_at", "can_apply", "major"})
+                                             "progress", "message", "checked_at", "can_apply"})
         self.assertEqual(st["update"]["current"], "9.9.9")
         self.assertFalse(st["update"]["can_apply"])
         self.assertEqual(set(st["engine"]), {"stage", "message", "progress", "components", "last_check"})

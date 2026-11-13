@@ -121,8 +121,6 @@ class Engine:
         """
         if status.get("stage") != "available" or not self._settings["auto_download_updates"]:
             return
-        if status.get("major"):
-            return  # a new major version is the user's choice ("Switch"), never downloaded in the background
         version = str(status.get("latest") or "")
         if not version:
             return
@@ -138,7 +136,7 @@ class Engine:
         for _ in range(50):
             if self.selfupdate.status().get("stage") != "available":
                 return
-            self.selfupdate.download_background(auto=True)  # refused by the library for a new major version too
+            self.selfupdate.download_background()
             if self.selfupdate.status().get("stage") != "available":
                 return
             time.sleep(0.1)
