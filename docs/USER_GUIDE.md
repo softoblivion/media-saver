@@ -36,8 +36,11 @@ is, while a drag to the left or right edge still snaps it to that half of the sc
 for the next start; a window whose screen is no longer connected opens in the middle of the main screen.
 
 A **Scale** change in Settings grows or shrinks the window around its centre by the same ratio. A step whose
-minimum window does not fit the screen is dimmed. Moving the window to a screen with another Windows display scale
-keeps its size relative to the content and the page sharp.
+minimum window does not fit the screen is dimmed. On a screen too small for the chosen step, the window uses the
+largest step that fits and Settings shows that step; the chosen step comes back on a screen large enough for it.
+Moving the window to a screen with another Windows display scale keeps its size relative to the content and the
+page sharp, and a window that no longer fits its screen (another screen, resolution or taskbar) is moved and
+shrunk to fit, so its title bar stays reachable.
 
 If Instagram refuses a reel without an account, the card offers **Sign in to Instagram**. After sign-in, the
 failed jobs retry automatically. YouTube, TikTok and X videos that require a signed-in viewer (age-restricted,
@@ -79,7 +82,7 @@ Stored in `media-saver_data\settings.json`. The second column names where the se
 | `auto_download_updates` | Settings > Updates > **Download updates automatically** | `true` | Download a new version in the background; installing is always a click on **Restart**; a new major version is never downloaded this way |
 | `skipped_major` | **Stay on N.x** in the sheet of a new major version | `null` | The major version whose notice stays off; **Switch to X.0** clears it |
 | `theme` | Settings > Appearance > **Theme** | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` |
-| `ui_scale` | Settings > Appearance > **Scale** | `100` | Size of the whole window and its text in percent, on top of the Windows display scaling: `100`, `125`, `150`, `175` or `200`. The window grows with the step around its centre; a step whose minimum window does not fit the screen is dimmed |
+| `ui_scale` | Settings > Appearance > **Scale** | `100` | Size of the whole window and its text in percent, on top of the Windows display scaling: `100`, `125`, `150`, `175` or `200`. The window grows with the step around its centre; a step whose minimum window does not fit the screen is dimmed, and on such a screen the largest step that fits is used while the setting keeps its value |
 | `window` | Moving or resizing the window | *(none)* | The window's last place and size, restored at the next start |
 
 ## Link cleaning rules

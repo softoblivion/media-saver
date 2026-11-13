@@ -705,8 +705,9 @@ class FourPlatformTests(unittest.TestCase):
         self.assertEqual((res["valid"], res["duplicates"]), (2, 2))
         self.assertEqual(clean_link(f"twitter.com/i/web/status/{XID}").clean, XI)
 
-    def test_tiktok_full_url_and_short_link_are_different_links(self):
-        # the numeric id of a share code is known only after the link is resolved: the two forms stay apart here
+    def test_tiktok_video_id_and_share_code_stay_apart_while_each_has_one_link(self):
+        # the numeric id of a share code is known only after the link is resolved, so a video link and a share link
+        # stay two links here; the forms of one video id, and the vm. / vt. / /t/ forms of one share code, are one
         res = clean_text(f"{TTV} {TTS} {TTN} vt.tiktok.com/ZMabcdEF1 https://www.tiktok.com/t/ZMabcdEF1")
         self.assertEqual(res["clean_text"].split("\n"), [TTV, TTS])
         self.assertEqual((res["valid"], res["duplicates"]), (2, 3))

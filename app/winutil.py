@@ -382,6 +382,43 @@ def restore_rect(saved: Optional[dict], monitors: Sequence[Monitor], zoom: float
     return fit_rect(centered_rect(size, primary.work), primary.work, min_px), primary
 
 
+def start_layout(saved: Optional[dict], monitors: Sequence[Monitor], stored: int, steps: Sequence[int],
+                 min_size: tuple[int, int], start_size: tuple[int, int]
+                 ) -> tuple[int, tuple[int, int, int, int], Optional[Monitor]]:
+    """The Scale step and the page rect of a start. The stored step is the user's choice and stays stored; the step
+    applied is the largest one up to it whose minimum window fits the monitor the window opens on (allowed_scale),
+    and the rect is restore_rect at that step. Returns (step, rect, monitor)."""
+    _, monitor = restore_rect(saved, monitors, stored / 100.0, min_size, start_size)
+    step = allowed_scale(stored, fitting_scales(steps, min_size, monitor))
+    rect, monitor = restore_rect(saved, monitors, step / 100.0, min_size, start_size)
+    return step, rect, monitor
+
+
+def session_layout(stored: int, current: int, rect: tuple[int, int, int, int], monitor: Optional[Monitor],
+                   steps: Sequence[int], min_size: tuple[int, int], fit_place: bool = True
+                   ) -> tuple[int, tuple[int, int, int, int]]:
+    """The Scale step and the page rect of a running window on `monitor` (after a move to another monitor, a DPI,
+    display or work-area change). `stored` is the user's step, `current` the step applied now, `rect` the page area
+    (physical px at `current` and the monitor's DPI scale).
+
+    The step is the largest one up to `stored` whose minimum window fits the monitor, so the window returns to the
+    stored step on a monitor where it fits. A change of step scales the page area by the ratio of the steps around
+    its centre (the page keeps its layout size); the rect is then fitted into the work area with the minimum of the
+    new step, so the title bar lies on screen. With `fit_place` False (the end of the user's own move on one
+    monitor) a window that keeps its step and fits the work area keeps its place, even partly off screen.
+    Returns (step, rect)."""
+    step = allowed_scale(stored, fitting_scales(steps, min_size, monitor))
+    if monitor is None:
+        return step, rect
+    min_px = client_px(min_size, step / 100.0, monitor.scale)
+    if step != current:
+        return step, scaled_rect(rect, step / current, monitor.work, min_px)
+    left, top, right, bottom = monitor.work
+    if not fit_place and rect[2] <= right - left and rect[3] <= bottom - top:
+        return step, rect
+    return step, fit_rect(rect, monitor.work, min_px)
+
+
 def saved_size(saved: Optional[dict]) -> Optional[tuple[int, int]]:
     """(width, height) of a stored Settings.window, or None."""
     if not isinstance(saved, dict):
@@ -427,7 +464,9 @@ def corrected_window_size(proposed: tuple[int, int], normal: Optional[tuple[int,
 # - WM_DPICHANGED (the process is per-monitor DPI aware) keeps the page's layout size on the new monitor; WebView2
 #   follows the monitor's scale on its own, so the page stays sharp.
 # - The end of a move or size loop, and any other change of place or size, is reported through `on_settled` (the
-#   shell stores the geometry); a DPI change through `on_dpi`.
+#   shell stores the geometry); a DPI change through `on_dpi`; a change of the display set or a resolution
+#   (WM_DISPLAYCHANGE) or of a work area (WM_SETTINGCHANGE with SPI_SETWORKAREA) through `on_display`. The shell
+#   then decides the Scale step the window can use on its monitor (session_layout).
 
 GWL_STYLE = -16
 GWLP_WNDPROC = -4
@@ -435,10 +474,12 @@ WS_THICKFRAME = 0x00040000
 WS_MINIMIZEBOX = 0x00020000
 WS_MAXIMIZEBOX = 0x00010000
 WM_SIZE = 0x0005
+WM_SETTINGCHANGE = 0x001A
 WM_GETMINMAXINFO = 0x0024
 WM_WINDOWPOSCHANGING = 0x0046
 WM_WINDOWPOSCHANGED = 0x0047
 WM_STYLECHANGING = 0x007C
+WM_DISPLAYCHANGE = 0x007E
 WM_NCDESTROY = 0x0082
 WM_NCCALCSIZE = 0x0083
 WM_NCLBUTTONDOWN = 0x00A1
@@ -447,6 +488,7 @@ WM_ENTERSIZEMOVE = 0x0231
 WM_EXITSIZEMOVE = 0x0232
 WM_DPICHANGED = 0x02E0
 SIZE_MAXIMIZED = 2
+SPI_SETWORKAREA = 0x002F
 SC_MAXIMIZE = 0xF030
 SC_RESTORE = 0xF120
 HTCAPTION, HTTOP, HTTOPLEFT, HTTOPRIGHT = 2, 12, 13, 14
@@ -630,13 +672,15 @@ class ResizableHook:
 
     def __init__(self, hwnd: int, min_size: tuple[int, int],
                  on_settled: Optional[Callable[[], None]] = None,
-                 on_dpi: Optional[Callable[[], None]] = None) -> None:
+                 on_dpi: Optional[Callable[[], None]] = None,
+                 on_display: Optional[Callable[[], None]] = None) -> None:
         self.hwnd = hwnd
         self.min_size = min_size
         self.zoom = 1.0
         self.scale = window_scale(hwnd)  # DPI scale of the monitor the window is on, followed on WM_DPICHANGED
         self.on_settled = on_settled
         self.on_dpi = on_dpi
+        self.on_display = on_display
         self.nc = (0, 0, 0, 0)  # invisible border: left, top, right, bottom (physical px)
         self._normal_size: Optional[tuple[int, int]] = None  # last window size while neither minimized nor maximized
         self._sizing = False  # inside a move or size loop (WM_ENTERSIZEMOVE .. WM_EXITSIZEMOVE)
@@ -709,6 +753,10 @@ class ResizableHook:
             _user32.SetWindowPos(self.hwnd, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE)
         return x, y, w, h
 
+    def is_sizing(self) -> bool:
+        """True inside a move or size loop (the user is dragging the window or an edge)."""
+        return self._sizing
+
     def is_normal(self) -> bool:
         return bool(IS_WINDOWS and self.hwnd and not _user32.IsIconic(self.hwnd) and not _user32.IsZoomed(self.hwnd))
 
@@ -778,24 +826,28 @@ class ResizableHook:
             log.exception("window callback failed")
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
+        result: list = []  # the original procedure's result, once it ran: it never runs twice for one message
+
+        def original():
+            if not result:
+                result.append(_user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam))
+            return result[0]
+
         try:
             if msg == WM_NCCALCSIZE and wparam:
                 params = ctypes.cast(lparam, ctypes.POINTER(_NCCALCSIZE_PARAMS)).contents
                 top = params.rgrc[0].top
-                result = _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+                original()
                 params.rgrc[0].top = top  # no top border: the page owns the top edge
-                return result
-            if msg == WM_GETMINMAXINFO:
-                result = _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+            elif msg == WM_GETMINMAXINFO:
+                original()
                 info = ctypes.cast(lparam, ctypes.POINTER(_MINMAXINFO)).contents
                 info.ptMinTrackSize.x, info.ptMinTrackSize.y = self._min_track()
-                return result
-            if msg == WM_WINDOWPOSCHANGING:
+            elif msg == WM_WINDOWPOSCHANGING:
                 self._on_pos_changing(hwnd, lparam)
             elif msg == WM_WINDOWPOSCHANGED:
-                result = _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+                original()
                 self._on_pos_changed(hwnd, lparam)
-                return result
             elif msg == WM_STYLECHANGING and ctypes.c_int(int(wparam)).value == GWL_STYLE:
                 style = ctypes.cast(lparam, ctypes.POINTER(_STYLESTRUCT)).contents
                 style.styleNew = self._style(style.styleNew)  # WinForms rewrites the style from its own view
@@ -807,20 +859,21 @@ class ResizableHook:
                 self._sizing = True
             elif msg == WM_EXITSIZEMOVE:
                 self._sizing = False
-                result = _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+                original()
                 self._notify(self.on_settled)
-                return result
             elif msg == WM_DPICHANGED:
                 self._on_dpi_changed(hwnd, wparam, lparam)
                 self._notify(self.on_dpi)
                 return 0
+            elif msg == WM_DISPLAYCHANGE or (msg == WM_SETTINGCHANGE and int(wparam) == SPI_SETWORKAREA):
+                original()
+                self._notify(self.on_display)
             elif msg == WM_NCDESTROY:
-                result = _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+                original()
                 self.installed = False
-                return result
         except Exception:  # noqa: BLE001 - never let a callback exception escape into the message loop
             log.debug("window procedure hook failed for message 0x%04x", msg, exc_info=True)
-        return _user32.CallWindowProcW(self._prev_proc, hwnd, msg, wparam, lparam)
+        return original()
 
 
 def dpi_changed_size(size: tuple[int, int], old_scale: float, new_scale: float) -> tuple[int, int]:

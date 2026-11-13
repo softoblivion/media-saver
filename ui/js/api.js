@@ -3,6 +3,7 @@
 // with ?mock=1. Components never touch window.pywebview directly: they use call() and on().
 
 const listeners = new Map();   // type -> Set<fn>
+const lastPayload = new Map(); // type -> the payload of its last event
 let backend = null;            // object with the bridge methods
 let mode = 'pending';          // 'pywebview' | 'mock'
 
@@ -15,6 +16,7 @@ export function on(type, fn) {
 
 /** Dispatch an event to subscribers (also used for UI-internal events such as "state"). */
 export function emit(type, payload) {
+  lastPayload.set(type, payload);
   const set = listeners.get(type);
   if (!set) return;
   for (const fn of Array.from(set)) {
@@ -24,6 +26,12 @@ export function emit(type, payload) {
       console.error(`[ui] handler for "${type}" failed`, err);
     }
   }
+}
+
+/** The payload of the last event of a type (undefined before the first): a component wired after the event
+ *  arrived (the `window` event of ready()) reads its state from here. */
+export function latest(type) {
+  return lastPayload.get(type);
 }
 
 // Events may arrive before the UI finished wiring; queue them until connect() resolves.

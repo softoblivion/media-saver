@@ -29,6 +29,7 @@ BACKGROUND = "#0b0d14"
 START_SIZE = (1180, 780)
 MIN_SIZE = (940, 640)
 GEOMETRY_SAVE_DELAY = 0.6  # seconds after the last move or size change before the place and size are stored
+DISPLAY_SETTLE_DELAY = 0.4  # seconds after a display or work-area change before the window is fitted again
 HTTP_PORT_FIRST = 42001  # fixed port keeps the page origin (and its localStorage) stable between launches
 HTTP_PORT_TRIES = 40
 
@@ -175,9 +176,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     bridge._set_login_opener(login.open)
 
     # The first place and size, so the form opens about where it ends up; the frame sets it exactly once shown.
-    zoom = _setting_scale(engine) / 100.0
-    rect, monitor = winutil.restore_rect(_setting(engine, "window"), winutil.list_monitors(), zoom, MIN_SIZE,
-                                         START_SIZE)
+    _, rect, monitor = winutil.start_layout(_setting(engine, "window"), winutil.list_monitors(),
+                                            _setting_scale(engine), SCALE_STEPS, MIN_SIZE, START_SIZE)
     first_scale = monitor.scale if monitor else 1.0
     window = webview.create_window(
         WINDOW_TITLE,
@@ -248,21 +248,29 @@ class WindowFrame:
     """The resizable window around the page: its place and size at start, the Scale setting (WebView2 zoom factor
     and window size), the Scale steps that fit the screen, the hand-over of title-bar presses to the system, and the
     stored place and size. Native calls run on the UI thread; `apply_scale`, `begin_drag`, `fitting_scales` and
-    `save_now` may be called from any thread."""
+    `save_now` may be called from any thread.
+
+    `stored` is the user's Scale step (Settings.ui_scale), never rewritten here; `percent` is the step applied in
+    this session: the largest one up to `stored` whose minimum window fits the monitor the window is on, decided at
+    start and again after a move to another monitor, a DPI change and a display or work-area change."""
 
     def __init__(self, window: Any, hook: winutil.ResizableHook, engine: Any, bridge: Bridge) -> None:
         self._window = window
         self._hook = hook
         self._engine = engine
         self._bridge = bridge
+        self.stored = DEFAULT_SCALE
         self.percent = DEFAULT_SCALE
         self._fitting = list(SCALE_STEPS)
         self._lock = threading.Lock()
         self._pending: Optional[dict] = None
         self._timer: Optional[threading.Timer] = None
+        self._display_timer: Optional[threading.Timer] = None
         self._ready = False  # no geometry is stored before the first place is set
+        self._fitting_now = False  # inside _fit: the moves it makes report back through on_settled
         hook.on_settled = self._on_settled
         hook.on_dpi = self._on_dpi
+        hook.on_display = self._on_display
 
     # -- any thread
     def fitting_scales(self) -> list[int]:
@@ -277,51 +285,73 @@ class WindowFrame:
 
     def save_now(self) -> None:
         with self._lock:
-            if self._timer is not None:
-                self._timer.cancel()
-                self._timer = None
+            for timer in (self._timer, self._display_timer):
+                if timer is not None:
+                    timer.cancel()
+            self._timer = self._display_timer = None
         self._store()
 
     # -- UI thread
-    def restore(self, saved: Optional[dict], percent: int) -> None:
+    def restore(self, saved: Optional[dict], stored: int) -> None:
         """Open at the stored place and size (or the start size, centred), on a connected monitor, at the largest
-        Scale step up to `percent` whose minimum window fits that monitor."""
-        monitors = winutil.list_monitors()
-        _, monitor = winutil.restore_rect(saved, monitors, percent / 100.0, MIN_SIZE, START_SIZE)
-        fitting = winutil.fitting_scales(SCALE_STEPS, MIN_SIZE, monitor)
-        allowed = winutil.allowed_scale(percent, fitting)
-        rect, monitor = winutil.restore_rect(saved, monitors, allowed / 100.0, MIN_SIZE, START_SIZE)
-        self.percent = allowed
-        self._hook.zoom = allowed / 100.0
-        winutil.set_zoom_factor(self._window, self._hook.zoom)
+        Scale step up to the stored one whose minimum window fits that monitor; the stored step stays as it is."""
+        step, rect, monitor = winutil.start_layout(saved, winutil.list_monitors(), stored, SCALE_STEPS, MIN_SIZE,
+                                                   START_SIZE)
+        self.stored = stored
+        self._set_step(step)
         if monitor is not None and abs(monitor.scale - self._hook.scale) > 1e-6:
             # Reach the monitor first: its WM_DPICHANGED is handled before the exact size is set.
             self._move_to(rect[0], rect[1])
         self._place(rect)
         self._ready = True
         self._refresh_fitting()
-        if allowed != percent:
-            log.info("Scale %s%% does not fit this screen; %s%% is used", percent, allowed)
-            self._engine.set_settings({"ui_scale": allowed})
+        if step != stored:
+            log.info("Scale %s%% does not fit this screen; %s%% is used while the window is there", stored, step)
         log.info("window opens at %s physical (page %s layout px) at %s%%, dpi scale %.2f", rect,
-                 winutil.layout_size(rect[2:], self._hook.zoom, self._hook.scale), allowed, self._hook.scale)
+                 winutil.layout_size(rect[2:], self._hook.zoom, self._hook.scale), step, self._hook.scale)
+
+    def _set_step(self, step: int) -> None:
+        self.percent = step
+        self._hook.zoom = step / 100.0
+        winutil.set_zoom_factor(self._window, self._hook.zoom)
 
     def _apply_scale(self, percent: int) -> None:
-        """A Scale change: the window grows or shrinks by the ratio of the steps around its centre (the page keeps
-        its layout size), clamped to the work area and the new minimum."""
+        """A Scale change by the user (a step that fits, set_scale): it becomes the stored and the applied step; the
+        window grows or shrinks by the ratio of the steps around its centre (the page keeps its layout size), clamped
+        to the work area and the new minimum."""
         old_zoom = self._hook.zoom or 1.0
-        zoom = percent / 100.0
+        self.stored = percent
         current = self._hook.client_rect()
-        self._hook.zoom = zoom
-        self.percent = percent
-        winutil.set_zoom_factor(self._window, zoom)
-        if current is None:
+        self._set_step(percent)
+        if current is not None:
+            monitor = winutil.window_monitor(self._hook.hwnd)
+            rect = winutil.scaled_rect(current, self._hook.zoom / old_zoom, monitor.work if monitor else None,
+                                       self._hook.min_client_px())
+            self._place(rect)
+            log.info("Scale %s%%: page %s -> %s physical", percent, current, rect)
+        self._refresh_fitting()
+
+    def _fit(self, fit_place: bool) -> None:
+        """Apply the step and the rect session_layout gives for the monitor the window is on now (never inside a
+        move or size loop: its end decides)."""
+        if not self._ready or self._fitting_now or not self._hook.is_normal() or self._hook.is_sizing():
+            return
+        rect = self._hook.client_rect()
+        if rect is None:
             return
         monitor = winutil.window_monitor(self._hook.hwnd)
-        rect = winutil.scaled_rect(current, zoom / old_zoom, monitor.work if monitor else None,
-                                   self._hook.min_client_px())
-        self._place(rect)
-        log.info("Scale %s%%: page %s -> %s physical", percent, current, rect)
+        step, target = winutil.session_layout(self.stored, self.percent, rect, monitor, SCALE_STEPS, MIN_SIZE,
+                                              fit_place)
+        self._fitting_now = True
+        try:
+            if step != self.percent:
+                log.info("Scale %s%% on this screen (stored %s%%)", step, self.stored)
+                self._set_step(step)
+            if tuple(target) != tuple(rect):
+                self._place(target)
+                log.info("window fitted to its screen: page %s -> %s physical", rect, target)
+        finally:
+            self._fitting_now = False
 
     def _move_to(self, x: int, y: int) -> None:
         wx, wy, _, _ = self._hook.window_rect_for((x, y, 0, 0))
@@ -333,12 +363,14 @@ class WindowFrame:
     def _refresh_fitting(self) -> None:
         monitor = winutil.window_monitor(self._hook.hwnd)
         self._fitting = winutil.fitting_scales(SCALE_STEPS, MIN_SIZE, monitor)
-        self._bridge._on_window_state(scales=self._fitting)
+        self._bridge._on_window_state(scales=self._fitting, scale=self.percent)
 
     def _on_settled(self) -> None:
-        """The end of a move or size loop, or a place or size set by code: store the geometry soon."""
+        """The end of a move or size loop, or a place or size set by code: fit the window to its monitor (a move
+        to another monitor may change the step) and store the geometry soon."""
         if not self._ready or not self._hook.is_normal():
             return
+        self._fit(fit_place=False)
         rect = self._hook.client_rect()
         if rect is None:
             return
@@ -354,6 +386,28 @@ class WindowFrame:
         self._refresh_fitting()
 
     def _on_dpi(self) -> None:
+        """A DPI change: during a drag the end of the move decides (on_settled); otherwise (a keyboard move, a
+        changed display scale) the window is fitted at once."""
+        self._fit(fit_place=True)
+        self._refresh_fitting()
+
+    def _on_display(self) -> None:
+        """A display or work-area change: the system may still be moving windows and the taskbar, so the fit runs
+        on the UI thread once that settles."""
+        def later() -> None:
+            with self._lock:
+                self._display_timer = None
+            _on_ui_thread(self._window, self._after_display, wait=False)
+
+        with self._lock:
+            if self._display_timer is not None:
+                self._display_timer.cancel()
+            self._display_timer = threading.Timer(DISPLAY_SETTLE_DELAY, later)
+            self._display_timer.daemon = True
+            self._display_timer.start()
+
+    def _after_display(self) -> None:
+        self._fit(fit_place=True)
         self._refresh_fitting()
 
     def _store(self) -> None:

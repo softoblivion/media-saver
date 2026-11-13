@@ -190,8 +190,8 @@ class PipelineTest(CoreTestBase, unittest.TestCase):
         full.status = "downloading"  # another worker has it
         share = dl.get(dl.add(TT_SHARE_URL, "ZMabcdef1", "tiktok", "share", "mp4")["id"])
         dl._run_job(share)
-        self.assertEqual((share.status, share.stage_text), ("canceled", "Already in the queue"))
-        self.assertEqual(share.error["message"], "The same video is already in the queue.")
+        self.assertEqual((share.status, share.stage_text), ("canceled", "In the queue"))
+        self.assertEqual(share.error["message"], "The same video is in the queue.")
         self.assertEqual(runner.ytdlp_calls("--load-info-json"), [])
         self.assertEqual((share.shortcode, share.kind), (TT_ID, "video"))
         self.assertFalse(dl.retry(share.id))  # while the other job runs, a retry would download it twice
@@ -238,7 +238,7 @@ class ShareLinkPreviewTest(CoreTestBase, unittest.TestCase):
         full = dl.get(dl.add(TT_URL, TT_ID, "tiktok", "video", "mp4")["id"])
         full.previewed = True  # the share job is the one the preview picks
         self.preview_once(dl)
-        self.assertEqual((share.status, share.stage_text), ("canceled", "Already in the queue"))
+        self.assertEqual((share.status, share.stage_text), ("canceled", "In the queue"))
         self.assertNotIn(share.id, dl._queue)
         self.assertEqual(full.status, "queued")
         self.assertEqual(dl.active_keys(), {f"tiktok:{TT_ID}"})

@@ -528,7 +528,9 @@ function flipList(change) {
 }
 
 function renderHead() {
-  let active = 0, done = 0, failed = 0, errors = 0, total = 0;
+  // One count per card: failed = ended in an error (the set Retry failed acts on); stopped = canceled by hand or
+  // interrupted by an app close (status canceled), which Retry failed leaves alone.
+  let active = 0, done = 0, failed = 0, stopped = 0, total = 0;
   const mine = [];
   for (const j of jobs.values()) {
     if (!shown(j)) continue;
@@ -536,20 +538,21 @@ function renderHead() {
     mine.push(j);
     if (ACTIVE.has(j.status)) active++;
     else if (j.status === 'done') done++;
-    else failed++;
-    if (j.status === 'error') errors++;
+    else if (j.status === 'error') failed++;
+    else stopped++;
   }
   const parts = [];
   if (active) parts.push(`<span class="qc qc-active"><i></i>${active} active</span>`);
   if (done) parts.push(`<span class="qc qc-done"><i></i>${done} done</span>`);
   if (failed) parts.push(`<span class="qc qc-err"><i></i>${failed} failed</span>`);
+  if (stopped) parts.push(`<span class="qc qc-stop"><i></i>${stopped} stopped</span>`);
   if (!parts.length) parts.push('<span class="qc qc-none">empty</span>');
   const html = parts.join('');
   if (counts.innerHTML !== html) counts.innerHTML = html;
-  document.getElementById('btn-clear').disabled = !(done + failed);
-  // Retry failed shows while this list has a failed download (status error; a canceled one stays as it is).
+  document.getElementById('btn-clear').disabled = !(done + failed + stopped);
+  // Retry failed shows while this list has a failed download.
   const retryAll = document.getElementById('btn-retry-failed');
-  if (retryAll.hidden !== !errors) retryAll.hidden = !errors;
+  if (retryAll.hidden !== !failed) retryAll.hidden = !failed;
   const isEmpty = total === 0;
   if (empty.hidden === isEmpty) {
     empty.hidden = !isEmpty;
@@ -653,8 +656,9 @@ async function retryFailed() {
 
 // ---------------------------------------------------------------------------------------------
 // Resume row: the downloads the last app close interrupted (Job.interrupted, still finished) among the cards
-// of the shown mode, as a row of the list above the first card. Resume queues exactly those cards again and
-// closes the row; the close control or a click anywhere else on the row closes it for this mode.
+// of the shown mode, as a row of the list above the first card. Resume queues those cards again
+// (resume_interrupted of the mode) and closes the row; the close control or a click anywhere else on the row
+// closes it for this mode.
 
 let resumeRow;
 const resumeClosed = new Set();   // modes whose row was closed
@@ -688,18 +692,21 @@ function closeResume() {
   renderResume();
 }
 
-/** Queue the interrupted cards of this mode again, the bottom one first: each retry puts its job on top, so
- *  they keep their order. */
+/** Queue the interrupted cards of this mode again in one engine call (it keeps their order); a card whose video
+ *  another queued or running card has stays as it is, and the notice says how many were left. */
 async function resumeShown() {
-  const picked = interruptedShown().reverse();
+  const offered = interruptedShown().length;
+  let n;
+  try {
+    n = await call('resume_interrupted', getMode());
+  } catch (err) {
+    toast('error', err.message);
+    return;
+  }
   closeResume();
-  for (const j of picked) {
-    try {
-      await call('retry', j.id);
-    } catch (err) {
-      toast('error', err.message);
-      return;
-    }
+  if (n < offered) {
+    const same = offered - n === 1 ? 'The same video is' : 'The same videos are';
+    toast('info', `Resumed ${n} of ${offered}. ${same} in the queue`);
   }
 }
 

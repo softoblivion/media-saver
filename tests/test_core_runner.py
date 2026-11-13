@@ -184,14 +184,13 @@ class JobStallTest(CoreTestBase, unittest.TestCase):
 
     def run_download(self, mode, seconds, limit=1.0, times=None):
         dl = self.make(SlowDownloadRunner(YT_INFO, mode, seconds, times))
-        dl.DOWNLOAD_TIMEOUT = 1.0  # the former one-hour wall-clock limit, scaled to below the run
         dl.STALL_LIMITS = {"download": limit, "convert": limit}
         dl.STALL_NOTICE = 0.3
         job = dl.get(dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "video", "mp4")["id"])
         dl._run_job(job)
         return dl, job
 
-    def test_a_download_that_keeps_working_past_the_old_limit_finishes(self):
+    def test_a_download_that_keeps_working_longer_than_the_stall_limit_finishes(self):
         def attempt(times):
             _, job = self.run_download("lines", OUTLIVE_RUN, OUTLIVE_LIMIT, times)
             return job, bool(job.error) and job.error["code"] == "timeout"
@@ -210,6 +209,18 @@ class JobStallTest(CoreTestBase, unittest.TestCase):
         self.assertTrue(stalled, "the card never showed the stall")
         self.assertEqual(stalled[-1]["stall_limit_s"], 1)
         self.assertIsNone(job.stalled_s)  # the failed card shows the error, not a stall
+
+    def test_the_stall_message_follows_the_part_of_the_run_that_stalled(self):
+        dl = self.make(ScriptedRunner(YT_INFO))
+        job = dl.get(dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "video", "mp4")["id"])
+        job.status = "downloading"
+        self.assertEqual(dl._timeout_message(job, "download", 300),
+                         "No data arrived for 5 minutes, so the download was stopped. Try again.")
+        job.status = "processing"  # yt-dlp merging tracks or extracting MP3 audio inside the download run
+        self.assertEqual(dl._timeout_message(job, "download", 300),
+                         "The conversion made no progress for 5 minutes and was stopped. Try again.")
+        self.assertEqual(dl._timeout_message(job, "convert", 600),
+                         "The conversion made no progress for 10 minutes and was stopped. Try again.")
 
     def test_a_probe_without_an_answer_ends_with_the_timeout_code(self):
         runner = ScriptedRunner(YT_INFO)

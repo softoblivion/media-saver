@@ -344,7 +344,8 @@ class JobTests(FakeBase):
             self.assertTrue(self.wait_for(lambda: self._status(ig) == "error", 20))
             with self.engine._lock:  # as a job restored after a close
                 self.engine._jobs[ig].update(status="canceled", interrupted=True)
-            self.assertEqual(self.engine.resume_interrupted(), 1)
+            self.assertEqual(self.engine.resume_interrupted("youtube"), 0)
+            self.assertEqual(self.engine.resume_interrupted("instagram"), 1)
             self.assertFalse(next(j for j in self.engine.get_state()["jobs"] if j["id"] == ig)["interrupted"])
             self.assertEqual(self.engine.resume_interrupted(), 0)
             self.assertTrue(self.wait_for(lambda: self._status(ig) == "error", 20))

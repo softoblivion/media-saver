@@ -252,6 +252,7 @@ class Bridge:
         self._frame: Any = None  # the shell's window frame (main.WindowFrame): Scale, drag, fitting steps
         self._focused = True
         self._scales: list[int] = list(SCALE_STEPS)  # the Scale steps whose minimum window fits the screen
+        self._scale: Optional[int] = None  # the Scale step applied to the window now (None: no window frame yet)
         self._shutdown_lock = threading.Lock()
         self._shut_down = False
 
@@ -268,9 +269,10 @@ class Bridge:
 
     def _set_window_frame(self, frame: Any) -> None:
         """The shell's window frame: `apply_scale(percent)` (zoom factor and window size), `begin_drag(part)` (the
-        system move or size loop) and `fitting_scales()` (the Scale steps whose minimum window fits the screen)."""
+        system move or size loop), `fitting_scales()` (the Scale steps whose minimum window fits the screen) and
+        `percent` (the step applied now, which may be below the stored one on a small screen)."""
         self._frame = frame
-        self._on_window_state(scales=frame.fitting_scales())
+        self._on_window_state(scales=frame.fitting_scales(), scale=getattr(frame, "percent", None))
 
     def _toast(self, level: str, text: str, action: Optional[dict] = None) -> None:
         payload: dict[str, Any] = {"level": level, "text": text}
@@ -286,17 +288,21 @@ class Bridge:
         self._toast("warning", "File not found. It may have been moved or deleted.", action)
 
     def _window_state(self) -> dict:
-        return {"focused": self._focused, "scales": list(self._scales)}
+        return {"focused": self._focused, "scales": list(self._scales), "scale": self._scale}
 
-    def _on_window_state(self, focused: Optional[bool] = None, scales: Optional[list[int]] = None) -> None:
+    def _on_window_state(self, focused: Optional[bool] = None, scales: Optional[list[int]] = None,
+                         scale: Optional[int] = None) -> None:
         """Called by the native focus events and by the window frame when the window reaches a monitor of another
-        size or DPI; emits `window` ({"focused": bool, "scales": [int]}) when either changed. The window cannot be
-        maximized, so focus and the fitting Scale steps are the whole window state."""
+        size or DPI, a display changes or the Scale step changes; emits `window` ({"focused": bool, "scales": [int],
+        "scale": int | null}) when any of them changed. The window cannot be maximized, so focus, the fitting Scale
+        steps and the applied step are the whole window state."""
         changed = False
         if focused is not None and focused != self._focused:
             self._focused, changed = focused, True
         if scales is not None and list(scales) != self._scales:
             self._scales, changed = [int(s) for s in scales], True
+        if scale is not None and int(scale) != self._scale:
+            self._scale, changed = int(scale), True
         if changed:
             self._pump.emit("window", self._window_state())
 
@@ -376,8 +382,8 @@ class Bridge:
         return int(self._engine.retry_failed(_as_choice(platform, "platform")))
 
     @_api
-    def resume_interrupted(self):
-        return int(self._engine.resume_interrupted())
+    def resume_interrupted(self, platform=None):
+        return int(self._engine.resume_interrupted(_as_choice(platform, "platform")))
 
     @_api
     def download_again(self, id):  # noqa: A002
@@ -450,8 +456,9 @@ class Bridge:
 
     @_api
     def set_scale(self, value):
-        """The Scale setting (BRIDGE_API Settings.ui_scale): saves the step and applies it to the window at once.
-        A step whose minimum window does not fit the screen (not in the `window` event's `scales`) is refused."""
+        """The Scale setting (BRIDGE_API Settings.ui_scale): saves the step and applies it to the window at once
+        (the frame then reports the new applied step in the `window` event). A step whose minimum window does not
+        fit the screen (not in the `window` event's `scales`) is refused."""
         step = normalize_scale(value)
         if step not in self._scales:
             raise BridgeError(f"Scale {step}% does not fit this screen.")

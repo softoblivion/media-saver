@@ -2,6 +2,7 @@
 
 import inspect
 import logging
+import re
 import threading
 import unittest
 from unittest import mock
@@ -94,8 +95,8 @@ class RecordingEngine:
         self._rec("retry_failed", platform)
         return 2
 
-    def resume_interrupted(self):
-        self._rec("resume_interrupted")
+    def resume_interrupted(self, platform=None):
+        self._rec("resume_interrupted", platform)
         return 4
 
     def download_again(self, job_id):
@@ -160,8 +161,9 @@ class RecordingEngine:
 class FakeFrame:
     """The shell's window frame as the bridge sees it (app.main.WindowFrame)."""
 
-    def __init__(self, scales=(100, 125, 150, 175, 200)) -> None:
+    def __init__(self, scales=(100, 125, 150, 175, 200), percent=100) -> None:
         self.scales = list(scales)
+        self.percent = percent  # the step applied to the window now
         self.calls: list = []
         self.engine_calls: list = []
         self.fail = False
@@ -239,8 +241,10 @@ class DelegationTests(unittest.TestCase):
         self.assertEqual(bridge.retry_failed(), 2)
         self.assertEqual(bridge.retry_failed("youtube"), 2)
         self.assertEqual(bridge.resume_interrupted(), 4)
+        self.assertEqual(bridge.resume_interrupted("tiktok"), 4)
         self.assertIs(bridge.download_again("a1"), True)  # engine returned 1 -> bool
-        self.assertEqual(engine.calls, [("retry_failed", None), ("retry_failed", "youtube"), ("resume_interrupted",),
+        self.assertEqual(engine.calls, [("retry_failed", None), ("retry_failed", "youtube"),
+                                        ("resume_interrupted", None), ("resume_interrupted", "tiktok"),
                                         ("download_again", "a1")])
         with self.assertRaises(BridgeError):
             bridge.retry_failed(["youtube"])
@@ -552,15 +556,28 @@ class WindowTests(unittest.TestCase):
     def test_fitting_scales_reach_the_page(self):
         bridge, _, window, pump, _ = make_bridge()
         bridge.ready()
-        bridge._set_window_frame(FakeFrame([100, 125, 150]))
-        bridge._on_window_state(scales=[100, 125, 150])  # unchanged: no second event
-        bridge._on_window_state(scales=[100])            # the window reached a smaller screen
+        bridge._set_window_frame(FakeFrame([100, 125, 150], percent=150))
+        bridge._on_window_state(scales=[100, 125, 150], scale=150)  # unchanged: no second event
+        bridge._on_window_state(scales=[100], scale=100)  # the window reached a smaller screen
         pump.flush()
         text = "".join(window.scripts)
-        self.assertIn('"window",{"focused":true,"scales":[100,125,150,175,200]}', text)
-        self.assertIn('"window",{"focused":true,"scales":[100,125,150]}', text)
-        self.assertIn('"window",{"focused":true,"scales":[100]}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100,125,150,175,200],"scale":null}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100,125,150],"scale":150}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100],"scale":100}', text)
         self.assertEqual(text.count('"window"'), 3)
+
+    def test_applied_step_alone_reaches_the_page(self):
+        # the stored step stays 175 while the window sits on a screen where only 125 fits; back on the large
+        # screen the frame applies 175 again: each change of the applied step is an event of its own
+        bridge, _, window, pump, _ = make_bridge()
+        bridge.ready()
+        bridge._set_window_frame(FakeFrame(percent=175))
+        bridge._on_window_state(scale=125)
+        bridge._on_window_state(scale=125)
+        bridge._on_window_state(scale=175)
+        pump.flush()
+        text = "".join(window.scripts)
+        self.assertEqual(re.findall(r'"window",\{[^}]*"scale":(\d+)\}', text), ["175", "125", "175"])
 
     def test_shutdown_stores_the_window_place_first(self):
         bridge, engine, *_ = make_bridge()
@@ -596,8 +613,8 @@ class WindowTests(unittest.TestCase):
         bridge._on_window_state(focused=False)
         pump.flush()
         text = "".join(window.scripts)
-        self.assertIn('"window",{"focused":true,"scales":[100,125,150,175,200]}', text)
-        self.assertIn('"window",{"focused":false,"scales":[100,125,150,175,200]}', text)
+        self.assertIn('"window",{"focused":true,"scales":[100,125,150,175,200],"scale":null}', text)
+        self.assertIn('"window",{"focused":false,"scales":[100,125,150,175,200],"scale":null}', text)
         self.assertNotIn("maximized", text)
 
     def test_close_shuts_engine_down_once_then_destroys(self):

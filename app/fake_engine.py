@@ -596,8 +596,10 @@ class FakeEngine:
         _check_platform(platform)
         return len(self._requeue(lambda j: j["status"] == "error" and (platform is None or j["platform"] == platform)))
 
-    def resume_interrupted(self) -> int:
-        return len(self._requeue(lambda j: j["interrupted"] and j["status"] in ("error", "canceled")))
+    def resume_interrupted(self, platform: Optional[str] = None) -> int:
+        _check_platform(platform)
+        return len(self._requeue(lambda j: j["interrupted"] and j["status"] in ("error", "canceled")
+                                 and (platform is None or j["platform"] == platform)))
 
     def download_again(self, job_id: str) -> bool:
         return bool(self._requeue(lambda j: j["id"] == job_id and j["status"] == "done"

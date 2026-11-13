@@ -23,6 +23,7 @@
 //   &autodownload=0     start with "Download updates automatically" off
 //   &hold=1             queued jobs never start (to look at previews and format toggles)
 //   &clip=0             start with an empty clipboard (no clipboard prompt)
+//   &screen=small       only Scale 100 and 125 fit the screen (a saved 150 or more is applied as 125)
 //   &fast=1             run the simulation 4x faster
 //   &offline=1          engine update ends in "offline"
 
@@ -914,10 +915,13 @@ export function createMock({ params, emit }) {
   preload();
 
   // ---- window focus -> "window" events ------------------------------------------------------
-  // A browser has no screen to fit: every Scale step is offered.
-  const SCALES = [100, 125, 150, 175, 200];
-  addEventListener('focus', () => emit('window', { focused: true, scales: SCALES }));
-  addEventListener('blur', () => emit('window', { focused: false, scales: SCALES }));
+  // A browser has no screen to fit: every Scale step is offered, or 100 and 125 only with &screen=small, where
+  // the applied step is the largest of those up to the saved one (as the shell does on a small monitor).
+  const SCALES = params.get('screen') === 'small' ? [100, 125] : [100, 125, 150, 175, 200];
+  const appliedScale = () => Math.max(...SCALES.filter((s) => s <= settings.ui_scale), SCALES[0]);
+  const windowState = (focused) => ({ focused, scales: SCALES, scale: appliedScale() });
+  addEventListener('focus', () => emit('window', windowState(true)));
+  addEventListener('blur', () => emit('window', windowState(false)));
 
   const state = () => ({
     app_version: APP_VERSION,
@@ -964,6 +968,7 @@ export function createMock({ params, emit }) {
   return {
     async ready() {
       await sleep(120);
+      setTimeout(() => emit('window', windowState(document.hasFocus())), 0);
       setTimeout(() => (settings.auto_update ? runUpdate() : (ready = true, engine.stage = 'ready', emit('engine', clone(engine)), pump(), runPreviews())), 500);
       setTimeout(runCheck, 1800 / speed);
       return state();
@@ -1030,8 +1035,9 @@ export function createMock({ params, emit }) {
     async retry_failed(platform = null) {
       return requeue((j) => j.status === 'error' && (!platform || j.platform === platform)).length;
     },
-    async resume_interrupted() {
-      return requeue((j) => j.interrupted && ['error', 'canceled'].includes(j.status)).length;
+    async resume_interrupted(platform = null) {
+      return requeue((j) => j.interrupted && ['error', 'canceled'].includes(j.status)
+        && (!platform || j.platform === platform)).length;
     },
     async download_again(id) {
       return requeue((j) => j.id === id && j.status === 'done' && j._gone).length > 0;
@@ -1081,10 +1087,14 @@ export function createMock({ params, emit }) {
     },
     async get_settings() { return clone(settings); },
     async set_scale(value) {
-      // The shell zooms the window; the browser mock only stores the step (an unknown value snaps to 100).
+      // The shell zooms the window; the browser mock only stores the step (an unknown value snaps to 100) and
+      // refuses a step that does not fit, as the bridge does.
       await sleep(60);
-      settings.ui_scale = [100, 125, 150, 175, 200].includes(Number(value)) ? Number(value) : 100;
+      const step = [100, 125, 150, 175, 200].includes(Number(value)) ? Number(value) : 100;
+      if (!SCALES.includes(step)) throw new Error(`Scale ${step}% does not fit this screen.`);
+      settings.ui_scale = step;
       emit('settings', clone(settings));
+      emit('window', windowState(document.hasFocus()));
       return clone(settings);
     },
     async set_settings(patch) {

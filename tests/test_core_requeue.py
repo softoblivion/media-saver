@@ -108,7 +108,8 @@ class ResumeInterruptedTest(RequeueBase):
         job = self.by_code(dl2)["QUE01"]
         self.assertEqual((job["status"], job["interrupted"]), ("canceled", True))
 
-    def test_a_file_from_before_the_mark_uses_the_stage_text(self):
+    def test_a_file_from_before_the_mark_offers_no_resume(self):
+        # such entries may come from any earlier close (no close time tells them apart): they keep their Retry
         def entry(i, stage, **extra):
             return {"id": f"a000000{i}", "url": f"https://www.instagram.com/reel/C{i}", "shortcode": f"C{i}",
                     "status": "canceled", "stage_text": stage, "created_at": float(i), **extra}
@@ -118,7 +119,22 @@ class ResumeInterruptedTest(RequeueBase):
         dl = self.make()
         dl.load_history()
         jobs = self.by_code(dl)
-        self.assertEqual([jobs[c]["interrupted"] for c in ("C1", "C2", "C3")], [True, False, False])
+        self.assertEqual([jobs[c]["interrupted"] for c in ("C1", "C2", "C3")], [False, False, False])
+        self.assertEqual(dl.resume_interrupted(), 0)
+        self.assertTrue(dl.retry(jobs["C1"]["id"]))
+
+    def test_resume_takes_one_platform_and_skips_a_video_in_the_queue(self):
+        dl = self.make()
+        self.add(dl, "IGQ01")
+        self.add(dl, "IGQ02")
+        self.add(dl, "YTQ00000001", "youtube")
+        dl2 = self.restart(dl)
+        self.add(dl2, "IGQ02")  # the same video pasted again before Resume
+        self.assertEqual(dl2.resume_interrupted("youtube"), 1)
+        self.assertEqual(dl2.resume_interrupted("instagram"), 1)
+        jobs = [j for j in dl2.jobs() if j["shortcode"] == "IGQ02"]
+        self.assertEqual(sorted((j["status"], j["interrupted"]) for j in jobs), [("canceled", True), ("queued", False)])
+        self.assertEqual(self.by_code(dl2)["IGQ01"]["status"], "queued")
 
     def test_a_job_retried_by_hand_loses_the_mark(self):
         dl = self.make()
@@ -202,16 +218,18 @@ class EngineFacadeTest(unittest.TestCase):
         calls = []
         dl = self.engine.downloader
         dl.retry_failed = lambda platform=None: calls.append(("retry_failed", platform)) or 2
-        dl.resume_interrupted = lambda: calls.append(("resume_interrupted",)) or 3
+        dl.resume_interrupted = lambda platform=None: calls.append(("resume_interrupted", platform)) or 3
         dl.download_again = lambda job_id: calls.append(("download_again", job_id)) or True
         dl.can_download_again = lambda job_id: calls.append(("can_download_again", job_id)) or False
         self.assertEqual(self.engine.retry_failed("tiktok"), 2)
-        self.assertEqual(self.engine.resume_interrupted(), 3)
+        self.assertEqual(self.engine.resume_interrupted("twitter"), 3)
         self.assertTrue(self.engine.download_again("a1"))
         self.assertFalse(self.engine.can_download_again("a1"))
         with self.assertRaises(ValueError):
             self.engine.retry_failed("vimeo")
-        self.assertEqual(calls, [("retry_failed", "tiktok"), ("resume_interrupted",), ("download_again", "a1"),
+        with self.assertRaises(ValueError):
+            self.engine.resume_interrupted("vimeo")
+        self.assertEqual(calls, [("retry_failed", "tiktok"), ("resume_interrupted", "twitter"),("download_again", "a1"),
                                  ("can_download_again", "a1")])
 
 

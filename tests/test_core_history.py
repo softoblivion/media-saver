@@ -82,6 +82,26 @@ class HistoryTest(unittest.TestCase):
         dl3.load_history()
         self.assertEqual(dl3.jobs(), [])
 
+    def test_an_unreadable_file_is_kept_beside_the_new_one(self):
+        def damaged(text):
+            with open(self.paths.history_file, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            dl = self.make()
+            dl.load_history()
+            self.assertEqual(dl.jobs(), [])
+            dl.add("https://www.instagram.com/reel/NEW", "NEW", "instagram", "reel", "mp4")
+            dl.save_history()
+
+        damaged("{oops")
+        damaged('{"version": 2, "jobs": "nothing"}')
+        bad = self.paths.history_file + ".bad"
+        with open(bad, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "{oops")
+        with open(bad + "-2", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), '{"version": 2, "jobs": "nothing"}')
+        with open(self.paths.history_file, encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["jobs"][0]["shortcode"], "NEW")
+
     def test_v1_history_migrates_to_v2(self):
         v1 = {"version": 1, "jobs": [
             {"id": "aaaa0001", "url": "https://www.instagram.com/reel/AAAAA", "shortcode": "AAAAA", "status": "done",

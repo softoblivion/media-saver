@@ -1145,9 +1145,9 @@ class Job:
             job.format = "mp4"
         job.thumb_path = d.get("thumb_path")
         job.stalled_s = job.stall_limit_s = None  # live state of a running tool, never restored
-        # A file written before the flag existed marks the jobs a close interrupted by their stage text only.
-        legacy = "interrupted" not in d and job.status == "canceled" and job.stage_text == INTERRUPTED_TEXT
-        job.interrupted = d.get("interrupted") is True or legacy
+        # A file written before the flag existed marks interrupted jobs by their stage text only, from any earlier
+        # close: such entries are not offered for resume and keep their Retry.
+        job.interrupted = d.get("interrupted") is True
         if job.status not in FINISHED:  # the app ended without its shutdown save
             job.status = "canceled"
             job.stage_text = INTERRUPTED_TEXT
@@ -1413,9 +1413,11 @@ class Downloader:
         """Queue again every failed job (status error) of `platform` (None = all). Returns how many."""
         return len(self._requeue(lambda j: j.status == "error" and (platform is None or j.platform == platform)))
 
-    def resume_interrupted(self) -> int:
-        """Queue again every job the last app close interrupted (Job.interrupted). Returns how many."""
-        return len(self._requeue(lambda j: j.interrupted and j.status in ("error", "canceled")))
+    def resume_interrupted(self, platform: str | None = None) -> int:
+        """Queue again every job of `platform` (None = all) the last app close interrupted (Job.interrupted).
+        Returns how many."""
+        return len(self._requeue(lambda j: j.interrupted and j.status in ("error", "canceled")
+                                 and (platform is None or j.platform == platform)))
 
     def download_again(self, job_id: str) -> bool:
         """Queue again a done job whose file is no longer on disk."""
@@ -1514,10 +1516,11 @@ class Downloader:
         except FileNotFoundError:
             return
         except (OSError, ValueError) as exc:
-            log.warning("history unreadable (%s); starting empty", exc)
+            self._keep_unreadable_history(str(exc))
             return
         items = data.get("jobs") if isinstance(data, dict) else data
         if not isinstance(items, list):
+            self._keep_unreadable_history("no job list")
             return
         restored: list[Job] = []
         for d in items[-HISTORY_LIMIT:]:
@@ -1535,6 +1538,22 @@ class Downloader:
                     self._order.append(job.id)
                     if isinstance(job.created_at, (int, float)):
                         self._last_created = max(self._last_created, float(job.created_at))
+
+    def _keep_unreadable_history(self, reason: str) -> None:
+        """The next save would replace a history file that cannot be read: it is first moved aside under a name
+        that says so (history.json.bad, then history.json.bad-2, ...), never over an earlier copy."""
+        src = self.paths.history_file
+        dest = src + ".bad"
+        n = 1
+        while os.path.exists(dest):
+            n += 1
+            dest = f"{src}.bad-{n}"
+        try:
+            os.replace(src, dest)
+        except OSError as exc:
+            log.error("history unreadable (%s) and not moved aside (%s); starting empty", reason, exc)
+            return
+        log.warning("history unreadable (%s); kept as %s, starting empty", reason, os.path.basename(dest))
 
     def save_history(self, interrupted: bool = False) -> None:
         # The snapshot is taken while holding the file, so a save that waited for an earlier one writes the newer
@@ -1597,8 +1616,8 @@ class Downloader:
     def _finish_duplicate(self, job: Job) -> None:
         """Caller holds the lock."""
         self._finish_canceled(job)
-        job.stage_text = "Already in the queue"
-        job.error = {"code": "canceled", "message": "The same video is already in the queue.", "can_login": False,
+        job.stage_text = "In the queue"
+        job.error = {"code": "canceled", "message": "The same video is in the queue.", "can_login": False,
                      "log_path": None}
 
     def _resolve_share(self, job: Job, info: dict) -> bool:
@@ -1999,7 +2018,9 @@ class Downloader:
     @staticmethod
     def _timeout_message(job: Job, stall: str | None, seconds: float | None) -> str:
         span = _span_text(seconds or 0)
-        if stall == "convert":
+        # A yt-dlp run counts as a download stage but also merges tracks or extracts MP3 audio after the transfer;
+        # the job's status says which part was running when the tool stalled.
+        if stall == "convert" or (stall == "download" and job.status == "processing"):
             return f"The conversion made no progress for {span} and was stopped. Try again."
         if stall == "download":
             return f"No data arrived for {span}, so the download was stopped. Try again."

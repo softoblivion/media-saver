@@ -241,8 +241,8 @@ class Engine:
     def retry_failed(self, platform: str | None = None) -> int:
         return self.downloader.retry_failed(_platform(platform))
 
-    def resume_interrupted(self) -> int:
-        return self.downloader.resume_interrupted()
+    def resume_interrupted(self, platform: str | None = None) -> int:
+        return self.downloader.resume_interrupted(_platform(platform))
 
     def download_again(self, job_id: str) -> bool:
         return self.downloader.download_again(job_id)

@@ -4,7 +4,7 @@
 // reverted with a toast when the backend rejects them. `mode`, `format` and the `quality_<platform>`
 // keys are set from the main window (js/mode.js, js/quality.js), not here.
 
-import { call, on } from './api.js';
+import { call, on, latest } from './api.js';
 import { gel } from '../vendor/liquid_ui/js/glass.js';
 import { Overlay } from '../vendor/liquid_ui/js/overlay.js';
 import { Segmented, Switch, Stepper, Select } from '../vendor/liquid_ui/js/controls.js';
@@ -37,6 +37,8 @@ let S = null;          // current Settings
 let auth = null;
 let engine = null;
 const ctl = {};        // field -> control
+let appliedScale = null; // the Scale step applied to the window (`window` event), null until the shell reports it
+const shownScale = () => appliedScale ?? (S && S.ui_scale);
 
 export function initSettings(state) {
   S = state.settings;
@@ -194,14 +196,16 @@ function build() {
     },
   });
   // Scale: the shell applies the step to the window at once (set_scale) and saves it as ui_scale; a refusal
-  // restores the confirmed step.
+  // restores the confirmed step. The control shows the step applied to the window (the `window` event's
+  // `scale`), which is below the saved one while the window is on a screen too small for that.
   ctl.ui_scale = mountScaleControl(slot('appearance'), {
-    value: S.ui_scale,
+    value: shownScale(),
     onChange: async (v) => {
       inflight.set('ui_scale', (inflight.get('ui_scale') || 0) + 1);
       try {
         const s = await call('set_scale', v);
         if (s) S = s;
+        if (s && appliedScale !== null) appliedScale = s.ui_scale; // a step that fits is applied as saved
       } catch (err) {
         toast('error', err.message || 'Could not change the scale');
       } finally {
@@ -212,12 +216,18 @@ function build() {
   });
   // A step whose smallest window does not fit the screen is dimmed (the `window` event's `scales`, which follow
   // the monitor the window is on).
-  on('window', (w) => {
-    if (!w || !Array.isArray(w.scales)) return;
-    for (const s of SCALE_STEPS) {
-      ctl.ui_scale.control.setOptionDisabled(String(s), !w.scales.includes(s), w.scales.includes(s) ? '' : 'Too large for this screen');
+  const showWindow = (w) => {
+    if (!w) return;
+    if (Number.isInteger(w.scale)) appliedScale = w.scale;
+    if (Array.isArray(w.scales)) {
+      for (const s of SCALE_STEPS) {
+        ctl.ui_scale.control.setOptionDisabled(String(s), !w.scales.includes(s), w.scales.includes(s) ? '' : 'Too large for this screen');
+      }
     }
-  });
+    if (!busy('ui_scale') && shownScale()) ctl.ui_scale.set(shownScale());
+  };
+  on('window', showWindow);
+  showWindow(latest('window'));
   const mkSwitch = (f, label) => {
     ctl[f] = new Switch({ label, checked: !!S[f], onChange: (v) => save({ [f]: v }, () => ctl[f].set(!v)) });
     slot(f).replaceWith(ctl[f].el);
@@ -339,7 +349,7 @@ function sync() {
   renderExample();
   for (const f of SWITCHES) if (!busy(f)) ctl[f].set(!!S[f]);
   if (!busy('theme') && S.theme) ctl.theme.set(S.theme);
-  if (!busy('ui_scale') && S.ui_scale) ctl.ui_scale.set(S.ui_scale);
+  if (!busy('ui_scale') && shownScale()) ctl.ui_scale.set(shownScale());
   if (!busy('update_channel')) ctl.update_channel.set(S.update_channel);
   if (!busy('auth_mode')) ctl.auth_mode.set(S.auth_mode || 'auto');
   if (!busy('concurrency')) ctl.concurrency.set(S.concurrency);

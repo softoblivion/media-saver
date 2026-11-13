@@ -111,21 +111,30 @@ a minute once `.venv` exists.
   - `SC_MAXIMIZE` is swallowed (system menu, title-bar double click, Win+Up), and a maximized state that still
     arrives (`WM_SIZE` / `SIZE_MAXIMIZED`, for example a drag to the top edge of the screen) is answered with a
     posted `SC_RESTORE`. Snapping to the left or right half of the screen stays. The page has no F11 handler;
-  - `WM_DPICHANGED` keeps the page's layout size on the new monitor at the place the system suggests.
+  - `WM_DPICHANGED` keeps the page's layout size on the new monitor at the place the system suggests;
+  - `WM_DISPLAYCHANGE` and `WM_SETTINGCHANGE` / `SPI_SETWORKAREA` (resolution, monitor or taskbar changes) call
+    the frame back, which fits the window again once the changes settle;
+  - the original window procedure runs at most once per message.
 - **Place and size are remembered** in `Settings.window` (x, y of the page's top-left in physical px, width and
   height in layout px), written shortly after a move or resize ends and when the window closes. At start the
   stored rectangle is clamped into the work area of the monitor it overlaps most; when that monitor is gone, the
   window opens centred on the primary monitor.
-- **Scale**: the WebView2 zoom factor is `ui_scale / 100`; a Scale change multiplies the window size by the ratio
-  of the steps around its centre, clamped to the work area. A step whose minimum window does not fit the work area
-  is dimmed in Settings and refused by `set_scale`.
+- **Scale**: `ui_scale` is the chosen step and changes only through `set_scale`. The applied step is the largest
+  one up to it whose minimum window fits the work area of the window's monitor, decided at start, at the end of a
+  move, after a DPI change and after a display or work-area change; the WebView2 zoom factor is that step / 100. A
+  change of the applied step multiplies the window size by the ratio of the steps around its centre, and the window
+  is then fitted into the work area, so its title bar stays on screen. A step that does not fit is dimmed in
+  Settings and refused by `set_scale`; the Scale control shows the applied step.
 - **DWM**: `set_rounded_corners` asks for Windows 11 rounded corners (`DWMWA_WINDOW_CORNER_PREFERENCE`), and
   `set_border_color` sets `DWMWA_BORDER_COLOR` to the page background (`BACKGROUND` in `app/main.py`, `#0b0d14`) so
   no light frame line shows. Both are no-ops before Windows 11.
 - Check after a change to the hook, against `run_dev.bat --fake`: the style has `WS_THICKFRAME` and no
   `WS_MAXIMIZEBOX`; `SetWindowPos` below the minimum is clamped to it; `WM_SYSCOMMAND` / `SC_MAXIMIZE`, a title-bar
   double click, Win+Up and F11 leave the size unchanged; every edge and corner drags with its resize cursor;
-  minimize and restore keep the size; a restart restores size and place; a Scale change keeps the centre.
+  minimize and restore keep the size; a restart restores size and place; a Scale change keeps the centre; with a
+  second, smaller monitor, a window at a step that does not fit there moves over at a smaller step with its title
+  bar on screen and returns to its step when moved back. `tests/test_winutil.py` and `tests/test_window_frame.py`
+  cover the hook's messages and the Scale decisions with a stubbed `user32` and fake monitors.
 
 ## 6. Troubleshooting
 
