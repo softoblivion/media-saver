@@ -1,12 +1,12 @@
-"""Job queue, preview worker, subprocess control, progress parsing, error classification and the auth ladder.
+"""Job queue, preview workers, subprocess control, progress parsing, error classification and the auth ladder.
 
 Pipeline per job (ARCHITECTURE.md 5.2): probe with `yt-dlp -J` (or reuse the preview's info json) -> info json in
 cache/jobs/<id>/ -> thumbnail -> download with `--load-info-json` -> mp4: merge + optional H.264 pass, mp3: extract
 audio -> ffprobe the final file. Auth ladder per platform: Instagram walks anonymous -> session cookies -> browser
 cookies -> gallery-dl with the session; YouTube, TikTok and X walk anonymous -> browser cookies.
 
-Preview (ARCHITECTURE.md 5.4): one daemon thread fetches the anonymous info json of queued jobs, one at a time,
-fills title / author / duration / thumbnail and sets `previewed`.
+Preview (ARCHITECTURE.md 5.4): a pool of `Downloader.PREVIEW_WORKERS` daemon threads fetches the anonymous info
+json of queued jobs, topmost first, fills title / author / duration / thumbnail and sets `previewed`.
 
 Everything that touches the outside world goes through `ProcessRunner` (subprocesses) and `fetch_url`
 (thumbnails), so tests replace them with fakes.

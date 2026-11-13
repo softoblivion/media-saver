@@ -143,10 +143,10 @@ def make_bridge():
     engine = RecordingEngine()
     window = FakeWindow()
     pump = EventPump(threaded=False, start_delay=0.0)
-    closed = threading.Event()
-    bridge = Bridge(engine, pump, on_close=closed.set)
+    bridge = Bridge(engine, pump)
     bridge._attach_window(window)
-    return bridge, engine, window, pump, closed
+    # the close path ends with window.destroy(), after the engine shutdown
+    return bridge, engine, window, pump, window.destroyed
 
 
 class SurfaceTests(unittest.TestCase):

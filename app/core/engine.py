@@ -298,7 +298,7 @@ class Engine:
         return status
 
     def import_cookies_file(self, path: str) -> dict:
-        status = authmod.import_cookies_file(path, self.paths.cookies_file)  # ValueError (ru) on bad files
+        status = authmod.import_cookies_file(path, self.paths.cookies_file)  # ValueError with an English message
         self._emit("auth", status)
         self._emit("toast", {"level": "success", "text": "Instagram cookies imported"})
         return status

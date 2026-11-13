@@ -240,13 +240,11 @@ class Bridge:
         engine: Any,
         pump: EventPump,
         login_opener: Optional[Callable[[], None]] = None,
-        on_close: Optional[Callable[[], None]] = None,
     ) -> None:
         self._engine = engine
         self._pump = pump
         self._window: Any = None
         self._login_opener = login_opener
-        self._on_close = on_close
         self._logout_hook: Optional[Callable[[], None]] = None
         self._scale_applier: Optional[Callable[[int], None]] = None
         self._focused = True
@@ -518,8 +516,7 @@ class Bridge:
                 window.destroy()
         except Exception:  # noqa: BLE001
             log.debug("destroy failed", exc_info=True)
-        if self._on_close is not None:
-            self._on_close()
+        # destroying the last window ends webview.start() in main.py, whose `finally` exits the process
 
 
 def _as_text(value: Any) -> str:
