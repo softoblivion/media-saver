@@ -15,6 +15,7 @@ CONTRACT_METHODS = {
     "reveal_file", "open_output_dir", "open_logs", "choose_output_dir", "get_settings", "set_settings",
     "update_engine", "update_status", "check_updates", "download_update", "apply_update", "login", "logout", "import_cookies_file",
     "read_clipboard", "copy_text", "open_url", "window_minimize", "window_close", "set_scale",
+    "retry_failed", "resume_interrupted", "download_again",
 }
 
 
@@ -58,6 +59,7 @@ class RecordingEngine:
         self.fail_with: BaseException | None = None
         self.job_path = None
         self.apply_result = True
+        self.again = False   # can_download_again's answer
 
     def _rec(self, name, *args):
         self.calls.append((name, *args))
@@ -87,6 +89,22 @@ class RecordingEngine:
     def retry(self, job_id):
         self._rec("retry", job_id)
         return True
+
+    def retry_failed(self, platform=None):
+        self._rec("retry_failed", platform)
+        return 2
+
+    def resume_interrupted(self):
+        self._rec("resume_interrupted")
+        return 4
+
+    def download_again(self, job_id):
+        self._rec("download_again", job_id)
+        return 1
+
+    def can_download_again(self, job_id):
+        self._rec("can_download_again", job_id)
+        return self.again
 
     def remove(self, job_id):
         self._rec("remove", job_id)
@@ -191,6 +209,17 @@ class DelegationTests(unittest.TestCase):
         names = [c[0] for c in engine.calls]
         for expected in ("clean_links", "enqueue", "cancel", "retry", "remove", "clear_finished", "update_engine", "logout"):
             self.assertIn(expected, names)
+
+    def test_queue_again_methods_delegate(self):
+        bridge, engine, *_ = make_bridge()
+        self.assertEqual(bridge.retry_failed(), 2)
+        self.assertEqual(bridge.retry_failed("youtube"), 2)
+        self.assertEqual(bridge.resume_interrupted(), 4)
+        self.assertIs(bridge.download_again("a1"), True)  # engine returned 1 -> bool
+        self.assertEqual(engine.calls, [("retry_failed", None), ("retry_failed", "youtube"), ("resume_interrupted",),
+                                        ("download_again", "a1")])
+        with self.assertRaises(BridgeError):
+            bridge.retry_failed(["youtube"])
 
     def test_platform_and_format_pass_through_as_none_when_omitted(self):
         bridge, engine, *_ = make_bridge()
@@ -342,6 +371,21 @@ class FileActionTests(unittest.TestCase):
         self.assertFalse(bridge.reveal_file("a"))
         pump.flush()
         self.assertIn("warning", "".join(window.scripts))
+        self.assertNotIn("download_again", "".join(window.scripts))
+
+    def test_missing_file_of_a_done_job_offers_download_again(self):
+        bridge, engine, window, pump, _ = make_bridge()
+        toasts = []
+        pump.emit = lambda etype, payload: toasts.append((etype, payload))
+        engine.again = True
+        self.assertFalse(bridge.open_file("a"))
+        self.assertFalse(bridge.reveal_file("a"))
+        action = {"label": "Download again", "method": "download_again", "id": "a"}
+        self.assertEqual(toasts, [("toast", {"level": "warning", "text": "File not found. It may have been moved or "
+                                             "deleted.", "action": action})] * 2)
+        engine.again = False
+        bridge.open_file("a")
+        self.assertNotIn("action", toasts[-1][1])
 
     def test_open_and_reveal_existing_file(self):
         import os

@@ -8,7 +8,9 @@
 // URL parameters (all optional):
 //   ?mock=1             force the mock even inside pywebview
 //   &demo=1             preload a queue with every state on every platform (done, transcoded, MP3,
-//                       already existed, errors, queued with and without a preview)
+//                       already existed, errors, queued with and without a preview, a stalled download
+//                       (id with STALL) and a done job whose file is gone)
+//   &resume=1           preload three jobs the last app close interrupted (the resume notice on start)
 //   &jobs=N             preload N finished jobs (list performance check; spread over the four
 //                       platforms in turn: Instagram, YouTube, TikTok, X)
 //   &mode=youtube       start in that mode (also: tiktok, twitter; default: the persisted setting,
@@ -436,10 +438,35 @@ export function createMock({ params, emit }) {
     const c = clone(j);
     delete c._n;
     delete c._token;
+    delete c._gone;
     return c;
   };
   const emitJob = (j) => emit('job', pub(j));
-  const toast = (level, text) => emit('toast', { level, text });
+  const toast = (level, text, action) => emit('toast', action ? { level, text, action } : { level, text });
+
+  // Queue finished jobs again, as the core does (retry, retry_failed, resume_interrupted, download_again):
+  // oldest first, each moved on top with its created_at kept; one whose platform and id an active job has
+  // is skipped.
+  function requeue(pick) {
+    const out = [];
+    const order = Array.from(jobs.values()).sort((a, b) => a.created_at - b.created_at);
+    for (const j of order) {
+      if (!['done', 'error', 'canceled'].includes(j.status) || !pick(j)) continue;
+      const busy = Array.from(jobs.values()).some((o) => o.platform === j.platform && o.shortcode === j.shortcode
+        && (o.status === 'queued' || ACTIVE.has(o.status)));
+      if (busy) continue;
+      Object.assign(j, { status: 'queued', stage_text: 'Queued', progress: 0, error: null, finished_at: null, speed_bps: null,
+        eta_s: null, stalled_s: null, stall_limit_s: null, interrupted: false, filepath: null, filesize: null,
+        already_existed: false, transcoded: false, _gone: false });
+      emitJob(j);
+      out.push(j);
+    }
+    if (out.length) setTimeout(pump, 30);
+    return out;
+  }
+  const FILE_GONE = 'File not found. It may have been moved or deleted.';
+  const fileGone = (j) => toast('warning', FILE_GONE, j.status === 'done'
+    ? { label: 'Download again', method: 'download_again', id: j.id } : undefined);
 
   // ---- engine update simulation -------------------------------------------------------------
   async function runUpdate(forced = false) {
@@ -556,7 +583,7 @@ export function createMock({ params, emit }) {
       width: null, height: null, fps: null, vcodec: null, acodec: null, filesize: null, filepath: null,
       already_existed: false, transcoded: false,
       attempt: { engine: 'yt-dlp', auth: 'anonymous' },
-      error: null, created_at: now(), finished_at: null, stalled_s: null, stall_limit_s: null,
+      error: null, created_at: now(), finished_at: null, stalled_s: null, stall_limit_s: null, interrupted: false,
       _n: jobCounter++,
       ...extra,
     };
@@ -823,6 +850,16 @@ export function createMock({ params, emit }) {
       j.thumbnail = makeThumb(i + 100, isWide(j));
       j.filepath = `${settings.output_dir}\\${j.author}_${code}.mp4`;
     }
+    if (params.get('resume') === '1') {
+      // Jobs the last app close interrupted, as the core restores them: the start offers to resume them.
+      const gone = { status: 'canceled', stage_text: 'Interrupted when the app closed', progress: 0, interrupted: true, previewed: true,
+        error: { code: 'canceled', message: 'Download interrupted when the app closed.', can_login: false, log_path: null } };
+      const t1 = now() - 600;
+      ['DD1ntrptAa1', 'DD2ntrptBb2'].forEach((c, i) => newJob(`https://www.instagram.com/reel/${c}`, c, 'instagram', 'reel',
+        { ...gone, created_at: t1 + i, finished_at: t1 + 5, author: IG_AUTHORS[i + 1], title: IG_TITLES[i + 1], thumbnail: makeThumb(140 + i) }));
+      newJob('https://www.youtube.com/watch?v=Y0utbIntrpt', 'Y0utbIntrpt', 'youtube', 'video',
+        { ...gone, created_at: t1 + 2, finished_at: t1 + 5, author: YT_AUTHORS[1], title: YT_TITLES[1], thumbnail: makeThumb(150, true) });
+    }
     if (params.get('demo') !== '1') return;
     const t = now() - 900;
     const ig = (code, extra) => newJob(`https://www.instagram.com/reel/${code}`, code, 'instagram', 'reel', { created_at: t + jobs.size * 30, previewed: true, ...extra });
@@ -833,7 +870,8 @@ export function createMock({ params, emit }) {
     const fp = (j) => { j.filepath = `${settings.output_dir}\\${fileName(j)}`; return j; };
 
     // Instagram
-    fp(ig('C8kPq1zXmNw', { ...igBase(0), status: 'done', stage_text: 'Done', progress: 1, vcodec: 'h264', filesize: 12.4 * 1048576, finished_at: t + 40 }));
+    // its file is gone from disk: Open and Show in folder offer "Download again"
+    fp(ig('C8kPq1zXmNw', { ...igBase(0), status: 'done', stage_text: 'Done', progress: 1, vcodec: 'h264', filesize: 12.4 * 1048576, finished_at: t + 40, _gone: true }));
     fp(ig('DA3rT7uYp_2', { ...igBase(1), status: 'done', stage_text: 'Done', progress: 1, vcodec: 'h264', transcoded: true, fps: 60, filesize: 31.9 * 1048576, finished_at: t + 90 }));
     fp(ig('C7mmZ0aQ-Lk', { ...igBase(2), status: 'done', stage_text: 'Already downloaded', progress: 1, vcodec: 'h264', already_existed: true, filesize: 8.1 * 1048576, finished_at: t + 120 }));
     fp(ig('C9audIoTrk1', { ...igBase(6), format: 'mp3', width: null, height: null, fps: null, vcodec: null, acodec: 'mp3', status: 'done', stage_text: 'Done', progress: 1, filesize: 0.9 * 1048576, finished_at: t + 130 }));
@@ -982,12 +1020,17 @@ export function createMock({ params, emit }) {
       return true;
     },
     async retry(id) {
-      const j = job(id);
-      if (!['error', 'canceled'].includes(j.status)) return false;
-      Object.assign(j, { status: 'queued', stage_text: 'Queued', progress: 0, error: null, finished_at: null, speed_bps: null, eta_s: null });
-      emitJob(j);
-      setTimeout(pump, 30);
-      return true;
+      job(id);
+      return requeue((j) => j.id === id && ['error', 'canceled'].includes(j.status)).length > 0;
+    },
+    async retry_failed(platform = null) {
+      return requeue((j) => j.status === 'error' && (!platform || j.platform === platform)).length;
+    },
+    async resume_interrupted() {
+      return requeue((j) => j.interrupted && ['error', 'canceled'].includes(j.status)).length;
+    },
+    async download_again(id) {
+      return requeue((j) => j.id === id && j.status === 'done' && j._gone).length > 0;
     },
     async remove(id) {
       const j = job(id);
@@ -1009,8 +1052,18 @@ export function createMock({ params, emit }) {
       }
       return n;
     },
-    async open_file(id) { const j = job(id); toast('info', `(demo) Would open ${j.filepath?.split('\\').pop()}`); return true; },
-    async reveal_file(id) { job(id); toast('info', '(demo) Would show the file in Explorer'); return true; },
+    async open_file(id) {
+      const j = job(id);
+      if (j._gone || j.status !== 'done') return fileGone(j), false;
+      toast('info', `(demo) Would open ${j.filepath?.split('\\').pop()}`);
+      return true;
+    },
+    async reveal_file(id) {
+      const j = job(id);
+      if (j._gone || j.status !== 'done') return fileGone(j), false;
+      toast('info', '(demo) Would show the file in Explorer');
+      return true;
+    },
     async open_output_dir() { toast('info', `(demo) Would open ${settings.output_dir}`); return true; },
     async open_logs() { toast('info', '(demo) Would open the logs folder'); return true; },
     async choose_output_dir() {

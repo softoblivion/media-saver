@@ -1054,7 +1054,8 @@ JOB_KINDS = {"instagram": ("reel", "p"), "youtube": ("video", "shorts"), "tiktok
 PUBLIC_FIELDS = ("id", "url", "shortcode", "platform", "kind", "format", "status", "stage_text", "progress",
                  "speed_bps", "eta_s", "previewed", "title", "author", "duration_s", "thumbnail", "width", "height",
                  "fps", "vcodec", "acodec", "filesize", "filepath", "already_existed", "transcoded", "attempt",
-                 "error", "created_at", "finished_at", "stalled_s", "stall_limit_s")
+                 "error", "created_at", "finished_at", "stalled_s", "stall_limit_s", "interrupted")
+INTERRUPTED_TEXT = "Interrupted when the app closed"
 
 
 def _kind_from_url(url: str, platform: str) -> str:
@@ -1100,6 +1101,7 @@ class Job:
     finished_at: float | None = None
     stalled_s: int | None = None       # seconds the running tool has shown no activity, once that passes STALL_NOTICE
     stall_limit_s: int | None = None   # the stall limit of that stage: the tool is ended when stalled_s reaches it
+    interrupted: bool = False          # stopped by the last app close and not started again since (resume_interrupted)
     # internal
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     removed: bool = False
@@ -1143,13 +1145,19 @@ class Job:
             job.format = "mp4"
         job.thumb_path = d.get("thumb_path")
         job.stalled_s = job.stall_limit_s = None  # live state of a running tool, never restored
-        if job.status not in FINISHED:
+        # A file written before the flag existed marks the jobs a close interrupted by their stage text only.
+        legacy = "interrupted" not in d and job.status == "canceled" and job.stage_text == INTERRUPTED_TEXT
+        job.interrupted = d.get("interrupted") is True or legacy
+        if job.status not in FINISHED:  # the app ended without its shutdown save
             job.status = "canceled"
-            job.stage_text = "Interrupted when the app closed"
+            job.stage_text = INTERRUPTED_TEXT
             job.speed_bps = job.eta_s = None
             job.finished_at = job.finished_at or time.time()
             job.error = {"code": "canceled", "message": "Download interrupted when the app closed.",
                          "can_login": False, "log_path": None}
+            job.interrupted = True
+        if job.status == "done":
+            job.interrupted = False
         job.previewed = True  # restored jobs are finished: no preview fetch is pending for them
         return job
 
@@ -1157,6 +1165,7 @@ class Job:
         self.status, self.stage_text, self.progress = "queued", "Queued", 0.0
         self.speed_bps = self.eta_s = None
         self.stalled_s = self.stall_limit_s = None
+        self.interrupted = False
         self.error = None
         self.finished_at = None
         self.already_existed = self.transcoded = False
@@ -1267,6 +1276,10 @@ class Downloader:
     def shutdown(self, timeout: float = 2.5) -> None:
         with self._cond:
             self._stopping = True
+            # This close interrupts the queued and running jobs; a mark left from an earlier close is dropped, so
+            # the next start offers to resume only what this close stopped.
+            for job in self._jobs.values():
+                job.interrupted = job.status in ACTIVE
             running = [self._jobs[j] for j in self._running if j in self._jobs]
             for job in running:
                 job.cancel_event.set()
@@ -1394,25 +1407,54 @@ class Downloader:
         return True
 
     def retry(self, job_id: str) -> bool:
+        return bool(self._requeue(lambda j: j.id == job_id and j.status in ("error", "canceled")))
+
+    def retry_failed(self, platform: str | None = None) -> int:
+        """Queue again every failed job (status error) of `platform` (None = all). Returns how many."""
+        return len(self._requeue(lambda j: j.status == "error" and (platform is None or j.platform == platform)))
+
+    def resume_interrupted(self) -> int:
+        """Queue again every job the last app close interrupted (Job.interrupted). Returns how many."""
+        return len(self._requeue(lambda j: j.interrupted and j.status in ("error", "canceled")))
+
+    def download_again(self, job_id: str) -> bool:
+        """Queue again a done job whose file is no longer on disk."""
+        return bool(self._requeue(lambda j: j.id == job_id and j.status == "done"
+                                  and not (j.filepath and os.path.isfile(j.filepath))))
+
+    def can_download_again(self, job_id: str) -> bool:
+        """True for a done job whose file is no longer on disk (download_again would queue it)."""
+        job = self.get(job_id)
+        return bool(job and job.status == "done" and not (job.filepath and os.path.isfile(job.filepath)))
+
+    def _requeue(self, pick: Callable[[Job], bool]) -> list[Job]:
+        """Queue again the finished jobs `pick` selects, oldest first, so they keep their order on top of the
+        list. A job whose platform and id another queued or running job has is skipped. Returns the queued jobs."""
+        queued: list[Job] = []
         with self._cond:
-            job = self._jobs.get(job_id)
-            if job is None or job.status not in ("error", "canceled"):
-                return False
-            if any(j.platform == job.platform and j.shortcode == job.shortcode and j.status in ACTIVE
-                   for j in self._jobs.values()):
-                return False
-            job.reset_for_retry()
-            if not self.usable():
-                job.stage_text = "Waiting for engine update"
-            self._queue.append(job_id)
-            # A retried job moves to the top of the engine order (jobs() and the next start) and keeps its
-            # created_at, so a live UI keeps its card where it was (ENGINE.md section 3).
-            self._order.remove(job_id)
-            self._order.append(job_id)
-            self._cond.notify_all()
-        self._emit_job(job, force=True)
-        self._save_soon()
-        return True
+            for job_id in list(self._order):
+                job = self._jobs[job_id]
+                if job.status not in FINISHED or not pick(job):
+                    continue
+                if any(j.platform == job.platform and j.shortcode == job.shortcode and j.status in ACTIVE
+                       for j in self._jobs.values()):
+                    continue
+                job.reset_for_retry()
+                if not self.usable():
+                    job.stage_text = "Waiting for engine update"
+                self._queue.append(job_id)
+                # A job queued again moves to the top of the engine order (jobs() and the next start) and keeps
+                # its created_at, so a live UI keeps its card where it was (ENGINE.md section 3).
+                self._order.remove(job_id)
+                self._order.append(job_id)
+                queued.append(job)
+            if queued:
+                self._cond.notify_all()
+        for job in queued:
+            self._emit_job(job, force=True)
+        if queued:
+            self._save_soon()
+        return queued
 
     def remove(self, job_id: str) -> bool:
         with self._cond:
@@ -1507,7 +1549,7 @@ class Downloader:
                     d = job.to_history()
                     if interrupted and job.status in ACTIVE:
                         d["status"] = "canceled"
-                        d["stage_text"] = "Interrupted when the app closed"
+                        d["stage_text"] = INTERRUPTED_TEXT
                     items.append(d)
             if interrupted:
                 self._history_final = True
@@ -1707,7 +1749,7 @@ class Downloader:
             with self._lock:
                 self._finish_canceled(job)
                 if self._stopping:
-                    job.stage_text = "Interrupted when the app closed"
+                    job.stage_text = INTERRUPTED_TEXT
                     job.error = {"code": "canceled", "message": "Download interrupted when the app closed.",
                                  "can_login": False, "log_path": None}
             self._emit_job(job, force=True)

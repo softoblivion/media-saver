@@ -80,6 +80,7 @@ export function initQueue(state) {
   // The split button squishes as one pill; its halves get no gel of their own.
   head.querySelectorAll('.q-actions > .btn, .q-actions > .split').forEach((b) => gel(b));
   document.getElementById('btn-clear').addEventListener('click', clearFinished);
+  document.getElementById('btn-retry-failed').addEventListener('click', retryFailed);
   initFolder(state.settings || {});
   renderEmpty();
 
@@ -526,7 +527,7 @@ function flipList(change) {
 }
 
 function renderHead() {
-  let active = 0, done = 0, failed = 0, total = 0;
+  let active = 0, done = 0, failed = 0, errors = 0, total = 0;
   const mine = [];
   for (const j of jobs.values()) {
     if (!shown(j)) continue;
@@ -535,6 +536,7 @@ function renderHead() {
     if (ACTIVE.has(j.status)) active++;
     else if (j.status === 'done') done++;
     else failed++;
+    if (j.status === 'error') errors++;
   }
   const parts = [];
   if (active) parts.push(`<span class="qc qc-active"><i></i>${active} active</span>`);
@@ -544,6 +546,9 @@ function renderHead() {
   const html = parts.join('');
   if (counts.innerHTML !== html) counts.innerHTML = html;
   document.getElementById('btn-clear').disabled = !(done + failed);
+  // Retry failed shows while this list has a failed download (status error; a canceled one stays as it is).
+  const retryAll = document.getElementById('btn-retry-failed');
+  if (retryAll.hidden !== !errors) retryAll.hidden = !errors;
   const isEmpty = total === 0;
   if (empty.hidden === isEmpty) {
     empty.hidden = !isEmpty;
@@ -630,6 +635,15 @@ async function clearFinished() {
   try {
     const n = await call('clear_finished', getMode());
     if (n) toast('info', `Removed ${n} from the list. Files stay on disk`);
+  } catch (err) {
+    toast('error', err.message);
+  }
+}
+
+async function retryFailed() {
+  try {
+    const n = await call('retry_failed', getMode());
+    if (!n) toast('info', 'Nothing to retry: the same videos are in the queue');
   } catch (err) {
     toast('error', err.message);
   }

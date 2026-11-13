@@ -521,6 +521,10 @@ body:not(.is-ready) #app {
   flex: none;
 }
 
+/* "Retry failed" shows only while the list has a failed item, beside "Clear finished": its icon alone
+   (the cards' Retry icon), so the counts keep their room in the header. */
+.q-actions .q-ic-btn { width: 28px; padding: 0; }
+
 /* "Open folder" split button: the kit's `.split` (two .btn-s halves sharing one pill); the main
    half opens the folder, the chevron half opens a two-item menu (Open folder / Change folder...).
    One gel press for both halves; the chevron turns while the menu is open. */

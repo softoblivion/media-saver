@@ -399,7 +399,7 @@ class FakeEngine:
             "filesize": None, "filepath": None, "already_existed": False, "transcoded": False,
             "attempt": {"engine": "yt-dlp", "auth": "anonymous"}, "error": None,
             "created_at": self._next_created_at(), "finished_at": None,
-            "stalled_s": None, "stall_limit_s": None,
+            "stalled_s": None, "stall_limit_s": None, "interrupted": False,
         }
         self._jobs[job_id] = job
         self._order.append(job_id)
@@ -583,19 +583,45 @@ class FakeEngine:
             return True
 
     def retry(self, job_id: str) -> bool:
+        return bool(self._requeue(lambda j: j["id"] == job_id and j["status"] in ("error", "canceled")))
+
+    def retry_failed(self, platform: Optional[str] = None) -> int:
+        _check_platform(platform)
+        return len(self._requeue(lambda j: j["status"] == "error" and (platform is None or j["platform"] == platform)))
+
+    def resume_interrupted(self) -> int:
+        return len(self._requeue(lambda j: j["interrupted"] and j["status"] in ("error", "canceled")))
+
+    def download_again(self, job_id: str) -> bool:
+        return bool(self._requeue(lambda j: j["id"] == job_id and j["status"] == "done"
+                                  and not (j["filepath"] and os.path.isfile(j["filepath"]))))
+
+    def can_download_again(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
-            if job is None or job["status"] not in ("error", "canceled"):
-                return False
-            job.update(status="queued", stage_text="Queued", progress=0.0, error=None, finished_at=None,
-                       stalled_s=None, stall_limit_s=None)
-            # as the real engine: the retried job moves to the top of the order and starts next; created_at stays
-            self._order.remove(job_id)
-            self._order.append(job_id)
-            snapshot = _deep(job)
-        self._emit("job", snapshot)
-        threading.Thread(target=self._run_job, args=(job_id,), name="fake-job", daemon=True).start()
-        return True
+            return bool(job and job["status"] == "done" and not (job["filepath"] and os.path.isfile(job["filepath"])))
+
+    def _requeue(self, pick) -> list[dict]:
+        """As the real engine: finished jobs `pick` selects are queued again, oldest first, each moved to the top of
+        the order (created_at stays); one whose platform and id an active job has is skipped."""
+        snapshots = []
+        with self._lock:
+            for job_id in list(self._order):
+                job = self._jobs[job_id]
+                if job["status"] not in ("done", "error", "canceled") or not pick(job):
+                    continue
+                if any(j["platform"] == job["platform"] and j["shortcode"] == job["shortcode"]
+                       and j["status"] not in ("done", "error", "canceled") for j in self._jobs.values()):
+                    continue
+                job.update(status="queued", stage_text="Queued", progress=0.0, error=None, finished_at=None,
+                           stalled_s=None, stall_limit_s=None, interrupted=False, filepath=None, filesize=None)
+                self._order.remove(job_id)
+                self._order.append(job_id)
+                snapshots.append(_deep(job))
+        for snapshot in snapshots:
+            self._emit("job", snapshot)
+            threading.Thread(target=self._run_job, args=(snapshot["id"],), name="fake-job", daemon=True).start()
+        return snapshots
 
     def remove(self, job_id: str) -> bool:
         with self._lock:

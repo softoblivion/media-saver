@@ -208,7 +208,7 @@ class PipelineTest(unittest.TestCase):
                                         "progress", "speed_bps", "eta_s", "previewed", "title", "author", "duration_s",
                                         "thumbnail", "width", "height", "fps", "vcodec", "acodec", "filesize",
                                         "filepath", "already_existed", "transcoded", "attempt", "error", "created_at",
-                                        "finished_at", "stalled_s", "stall_limit_s"})
+                                        "finished_at", "stalled_s", "stall_limit_s", "interrupted"})
         self.assertTrue(payload["previewed"])
         self.assertFalse(os.path.exists(self.paths.job_cache(job.id) + "x"))
 

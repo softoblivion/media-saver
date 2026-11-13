@@ -266,8 +266,18 @@ class Bridge:
         """The shell's function that applies a Scale percentage to the window (zoom factor and window size)."""
         self._scale_applier = applier
 
-    def _toast(self, level: str, text: str) -> None:
-        self._pump.emit("toast", {"level": level, "text": text})
+    def _toast(self, level: str, text: str, action: Optional[dict] = None) -> None:
+        payload: dict[str, Any] = {"level": level, "text": text}
+        if action:
+            payload["action"] = action
+        self._pump.emit("toast", payload)
+
+    def _file_not_found(self, job_id: str) -> None:
+        """The toast of open_file / reveal_file on a missing file; a done job's toast offers to download it again."""
+        action = None
+        if self._engine.can_download_again(job_id):
+            action = {"label": "Download again", "method": "download_again", "id": job_id}
+        self._toast("warning", "File not found. It may have been moved or deleted.", action)
 
     def _on_window_state(self, focused: Optional[bool] = None) -> None:
         """Called by the native focus events; emits `window` ({"focused": bool}) when the focus state changed.
@@ -343,6 +353,18 @@ class Bridge:
         return bool(self._engine.retry(str(id)))
 
     @_api
+    def retry_failed(self, platform=None):
+        return int(self._engine.retry_failed(_as_choice(platform, "platform")))
+
+    @_api
+    def resume_interrupted(self):
+        return int(self._engine.resume_interrupted())
+
+    @_api
+    def download_again(self, id):  # noqa: A002
+        return bool(self._engine.download_again(str(id)))
+
+    @_api
     def remove(self, id):  # noqa: A002
         return bool(self._engine.remove(str(id)))
 
@@ -355,7 +377,7 @@ class Bridge:
     def open_file(self, id):  # noqa: A002
         path = self._engine.job_file(str(id))
         if not path or not os.path.exists(path):
-            self._toast("warning", "File not found. It may have been moved or deleted.")
+            self._file_not_found(str(id))
             return False
         return winutil.open_path(path)
 
@@ -363,7 +385,7 @@ class Bridge:
     def reveal_file(self, id):  # noqa: A002
         path = self._engine.job_file(str(id))
         if not path or not os.path.exists(path):
-            self._toast("warning", "File not found. It may have been moved or deleted.")
+            self._file_not_found(str(id))
             return False
         return winutil.reveal_in_explorer(path)
 

@@ -113,6 +113,34 @@ function entrance() {
   }
 }
 
+// Bridge methods a toast from the app may run from its button (BRIDGE_API.md, event `toast`).
+const TOAST_METHODS = new Set(['download_again']);
+
+/** The kit toast's action for a toast event's `action` ({label, method, id}); none for an unknown method. */
+function toastAction(a) {
+  if (!a || !TOAST_METHODS.has(a.method)) return {};
+  return {
+    action: {
+      label: a.label,
+      run: () => call(a.method, a.id)
+        .then((ok) => ok || toast('info', 'This item can no longer be downloaded again'))
+        .catch((err) => toast('error', err.message)),
+    },
+  };
+}
+
+/** Jobs the last app close interrupted: one notice on start offers to queue them again; nothing starts
+ *  until its button is pressed. */
+function offerResume(jobs) {
+  const n = jobs.filter((j) => j.interrupted).length;
+  if (!n) return;
+  const text = n === 1 ? '1 download was interrupted when the app closed' : `${n} downloads were interrupted when the app closed`;
+  toast('info', text, {
+    sticky: true,
+    action: { label: 'Resume', run: () => call('resume_interrupted').catch((err) => toast('error', err.message)) },
+  });
+}
+
 async function boot() {
   initScene();
   initLight();
@@ -144,7 +172,8 @@ async function boot() {
   initClipboard(state.settings, getJobs);
   initSound(state);
 
-  on('toast', (t) => t && toast(t.level || 'info', t.text));
+  on('toast', (t) => t && toast(t.level || 'info', t.text, toastAction(t.action)));
+  offerResume(state.jobs || []);
   on('window', (w) => {
     if (!w) return;
     setFocused(!!w.focused);

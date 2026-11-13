@@ -325,6 +325,36 @@ class JobTests(FakeBase):
         self.assertEqual(job["error"]["code"], "timeout")
         self.assertIsNone(job["stalled_s"])
 
+    def _status(self, job_id):
+        return next(j for j in self.engine.get_state()["jobs"] if j["id"] == job_id)["status"]
+
+    def test_retry_failed_and_resume_interrupted(self):
+        with mock.patch("app.fake_engine.time.sleep", lambda s: None):
+            ig = self.engine.enqueue("https://www.instagram.com/reel/failAAAA1/")["added"][0]["id"]
+            self.assertTrue(self.wait_for(lambda: self._status(ig) == "error", 20))
+            self.assertEqual(self.engine.retry_failed("youtube"), 0)
+            self.assertEqual(self.engine.retry_failed("instagram"), 1)
+            self.assertTrue(self.wait_for(lambda: self._status(ig) == "error", 20))
+            with self.engine._lock:  # as a job restored after a close
+                self.engine._jobs[ig].update(status="canceled", interrupted=True)
+            self.assertEqual(self.engine.resume_interrupted(), 1)
+            self.assertFalse(next(j for j in self.engine.get_state()["jobs"] if j["id"] == ig)["interrupted"])
+            self.assertEqual(self.engine.resume_interrupted(), 0)
+            self.assertTrue(self.wait_for(lambda: self._status(ig) == "error", 20))
+
+    def test_download_again_after_the_file_is_gone(self):
+        with mock.patch("app.fake_engine.time.sleep", lambda s: None):
+            job_id = self.engine.enqueue(IG)["added"][0]["id"]
+            self.assertTrue(self.wait_for(lambda: self._status(job_id) == "done", 20))
+            path = next(j for j in self.engine.get_state()["jobs"] if j["id"] == job_id)["filepath"]
+            self.assertFalse(self.engine.can_download_again(job_id))
+            self.assertFalse(self.engine.download_again(job_id))
+            os.remove(path)
+            self.assertTrue(self.engine.can_download_again(job_id))
+            self.assertTrue(self.engine.download_again(job_id))
+            self.assertTrue(self.wait_for(lambda: self._status(job_id) == "done", 20))
+        self.assertTrue(os.path.isfile(path))
+
     def test_clear_finished_filters_by_platform(self):
         with mock.patch("app.fake_engine.time.sleep", lambda s: None):
             self.engine.enqueue(f"{IG} {YT}")

@@ -238,6 +238,18 @@ class Engine:
     def retry(self, job_id: str) -> bool:
         return self.downloader.retry(job_id)
 
+    def retry_failed(self, platform: str | None = None) -> int:
+        return self.downloader.retry_failed(_platform(platform))
+
+    def resume_interrupted(self) -> int:
+        return self.downloader.resume_interrupted()
+
+    def download_again(self, job_id: str) -> bool:
+        return self.downloader.download_again(job_id)
+
+    def can_download_again(self, job_id: str) -> bool:
+        return self.downloader.can_download_again(job_id)
+
     def remove(self, job_id: str) -> bool:
         return self.downloader.remove(job_id)
 
