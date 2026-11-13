@@ -22,8 +22,22 @@ A download that receives no data shows *No progress for …* on its card with th
 download is stopped after 5 minutes without data, a conversion after 10 minutes without progress; the card then
 shows the reason and **Retry**. A slow download that keeps receiving data is never stopped.
 
-Closing the app stops running and queued downloads. On the next start a notice lists how many were interrupted and
-offers **Resume**; nothing starts until it is pressed. The offer lasts until the app is closed again.
+Closing the app stops running and queued downloads. On the next start a row at the top of the queue says how many
+of the current platform's downloads were interrupted and offers **Resume**, which starts exactly those again;
+nothing starts until it is pressed. A click elsewhere on the row or its **×** closes it; the interrupted cards keep
+their own **Retry**.
+
+## Window
+
+The window resizes from any edge or corner, down to a minimum of 940 × 640 at Scale 100 %. A taller window shows
+more of the queue; a wider one widens the two panels up to a maximum width, beyond which they stay centred. The
+window has no maximize: the title-bar double click, Win+Up and a drag to the top of the screen leave its size as it
+is, while a drag to the left or right edge still snaps it to that half of the screen. Its size and place are kept
+for the next start; a window whose screen is no longer connected opens in the middle of the main screen.
+
+A **Scale** change in Settings grows or shrinks the window around its centre by the same ratio. A step whose
+minimum window does not fit the screen is dimmed. Moving the window to a screen with another Windows display scale
+keeps its size relative to the content and the page sharp.
 
 If Instagram refuses a reel without an account, the card offers **Sign in to Instagram**. After sign-in, the
 failed jobs retry automatically. YouTube, TikTok and X videos that require a signed-in viewer (age-restricted,
@@ -65,7 +79,8 @@ Stored in `media-saver_data\settings.json`. The second column names where the se
 | `auto_download_updates` | Settings > Updates > **Download updates automatically** | `true` | Download a new version in the background; installing is always a click on **Restart**; a new major version is never downloaded this way |
 | `skipped_major` | **Stay on N.x** in the sheet of a new major version | `null` | The major version whose notice stays off; **Switch to X.0** clears it |
 | `theme` | Settings > Appearance > **Theme** | `dusk` | Colour theme of the window: `dusk`, `nova`, `frost` or `bloom` |
-| `ui_scale` | Settings > Appearance > **Scale** | `100` | Size of the whole window and its text in percent, on top of the Windows display scaling: `100`, `125`, `150`, `175` or `200`. The window grows with the step; on a small screen it takes a smaller layout step so it still fits |
+| `ui_scale` | Settings > Appearance > **Scale** | `100` | Size of the whole window and its text in percent, on top of the Windows display scaling: `100`, `125`, `150`, `175` or `200`. The window grows with the step around its centre; a step whose minimum window does not fit the screen is dimmed |
+| `window` | Moving or resizing the window | *(none)* | The window's last place and size, restored at the next start |
 
 ## Link cleaning rules
 
