@@ -11,6 +11,7 @@ from app.core.linkclean import LinkResult, clean_link, clean_text, extract_candi
 SC = "DAbC123xYz_"
 R = f"https://www.instagram.com/reel/{SC}"
 P = f"https://www.instagram.com/p/{SC}"
+P2 = "https://www.instagram.com/p/XYz987AbC_q"  # another post
 
 # (raw, clean, kind, error)
 CLEAN_LINK_CASES = [
@@ -147,12 +148,12 @@ class CleanTextTests(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(clean_text(""), {"items": [], "clean_text": "", "valid": 0, "invalid": 0, "duplicates": 0})
 
-    def test_dedup_by_clean_url_keeps_first(self):
-        res = clean_text(f"{R}/?igsh=a\n{R}/?igsh=b\n{R}\n{P}")
-        self.assertEqual([i["clean"] for i in res["items"]], [R, P])
+    def test_dedup_by_platform_and_id_keeps_first(self):
+        res = clean_text(f"{R}/?igsh=a\n{R}/?igsh=b\n{R}\n{P}\n{P2}")
+        self.assertEqual([i["clean"] for i in res["items"]], [R, P2])
         self.assertEqual(res["items"][0]["original"], f"{R}/?igsh=a")
-        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (2, 0, 2))
-        self.assertEqual(res["clean_text"], f"{R}\n{P}")
+        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (2, 0, 3))
+        self.assertEqual(res["clean_text"], f"{R}\n{P2}")
 
     def test_shortcode_case_not_merged(self):
         res = clean_text("instagram.com/reel/AbCdEf instagram.com/reel/abcdef")
@@ -168,7 +169,7 @@ class CleanTextTests(unittest.TestCase):
         text = (
             "Hallo! Hier die Reels:\r\n"
             f"1) {R}/?igsh=aaa\r\n"
-            f"2) [hier]({P}?img_index=1), und noch https://example.com/x.\r\n"
+            f"2) [hier]({P2}?img_index=1), und noch https://example.com/x.\r\n"
             "3) https://www.instagram.com/someuser/\r\n"
             "4) https://www.instagram.com/reel/\r\n"
             f"5) {R}/?utm_source=x 🙏"
@@ -176,11 +177,11 @@ class CleanTextTests(unittest.TestCase):
         res = clean_text(text)
         self.assertEqual([i["error"] for i in res["items"]], [None, None, "not_supported", "unsupported_path", "no_shortcode"])
         self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (2, 3, 1))
-        self.assertEqual(res["clean_text"], f"{R}\n{P}")
+        self.assertEqual(res["clean_text"], f"{R}\n{P2}")
 
     def test_glued_links(self):
-        res = clean_text(f"{R}/?igsh=abc{P}/?igsh=def")
-        self.assertEqual(res["clean_text"], f"{R}\n{P}")
+        res = clean_text(f"{R}/?igsh=abc{P2}/?igsh=def")
+        self.assertEqual(res["clean_text"], f"{R}\n{P2}")
 
     def test_wrapped_link_in_text(self):
         wrapped = "https://l.instagram.com/?u=https%3A%2F%2Fwww.instagram.com%2Freel%2F" + SC + "%2F&e=1"
@@ -313,7 +314,7 @@ class MixedPlatformTests(unittest.TestCase):
         f"1) {R}/?igsh=aaa\n"
         f"2) https://youtu.be/{YID}?t=10\n"
         f"3) https://www.youtube.com/watch?v={YID}&list=PL1\n"   # same video as 2) -> duplicate
-        f"4) https://www.youtube.com/shorts/{YID}\n"             # other kind -> its own URL
+        f"4) https://www.youtube.com/shorts/{YID}\n"             # same video as 2) in its Shorts form -> duplicate
         f"5) instagram.com/reel/{SC}\n"                          # duplicate of 1)
         "6) https://www.youtube.com/@someone\n"
         "7) https://vimeo.com/1\n"
@@ -323,30 +324,37 @@ class MixedPlatformTests(unittest.TestCase):
     def test_both_platforms(self):
         res = clean_text(self.TEXT)
         self.assertEqual([(i["platform"], i["kind"], i["error"]) for i in res["items"]], [
-            ("instagram", "reel", None), ("youtube", "video", None), ("youtube", "shorts", None),
+            ("instagram", "reel", None), ("youtube", "video", None),
             ("youtube", None, "unsupported_path"), (None, None, "not_supported"), ("youtube", "video", None)])
-        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (4, 2, 2))
-        self.assertEqual(res["clean_text"].split("\n"), [R, YV, YS, f"https://www.youtube.com/watch?v={YID2}"])
+        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (3, 2, 3))
+        self.assertEqual(res["clean_text"].split("\n"), [R, YV, f"https://www.youtube.com/watch?v={YID2}"])
 
     def test_youtube_mode(self):
         res = clean_text(self.TEXT, "youtube")
         first = res["items"][0]
         self.assertEqual((first["error"], first["clean"], first["shortcode"], first["platform"], first["kind"]),
                          ("other_platform", R, SC, "instagram", "reel"))
-        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (3, 3, 2))
-        self.assertEqual(res["clean_text"].split("\n"), [YV, YS, f"https://www.youtube.com/watch?v={YID2}"])
+        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (2, 3, 3))
+        self.assertEqual(res["clean_text"].split("\n"), [YV, f"https://www.youtube.com/watch?v={YID2}"])
 
     def test_instagram_mode(self):
         res = clean_text(self.TEXT, "instagram")
         self.assertEqual([i["error"] for i in res["items"]],
-                         [None, "other_platform", "other_platform", "unsupported_path", "not_supported",
-                          "other_platform"])
-        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (1, 5, 2))
+                         [None, "other_platform", "unsupported_path", "not_supported", "other_platform"])
+        self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (1, 4, 3))
         self.assertEqual(res["clean_text"], R)
 
     def test_unknown_platform(self):
         with self.assertRaises(ValueError):
             clean_text(R, "vimeo")
+
+    def test_one_video_in_two_link_forms_counts_once(self):
+        # the preview counts what enqueue adds: one job per platform + id, the first form pasted is kept
+        for text, kept in ((f"{YS} {YV}", YS), (f"{YV}\n{YS}", YV), (f"{P} {R}", P)):
+            with self.subTest(text=text):
+                res = clean_text(text)
+                self.assertEqual((res["valid"], res["invalid"], res["duplicates"]), (1, 0, 1))
+                self.assertEqual(res["clean_text"], kept)
 
 
 TTID = "7106594312292453675"
@@ -689,28 +697,29 @@ class FourPlatformTests(unittest.TestCase):
         self.assertEqual(res["clean_text"], f"https://x.com/u/status/{XID}")
         self.assertEqual((res["valid"], res["duplicates"]), (1, 3))
 
-    def test_i_web_status_is_a_different_url_than_the_user_form(self):
+    def test_i_web_status_and_the_user_form_are_one_post(self):
         text = (f"{TTV}?is_from_webapp=1 https://x.com/oshtru/status/{XID}?s=20 "
                 f"https://x.com/oshtru/status/{XID}/ twitter.com/i/web/status/{XID}")
         res = clean_text(text)
-        self.assertEqual(res["clean_text"].split("\n"), [TTV, XP, XI])
-        self.assertEqual((res["valid"], res["duplicates"]), (3, 1))
+        self.assertEqual(res["clean_text"].split("\n"), [TTV, XP])
+        self.assertEqual((res["valid"], res["duplicates"]), (2, 2))
+        self.assertEqual(clean_link(f"twitter.com/i/web/status/{XID}").clean, XI)
 
     def test_tiktok_full_url_and_short_link_are_different_links(self):
+        # the numeric id of a share code is known only after the link is resolved: the two forms stay apart here
         res = clean_text(f"{TTV} {TTS} {TTN} vt.tiktok.com/ZMabcdEF1 https://www.tiktok.com/t/ZMabcdEF1")
-        self.assertEqual(res["clean_text"].split("\n"), [
-            TTV, TTS, TTN, "https://vt.tiktok.com/ZMabcdEF1", "https://www.tiktok.com/t/ZMabcdEF1"])
-        self.assertEqual((res["valid"], res["duplicates"]), (5, 0))
+        self.assertEqual(res["clean_text"].split("\n"), [TTV, TTS])
+        self.assertEqual((res["valid"], res["duplicates"]), (2, 3))
 
     def test_cli_example_prints_three_lines(self):
         text = ("see https://www.tiktok.com/@tiktok/video/7106594312292453675?is_from_webapp=1 and "
                 "https://x.com/oshtru/status/1577855540407197696?s=20 and "
-                "twitter.com/i/web/status/1577855540407197696\n")
+                "twitter.com/i/web/status/1577855540407197697\n")
         res = clean_text(text)
         self.assertEqual(res["clean_text"].split("\n"), [
             "https://www.tiktok.com/@tiktok/video/7106594312292453675",
             "https://x.com/oshtru/status/1577855540407197696",
-            "https://x.com/i/status/1577855540407197696"])
+            "https://x.com/i/status/1577855540407197697"])
         root = Path(__file__).resolve().parent.parent
         out = subprocess.run([sys.executable, "-m", "app.core.linkclean"], input=text.encode("utf-8"),
                              cwd=root, capture_output=True, timeout=60)

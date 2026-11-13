@@ -388,7 +388,9 @@ def clean_text(text: str, platform: str | None = None) -> dict:
     valid = invalid = duplicates = 0
     for cand in extract_candidates(text or ""):
         res = clean_link(cand)
-        key = res.clean if res.clean else "\0" + res.original
+        # one key per platform + id, the key Engine.enqueue de-duplicates by (shorts and watch of one video,
+        # /p/ and /reel/ of one post); an invalid link is keyed by its own text
+        key = f"{res.platform}:{res.shortcode}" if res.clean and res.shortcode else "\0" + res.original
         if key in seen:
             duplicates += 1
             continue

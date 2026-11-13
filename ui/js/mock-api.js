@@ -221,11 +221,12 @@ export function cleanLinks(text, platform = null) {
       invalid++;
       continue;
     }
-    if (seen.has(it.clean)) {
+    const key = `${it.platform}:${it.shortcode}`;  // one link per platform + id, as enqueue counts
+    if (seen.has(key)) {
       duplicates++;
       continue;
     }
-    seen.add(it.clean);
+    seen.add(key);
     valid++;
     out.push(it.clean);
   }
