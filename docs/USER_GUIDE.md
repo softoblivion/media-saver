@@ -16,7 +16,8 @@ Everything about using the app. Installation and the first steps are in the [REA
 
 While the list has failed items, the queue header shows a **Retry failed** button (the circular arrow left of
 **Clear finished**): it starts every failed item of the current platform again. A video that is already in the
-queue is not added twice.
+queue is not added twice. The header counts the items of the current platform: active, done, failed (ended in an
+error, what **Retry failed** starts again) and stopped (cancelled by hand or interrupted by closing the app).
 
 A download that receives no data shows *No progress for …* on its card with the time it is allowed to wait. A
 download is stopped after 5 minutes without data, a conversion after 10 minutes without progress; the card then
@@ -26,6 +27,10 @@ Closing the app stops running and queued downloads. On the next start a row at t
 of the current platform's downloads were interrupted and offers **Resume**, which starts exactly those again;
 nothing starts until it is pressed. A click elsewhere on the row or its **×** closes it; the interrupted cards keep
 their own **Retry**.
+
+If Instagram refuses a reel without an account, the card offers **Sign in to Instagram**. After sign-in, the
+failed jobs retry automatically. YouTube, TikTok and X videos that require a signed-in viewer (age-restricted,
+members-only, sensitive content) can use the cookies of a browser chosen in Settings.
 
 ## Window
 
@@ -41,10 +46,6 @@ largest step that fits and Settings shows that step; the chosen step comes back 
 Moving the window to a screen with another Windows display scale keeps its size relative to the content and the
 page sharp, and a window that no longer fits its screen (another screen, resolution or taskbar) is moved and
 shrunk to fit, so its title bar stays reachable.
-
-If Instagram refuses a reel without an account, the card offers **Sign in to Instagram**. After sign-in, the
-failed jobs retry automatically. YouTube, TikTok and X videos that require a signed-in viewer (age-restricted,
-members-only, sensitive content) can use the cookies of a browser chosen in Settings.
 
 ## Keyboard
 
@@ -123,7 +124,7 @@ environment variable); nothing is written to the user profile:
 |---|---|
 | `bin\` | Engine executables and their version records |
 | `auth\cookies.txt` | Session cookies from the in-app sign-in (Netscape format) |
-| `settings.json`, `history.json` | Preferences and the last 300 finished jobs of every platform |
+| `settings.json`, `history.json` | Preferences and the last 300 finished jobs of every platform; a `history.json` that cannot be read is kept as `history.json.bad` (then `.bad-2`, …) and the list starts empty |
 | `cache\` | Thumbnails and per-job working files |
 | `logs\` | `app.log`, `shell.log` and full engine output of failed jobs |
 | `webview\` | WebView2 profile of the sign-in window |

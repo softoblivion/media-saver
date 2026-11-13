@@ -8,7 +8,7 @@
 | bottle, proxy_tools | MIT | bundled into the exe |
 | cffi / pycparser | MIT-0 / BSD-3-Clause | bundled into the exe |
 | [PyInstaller](https://pyinstaller.org/) bootloader | GPL-2.0-or-later with the bootloader exception | bundled into the exe |
-| [Unbounded](https://fonts.google.com/specimen/Unbounded), [Geist Mono](https://github.com/vercel/geist-font) fonts | SIL Open Font License 1.1 | bundled into the exe |
+| [Sora](https://github.com/sora-xor/sora-font), [Geist Mono](https://github.com/vercel/geist-font) fonts | SIL Open Font License 1.1 | bundled into the exe |
 | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | Unlicense | downloaded at first start from its official release channel |
 | [gallery-dl](https://codeberg.org/mikf/gallery-dl) | GPL-2.0 | downloaded at first start from its official release channel |
 | [FFmpeg](https://ffmpeg.org/) ([yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds)) | GPL | read from PATH; otherwise downloaded at first start |
