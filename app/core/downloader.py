@@ -161,20 +161,53 @@ class ProcessResult:
     stdout: str
     stderr: str
     canceled: bool = False
-    timed_out: bool = False
+    timed_out: bool = False   # ended by the wall-clock `timeout`
+    stalled: bool = False     # ended by `stall_timeout`: no activity for that long
+
+
+def tree_bytes(path: str) -> int:
+    """Total size of the files under `path` (0 when it is missing); the activity measure of a job folder."""
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+
+def _span_text(seconds: float) -> str:
+    """A time limit in words for an error message: "5 minutes", "1 minute", "45 seconds"."""
+    s = int(round(seconds))
+    if s >= 60 and s % 60 == 0:
+        return f"{s // 60} minute{'s' if s != 60 else ''}"
+    return f"{s} second{'s' if s != 1 else ''}"
 
 
 class ProcessRunner:
-    """Runs a console tool hidden, streams decoded lines, supports cancel and timeout."""
+    """Runs a console tool hidden, streams decoded lines, supports cancel, a wall-clock timeout and a stall limit.
+
+    Activity is any output line on stdout or stderr, or a change of the value `activity()` returns (polled every
+    ACTIVITY_POLL seconds; a job passes the byte total of its folder, so a merge or an encode that prints nothing
+    but writes its file counts as working). `stall_timeout` ends a process that shows no activity for that long;
+    `on_idle(seconds)` is called once a second while it has shown none for `idle_notice` seconds or more, and
+    `on_idle(None)` once when activity comes back after such a call.
+    """
 
     MAX_CAPTURE = 8 * 1024 * 1024
+    ACTIVITY_POLL = 1.0
 
     def run(self, argv: list[str], *, cwd: str | None = None,
             on_stdout: Callable[[str], None] | None = None,
             on_stderr: Callable[[str], None] | None = None,
             capture_stdout: bool = True,
             cancel: threading.Event | None = None,
-            timeout: float | None = None) -> ProcessResult:
+            timeout: float | None = None,
+            stall_timeout: float | None = None,
+            activity: Callable[[], Any] | None = None,
+            on_idle: Callable[[float | None], None] | None = None,
+            idle_notice: float = 30.0) -> ProcessResult:
         try:
             proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, env=subprocess_env(),
@@ -189,10 +222,12 @@ class ProcessRunner:
             winjob = None  # type: ignore[assignment]
         out_chunks: list[str] = []
         err_chunks: list[str] = []
+        last_active = [time.monotonic()]  # written by the pumps and the activity poll, read by the loop below
 
         def pump(stream, sink: list[str], cb, keep: bool) -> None:
             size = 0
             for raw in iter(stream.readline, b""):
+                last_active[0] = time.monotonic()
                 line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
                 if keep and size < self.MAX_CAPTURE:
                     sink.append(line)
@@ -209,16 +244,38 @@ class ProcessRunner:
         t_out.start()
         t_err.start()
         deadline = time.monotonic() + timeout if timeout else None
-        canceled = timed_out = False
+        canceled = timed_out = stalled = False
+        next_poll = time.monotonic() + self.ACTIVITY_POLL
+        seen = self._poll(activity)
+        idle_shown: int | None = None  # whole seconds last passed to on_idle, None while active
         while proc.poll() is None:
             if cancel is not None and cancel.is_set():
                 canceled = True
                 kill_tree(proc, winjob)
                 break
-            if deadline is not None and time.monotonic() > deadline:
+            now = time.monotonic()
+            if deadline is not None and now > deadline:
                 timed_out = True
                 kill_tree(proc, winjob)
                 break
+            if activity is not None and now >= next_poll:
+                next_poll = now + self.ACTIVITY_POLL
+                value = self._poll(activity)
+                if value != seen:
+                    seen = value
+                    last_active[0] = now
+            idle = now - last_active[0]
+            if stall_timeout is not None and idle > stall_timeout:
+                stalled = True
+                kill_tree(proc, winjob)
+                break
+            if on_idle is not None:
+                if idle >= idle_notice and int(idle) != idle_shown:
+                    idle_shown = int(idle)
+                    self._notify(on_idle, idle)
+                elif idle < idle_notice and idle_shown is not None:
+                    idle_shown = None
+                    self._notify(on_idle, None)
             time.sleep(0.1)
         try:
             proc.wait(timeout=10)
@@ -228,7 +285,25 @@ class ProcessRunner:
         t_err.join(timeout=5)
         if winjob is not None:
             winjob.close()
-        return ProcessResult(proc.returncode, "\n".join(out_chunks), "\n".join(err_chunks), canceled, timed_out)
+        return ProcessResult(proc.returncode, "\n".join(out_chunks), "\n".join(err_chunks), canceled, timed_out,
+                             stalled)
+
+    @staticmethod
+    def _poll(activity: Callable[[], Any] | None) -> Any:
+        if activity is None:
+            return None
+        try:
+            return activity()
+        except Exception:  # noqa: BLE001  a failing probe counts as no change
+            log.exception("activity probe failed")
+            return None
+
+    @staticmethod
+    def _notify(on_idle: Callable[[float | None], None], idle: float | None) -> None:
+        try:
+            on_idle(idle)
+        except Exception:  # noqa: BLE001  a UI callback bug must not end the process
+            log.exception("idle callback failed")
 
 
 class BinaryGate:
@@ -387,7 +462,7 @@ def mp3_stage_weights() -> dict[str, float]:
 # Error classification
 # =====================================================================================================
 
-ERROR_CODES = ("login_required", "private", "not_found", "rate_limited", "network", "engine_missing",
+ERROR_CODES = ("login_required", "private", "not_found", "rate_limited", "network", "timeout", "engine_missing",
                "ffmpeg_missing", "extractor", "disk", "canceled", "unknown")
 
 PLATFORM_NAMES = {"instagram": "Instagram", "youtube": "YouTube", "tiktok": "TikTok", "twitter": "X"}
@@ -403,6 +478,8 @@ MESSAGES = {
     "live": "Live streams and premieres are not supported.",
     "rate_limited": "Instagram has temporarily limited requests. Wait a while or sign in.",
     "network": "Can't reach Instagram. Check your internet connection.",
+    # the platform-neutral text of a time limit; _run_tool builds the message of each case (stage and minutes)
+    "timeout": "The download made no progress within its time limit and was stopped. Try again.",
     "engine_missing": "The download engine is not installed. Check your internet connection and update the engine.",
     "ffmpeg_missing": ("ffmpeg is missing: it is needed to merge video and audio and to make MP3 files. "
                        "Update the engine to fetch it."),
@@ -859,7 +936,7 @@ def plan_ladder(auth_mode: str, has_session: bool, browser: str, platform: str =
     return rungs
 
 
-STOP_CODES = {"network", "disk", "ffmpeg_missing", "engine_missing", "canceled", "not_found"}
+STOP_CODES = {"network", "timeout", "disk", "ffmpeg_missing", "engine_missing", "canceled", "not_found"}
 
 
 def ladder_action(code: str, rung: Rung, remaining: list[Rung], *, rate_retries_left: int,
@@ -977,7 +1054,7 @@ JOB_KINDS = {"instagram": ("reel", "p"), "youtube": ("video", "shorts"), "tiktok
 PUBLIC_FIELDS = ("id", "url", "shortcode", "platform", "kind", "format", "status", "stage_text", "progress",
                  "speed_bps", "eta_s", "previewed", "title", "author", "duration_s", "thumbnail", "width", "height",
                  "fps", "vcodec", "acodec", "filesize", "filepath", "already_existed", "transcoded", "attempt",
-                 "error", "created_at", "finished_at")
+                 "error", "created_at", "finished_at", "stalled_s", "stall_limit_s")
 
 
 def _kind_from_url(url: str, platform: str) -> str:
@@ -1021,6 +1098,8 @@ class Job:
     error: dict | None = None
     created_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    stalled_s: int | None = None       # seconds the running tool has shown no activity, once that passes STALL_NOTICE
+    stall_limit_s: int | None = None   # the stall limit of that stage: the tool is ended when stalled_s reaches it
     # internal
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
     removed: bool = False
@@ -1063,6 +1142,7 @@ class Job:
         if job.format not in JOB_FORMATS:
             job.format = "mp4"
         job.thumb_path = d.get("thumb_path")
+        job.stalled_s = job.stall_limit_s = None  # live state of a running tool, never restored
         if job.status not in FINISHED:
             job.status = "canceled"
             job.stage_text = "Interrupted when the app closed"
@@ -1076,6 +1156,7 @@ class Job:
     def reset_for_retry(self) -> None:
         self.status, self.stage_text, self.progress = "queued", "Queued", 0.0
         self.speed_bps = self.eta_s = None
+        self.stalled_s = self.stall_limit_s = None
         self.error = None
         self.finished_at = None
         self.already_existed = self.transcoded = False
@@ -1121,8 +1202,11 @@ class Downloader:
     CREATED_STEP = 0.001     # created_at of each added job is strictly greater than the previous one
     RATE_BACKOFF = (30.0, 90.0)
     EMIT_INTERVAL = 0.15
-    PROBE_TIMEOUT = 180.0
-    DOWNLOAD_TIMEOUT = 3600.0
+    PROBE_TIMEOUT = 180.0    # wall clock: `-J` prints nothing until it is done
+    # Downloads and conversions have no length limit; a tool is ended when it shows no activity (an output line, or
+    # a change of the job folder's byte total) for the limit of its stage.
+    STALL_LIMITS = {"download": 300.0, "convert": 600.0}
+    STALL_NOTICE = 30.0      # the card shows the stall (Job.stalled_s) after this many seconds without activity
     PREVIEW_TIMEOUT = 60.0
     PREVIEW_MAX_AGE = 600.0  # the download reuses the preview's info json while it is younger than this
 
@@ -1824,8 +1908,11 @@ class Downloader:
             raise JobFailed(code, MESSAGES[code])
         return path
 
-    def _run_tool(self, job: Job, argv: list[str], logs: list[str], *, label: str, timeout: float,
-                  on_stdout=None, on_stderr=None, capture_stdout=True, gated: bool = True) -> ProcessResult:
+    def _run_tool(self, job: Job, argv: list[str], logs: list[str], *, label: str, timeout: float | None = None,
+                  stall: str | None = None, on_stdout=None, on_stderr=None, capture_stdout=True,
+                  gated: bool = True) -> ProcessResult:
+        """Run one tool of the job. `timeout` is a wall-clock limit (the silent `-J` probes); `stall` names the
+        STALL_LIMITS stage ("download" | "convert") whose limit ends a tool that shows no activity."""
         if gated:
             waiting: dict[str, str] = {}
 
@@ -1838,20 +1925,43 @@ class Downloader:
                 raise JobCanceled()
             if waiting:
                 self._set(job, stage_text=waiting["stage"])
+        job_dir = self.paths.job_cache(job.id)
+        limit = self.STALL_LIMITS[stall] if stall else None
+        extra: dict[str, Any] = {}
+        if limit is not None:
+            def on_idle(idle: float | None) -> None:
+                if idle is None:
+                    self._set(job, stalled_s=None, stall_limit_s=None)
+                else:
+                    self._set(job, stalled_s=int(idle), stall_limit_s=int(limit), speed_bps=None, eta_s=None)
+
+            extra = {"stall_timeout": limit, "activity": lambda: tree_bytes(job_dir), "on_idle": on_idle,
+                     "idle_notice": self.STALL_NOTICE}
         try:
-            res = self.runner.run(argv, cwd=self.paths.job_cache(job.id), on_stdout=on_stdout,
-                                  on_stderr=on_stderr, capture_stdout=capture_stdout,
-                                  cancel=job.cancel_event, timeout=timeout)
+            res = self.runner.run(argv, cwd=job_dir, on_stdout=on_stdout, on_stderr=on_stderr,
+                                  capture_stdout=capture_stdout, cancel=job.cancel_event, timeout=timeout, **extra)
         finally:
             if gated:
                 self.gate.release_shared()
-        logs.append(f"$ [{label}] " + " ".join(argv) + f"\nexit: {res.returncode}"
-                    f"{' (timeout)' if res.timed_out else ''}\n{res.stderr}\n")
+            if job.stalled_s is not None:
+                self._set(job, stalled_s=None, stall_limit_s=None)
+        note = " (timeout)" if res.timed_out else f" (no activity for {limit:.0f} s)" if res.stalled else ""
+        logs.append(f"$ [{label}] " + " ".join(argv) + f"\nexit: {res.returncode}{note}\n{res.stderr}\n")
         if res.canceled or job.cancel_event.is_set():
             raise JobCanceled()
-        if res.timed_out:
-            raise JobFailed("network", message_for("network", job.platform), res.stderr)
+        if res.timed_out or res.stalled:
+            raise JobFailed("timeout", self._timeout_message(job, stall, limit if res.stalled else timeout),
+                            res.stderr)
         return res
+
+    @staticmethod
+    def _timeout_message(job: Job, stall: str | None, seconds: float | None) -> str:
+        span = _span_text(seconds or 0)
+        if stall == "convert":
+            return f"The conversion made no progress for {span} and was stopped. Try again."
+        if stall == "download":
+            return f"No data arrived for {span}, so the download was stopped. Try again."
+        return f"{job.platform_name} did not answer within {span}. Try again."
 
     def _ytdlp_base(self, rung: Rung, settings: dict, job_dir: str, platform: str = "instagram") -> list[str]:
         argv = [self._bin("yt-dlp"), "--no-config", "--encoding", "utf-8", "--color", "never",
@@ -1970,7 +2080,7 @@ class Downloader:
                     self._set(job, status="processing", stage_text="Merging tracks",
                               progress=model.set("merge", frac), speed_bps=None, eta_s=None)
 
-        res = self._run_tool(job, argv, logs, label="download", timeout=self.DOWNLOAD_TIMEOUT,
+        res = self._run_tool(job, argv, logs, label="download", stall="download",
                              on_stdout=on_line, on_stderr=on_line)
         if rung.auth == "session":
             self._after_session_run(job_dir, res.stderr)
@@ -2032,7 +2142,7 @@ class Downloader:
                 self._set(job, status="processing", stage_text="Converting to MP3",
                           progress=model.set("convert", frac), speed_bps=None, eta_s=None)
 
-        res = self._run_tool(job, argv, logs, label="download mp3", timeout=self.DOWNLOAD_TIMEOUT,
+        res = self._run_tool(job, argv, logs, label="download mp3", stall="download",
                              on_stdout=on_line, on_stderr=on_line)
         if rung.auth == "session":
             self._after_session_run(job_dir, res.stderr)
@@ -2181,7 +2291,7 @@ class Downloader:
                 eta = int(elapsed / frac - elapsed) if frac > 0.02 else None
                 self._set(job, force=False, progress=model.set("transcode", frac), eta_s=eta)
 
-        res = self._run_tool(job, argv, logs, label="transcode", timeout=self.DOWNLOAD_TIMEOUT,
+        res = self._run_tool(job, argv, logs, label="transcode", stall="convert",
                              on_stdout=on_line, gated=False)
         if res.returncode != 0 or not os.path.exists(dst):
             code, msg = classify_error(res.stderr, job.platform)
@@ -2280,7 +2390,7 @@ class Downloader:
 
         res = self._run_tool(job, base + ["-D", out_dir, "-f", "{shortcode}_{num}.{extension}", "--no-mtime",
                                           "--filter", "extension == 'mp4'", job.url], logs,
-                             label="gallery-dl download", timeout=self.DOWNLOAD_TIMEOUT, on_stdout=on_out)
+                             label="gallery-dl download", stall="download", on_stdout=on_out)
         if not files and os.path.isdir(out_dir):
             files = sorted(os.path.join(out_dir, n) for n in os.listdir(out_dir) if n.lower().endswith(".mp4"))
         files = [f for f in files if os.path.exists(f)]
@@ -2297,10 +2407,10 @@ class Downloader:
         ffmpeg = self._bin("ffmpeg")
         dst = os.path.join(os.path.dirname(src), "media.mp3")
         argv = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", src, "-vn",
-                "-map", "0:a:0", "-c:a", "libmp3lame", "-b:a", f"{kbps}k", dst]
+                "-map", "0:a:0", "-c:a", "libmp3lame", "-b:a", f"{kbps}k", "-progress", "pipe:1", "-nostats", dst]
         self._set(job, status="processing", stage_text="Converting to MP3", progress=model.set("convert", 0.1),
                   speed_bps=None, eta_s=None)
-        res = self._run_tool(job, argv, logs, label="mp3", timeout=self.DOWNLOAD_TIMEOUT, gated=False)
+        res = self._run_tool(job, argv, logs, label="mp3", stall="convert", gated=False, capture_stdout=False)
         if res.returncode != 0 or not os.path.exists(dst):
             if re.search(r"matches no streams|does not contain any stream", res.stderr, re.I):
                 raise JobFailed("not_found", message_for("no_audio", job.platform), res.stderr)

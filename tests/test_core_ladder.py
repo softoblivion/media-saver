@@ -87,7 +87,8 @@ class FakeRunner:
         self.calls = []
         self.transcode = transcode
 
-    def run(self, argv, *, cwd=None, on_stdout=None, on_stderr=None, capture_stdout=True, cancel=None, timeout=None):
+    def run(self, argv, *, cwd=None, on_stdout=None, on_stderr=None, capture_stdout=True, cancel=None, timeout=None,
+            **stall):
         self.calls.append(list(argv))
         exe = os.path.basename(argv[0])
         if exe.startswith("ffprobe"):
@@ -207,7 +208,7 @@ class PipelineTest(unittest.TestCase):
                                         "progress", "speed_bps", "eta_s", "previewed", "title", "author", "duration_s",
                                         "thumbnail", "width", "height", "fps", "vcodec", "acodec", "filesize",
                                         "filepath", "already_existed", "transcoded", "attempt", "error", "created_at",
-                                        "finished_at"})
+                                        "finished_at", "stalled_s", "stall_limit_s"})
         self.assertTrue(payload["previewed"])
         self.assertFalse(os.path.exists(self.paths.job_cache(job.id) + "x"))
 

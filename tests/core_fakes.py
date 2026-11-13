@@ -156,7 +156,8 @@ class ScriptedRunner:
         with self.lock:
             return [c for c in self.calls if os.path.basename(c[0]).startswith("yt-dlp") and flag in c]
 
-    def run(self, argv, *, cwd=None, on_stdout=None, on_stderr=None, capture_stdout=True, cancel=None, timeout=None):
+    def run(self, argv, *, cwd=None, on_stdout=None, on_stderr=None, capture_stdout=True, cancel=None, timeout=None,
+            **stall):  # stall_timeout / activity / on_idle / idle_notice: a scripted run never stalls
         with self.lock:
             self.calls.append(list(argv))
         exe = os.path.basename(argv[0])
