@@ -1,20 +1,30 @@
 """A stand-in for a long yt-dlp or ffmpeg run, started as a real child process by the stall tests.
 
-Usage: python fake_slow_tool.py <mode> <seconds> <out_path>
+Usage: python fake_slow_tool.py <mode> <seconds> <out_path> [<times_path>]
   lines   print a yt-dlp progress line every 0.1 s for <seconds>, then write <out_path> and print its file mark
   writes  print nothing, append to <out_path> every 0.2 s for <seconds> (a merge or an encode that only writes),
           then print the file mark
   silent  print one progress line, then nothing for <seconds>
   pause   print one progress line, nothing for <seconds>, then progress lines for 0.5 s
+<times_path>, when given, gets the time.monotonic() of each line or write (one per line; the clock is system-wide
+on Windows), so a test can tell its own silences from a host that stalled the child.
 """
 import json
 import sys
 import time
 
 PROGRESS = '[[IDLP]]{"s":"downloading","d":%d,"t":100000,"te":NA,"sp":5000,"eta":9,"f":"299","vc":"avc1"}'
+TIMES = sys.argv[4] if len(sys.argv) > 4 else None
+
+
+def mark() -> None:
+    if TIMES:
+        with open(TIMES, "a", encoding="ascii") as fh:
+            fh.write(f"{time.monotonic()!r}\n")
 
 
 def say(line: str) -> None:
+    mark()
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
 
@@ -32,6 +42,7 @@ def main() -> int:
             fh.write(b"MP4" * 100)
     elif mode == "writes":
         while time.monotonic() < end:
+            mark()
             with open(out, "ab") as fh:
                 fh.write(b"x" * 64)
             time.sleep(0.2)

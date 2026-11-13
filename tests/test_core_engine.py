@@ -45,7 +45,10 @@ class EngineTest(unittest.TestCase):
         self.engine.selfupdate.check_background = lambda: calls.append(1)
         self.engine.selfupdate.status = lambda: {"stage": "up_to_date"}
         self.engine.update_scheduler.start()
-        time.sleep(0.3)
+        # Waits for the second check rather than a fixed time: a loaded machine can start the thread late.
+        deadline = time.monotonic() + 5
+        while len(calls) < 2 and time.monotonic() < deadline:
+            time.sleep(0.02)
         self.engine.shutdown()
         self.engine.update_scheduler._thread.join(1.0)
         self.assertFalse(self.engine.update_scheduler._thread.is_alive())

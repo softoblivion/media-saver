@@ -309,9 +309,11 @@ class PipelineTest(unittest.TestCase):
         runner = FakeRunner([("ok", None), ("ok", None)])
         dl = self.make(runner)
         dl.on_queue_drained = lambda done, failed: drained.set()
-        dl.start()
+        # Both jobs are queued before the workers start: a worker started first may finish the first job before
+        # the second is added, and that is a real drain of a one-job queue.
         dl.add("https://www.instagram.com/reel/DQCkNLtgqEe", "DQCkNLtgqEe", "instagram", "reel", "mp4")
         dl.add("https://www.instagram.com/reel/BBB", "BBB", "instagram", "reel", "mp4")
+        dl.start()
         self.assertTrue(drained.wait(10))
         statuses = sorted(j["status"] for j in dl.jobs())
         self.assertEqual(statuses, ["done", "done"])

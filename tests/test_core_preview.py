@@ -269,7 +269,7 @@ class PreviewTest(CoreTestBase, unittest.TestCase):
             t.join(2)
 
     def test_pool_fetches_in_parallel(self):
-        runner = ScriptedRunner(YT_INFO, probes=[("slow", 0.4)] * 4)
+        runner = ScriptedRunner(YT_INFO, probes=[("slow", 1.0)] * 4)
         active, peak, lock = [0], [0], threading.Lock()
         orig = runner.run
 
@@ -294,7 +294,9 @@ class PreviewTest(CoreTestBase, unittest.TestCase):
         self.assertTrue(self.wait(lambda: all(j.previewed for j in jobs)))
         elapsed = time.monotonic() - started
         self.assertEqual(peak[0], 3)            # three fetches at once, never more
-        self.assertLess(elapsed, 1.5)           # serially four fetches would take 1.6 s and more
+        # Two rounds take 2 s; serially four fetches would take 4 s. The margin holds the thread starts of a
+        # loaded machine (they added 0.8 s to a 0.8 s pair of rounds there).
+        self.assertLess(elapsed, 3.6)
         self.assertEqual(len(runner.ytdlp_calls("-J")), 4)  # each job fetched once
         self.assertEqual({c[-1] for c in runner.ytdlp_calls("-J")[:3]}, {j.url for j in jobs[:3]})  # top three first
         self.assertTrue(all(j.title == YT_TITLE for j in jobs))

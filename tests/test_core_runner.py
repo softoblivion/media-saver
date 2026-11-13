@@ -2,6 +2,7 @@
 ProcessRunner (a process that keeps working is never ended for its length; one that goes silent is)."""
 import os
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -16,8 +17,41 @@ YT_URL = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
 TOOL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fake_slow_tool.py")
 
 
-def tool(mode, seconds, out):
-    return [sys.executable, "-I", TOOL, mode, str(seconds), out]
+def tool(mode, seconds, out, times=None):
+    return [sys.executable, "-I", TOOL, mode, str(seconds), out] + ([times] if times else [])
+
+
+def longest_silence(times_path, spawned, returned):
+    """The longest span in which the child showed no sign of life: from the spawn to its first mark, between its
+    marks, and from its last mark to the run's return (fake_slow_tool's <times_path>, time.monotonic())."""
+    try:
+        with open(times_path, encoding="ascii") as fh:
+            marks = [float(x) for x in fh.read().split()]
+    except OSError:
+        marks = []
+    points = [spawned] + marks + [returned]
+    return max(b - a for a, b in zip(points, points[1:]))
+
+
+def run_working(test, attempt, limit, tries=3):
+    """Runs `attempt(times_path)` -> (result, stalled) until a run is not stalled. A stalled run fails the test
+    when the child was never silent for `limit` (the runner ended a working child); one whose child was silent
+    that long met a host that stalled the child (its interpreter start or its output under a heavy load), which
+    is what the limit is for, so it is tried again, and the test is skipped when every try met such a host."""
+    silences = []
+    for _ in range(tries):
+        with tempfile.TemporaryDirectory(prefix="ms_times_") as folder:
+            times = os.path.join(folder, "times.txt")
+            spawned = time.monotonic()
+            res, stalled = attempt(times)
+            returned = time.monotonic()
+            if not stalled:
+                return res
+            silence = longest_silence(times, spawned, returned)
+        test.assertGreaterEqual(silence, limit, f"a child silent for at most {silence:.2f} s was ended by the "
+                                                f"{limit} s stall limit")
+        silences.append(round(silence, 2))
+    test.skipTest(f"the host stalled the child past the {limit} s limit in every try (silences {silences} s)")
 
 
 def wait_for(predicate, timeout=5.0):
@@ -57,8 +91,16 @@ class GateWaitTest(CoreTestBase, unittest.TestCase):
         self.assertEqual(self.job_events(job.id)[1:], [])  # only the add event
 
 
+# The stall clock starts when the child is spawned, so the child's interpreter start counts as silence. That start
+# takes about 0.1 s on an idle machine, more than 1 s on a loaded one and, on a host at full load, longer than any
+# limit a test can afford: a test that needs a working run to survive gives it a limit of OUTLIVE_LIMIT and a run
+# longer than that, never a 1 s limit, and goes through run_working, which tells a host stall from a runner defect.
+OUTLIVE_LIMIT = 3.0
+OUTLIVE_RUN = 4.0
+
+
 class StallLimitTest(unittest.TestCase):
-    """ProcessRunner with real child processes (tests/fake_slow_tool.py) and a stall limit of 1 s."""
+    """ProcessRunner with real child processes (tests/fake_slow_tool.py) and stall limits scaled to seconds."""
 
     def setUp(self):
         import tempfile
@@ -71,15 +113,21 @@ class StallLimitTest(unittest.TestCase):
         import shutil
         shutil.rmtree(self.dir, ignore_errors=True)
 
+    def run_tool(self, argv, **kw):
+        res = self.runner.run(argv, **kw)
+        return res, res.stalled
+
     def test_a_run_that_keeps_printing_outlives_the_limit(self):
         started = time.monotonic()
-        res = self.runner.run(tool("lines", 2.5, self.out), stall_timeout=1.0)
-        self.assertGreater(time.monotonic() - started, 2.4)
+        res = run_working(self, lambda times: self.run_tool(tool("lines", OUTLIVE_RUN, self.out, times),
+                                                            stall_timeout=OUTLIVE_LIMIT), OUTLIVE_LIMIT)
+        self.assertGreater(time.monotonic() - started, OUTLIVE_RUN - 0.1)
         self.assertEqual((res.returncode, res.stalled, res.timed_out), (0, False, False), res.stderr)
 
     def test_a_run_that_only_writes_its_file_outlives_the_limit(self):
-        res = self.runner.run(tool("writes", 2.5, self.out), stall_timeout=1.0,
-                              activity=lambda: tree_bytes(self.dir))
+        res = run_working(self, lambda times: self.run_tool(tool("writes", OUTLIVE_RUN, self.out, times),
+                                                            stall_timeout=OUTLIVE_LIMIT,
+                                                            activity=lambda: tree_bytes(self.dir)), OUTLIVE_LIMIT)
         self.assertEqual((res.returncode, res.stalled), (0, False), res.stderr)
 
     def test_a_silent_run_is_ended_at_the_limit(self):
@@ -87,27 +135,38 @@ class StallLimitTest(unittest.TestCase):
         started = time.monotonic()
         res = self.runner.run(tool("silent", 30, self.out), stall_timeout=1.0,
                               activity=lambda: tree_bytes(self.dir), on_idle=idle.append, idle_notice=0.3)
-        self.assertLess(time.monotonic() - started, 10)
+        # Ended by the limit, long before the child's own 30 s; the bound leaves room for a slow kill and start
+        # on a loaded host.
+        self.assertLess(time.monotonic() - started, 20)
         self.assertTrue(res.stalled)
         self.assertFalse(res.timed_out)
-        self.assertTrue(idle and all(s is not None and s >= 0.3 for s in idle), idle)
+        # The child's interpreter start may take longer than the notice on a loaded machine, so a notice and its
+        # clearing can come before the first line; the run ends while it is silent.
+        self.assertTrue(idle and all(s is None or s >= 0.3 for s in idle), idle)
+        self.assertIsNotNone(idle[-1], idle)
 
     def test_the_idle_notice_clears_when_output_comes_back(self):
         idle = []
-        res = self.runner.run(tool("pause", 1.2, self.out), stall_timeout=5.0, on_idle=idle.append,
-                              idle_notice=0.3)
+
+        def attempt(times):
+            idle.clear()
+            return self.run_tool(tool("pause", 1.2, self.out, times), stall_timeout=5.0, on_idle=idle.append,
+                                 idle_notice=0.3)
+        res = run_working(self, attempt, 5.0)
         self.assertEqual((res.returncode, res.stalled), (0, False))
-        self.assertGreater(len(idle), 1, idle)
-        self.assertIsNotNone(idle[0])
-        self.assertIsNone(idle[-1])  # activity came back: the card leaves the stalled state
+        # The 1.2 s pause gives a notice of 1 s or more; the lines after it clear it. A notice may follow again in
+        # the child's exit after its last line, so the clearing is looked for after the pause, not at the end.
+        paused = next((i for i, s in enumerate(idle) if s is not None and s >= 1.0), None)
+        self.assertIsNotNone(paused, idle)
+        self.assertIn(None, idle[paused + 1:], idle)  # activity came back: the card leaves the stalled state
 
 
 class SlowDownloadRunner(ScriptedRunner):
     """ScriptedRunner whose download call (`--load-info-json`) is a real child process: `mode` of fake_slow_tool."""
 
-    def __init__(self, info, mode, seconds):
+    def __init__(self, info, mode, seconds, times=None):
         super().__init__(info)
-        self.mode, self.seconds = mode, seconds
+        self.mode, self.seconds, self.times = mode, seconds, times
         self.real = ProcessRunner()
         self.real.ACTIVITY_POLL = 0.2
 
@@ -117,23 +176,26 @@ class SlowDownloadRunner(ScriptedRunner):
         with self.lock:
             self.calls.append(list(argv))
         out = argv[argv.index("-o") + 1].replace("%(ext)s", "mp4")
-        return self.real.run(tool(self.mode, self.seconds, out), **kw)
+        return self.real.run(tool(self.mode, self.seconds, out, self.times), **kw)
 
 
 class JobStallTest(CoreTestBase, unittest.TestCase):
-    """The download stage of a job: no wall-clock limit, a stall limit (scaled to 1 s here) and its error code."""
+    """The download stage of a job: no wall-clock limit, a stall limit (scaled to seconds here) and its error code."""
 
-    def run_download(self, mode, seconds):
-        dl = self.make(SlowDownloadRunner(YT_INFO, mode, seconds))
-        dl.DOWNLOAD_TIMEOUT = 1.0  # the former one-hour wall-clock limit, scaled like the stall limit
-        dl.STALL_LIMITS = {"download": 1.0, "convert": 1.0}
+    def run_download(self, mode, seconds, limit=1.0, times=None):
+        dl = self.make(SlowDownloadRunner(YT_INFO, mode, seconds, times))
+        dl.DOWNLOAD_TIMEOUT = 1.0  # the former one-hour wall-clock limit, scaled to below the run
+        dl.STALL_LIMITS = {"download": limit, "convert": limit}
         dl.STALL_NOTICE = 0.3
         job = dl.get(dl.add(YT_URL, "aqz-KE-bpKQ", "youtube", "video", "mp4")["id"])
         dl._run_job(job)
         return dl, job
 
     def test_a_download_that_keeps_working_past_the_old_limit_finishes(self):
-        _, job = self.run_download("lines", 2.5)
+        def attempt(times):
+            _, job = self.run_download("lines", OUTLIVE_RUN, OUTLIVE_LIMIT, times)
+            return job, bool(job.error) and job.error["code"] == "timeout"
+        job = run_working(self, attempt, OUTLIVE_LIMIT)
         self.assertEqual(job.status, "done", job.error)
         self.assertTrue(os.path.isfile(job.filepath))
 

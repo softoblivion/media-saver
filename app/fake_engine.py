@@ -448,8 +448,11 @@ class FakeEngine:
             found = {"title": _demo_title(platform, code), "author": _demo_author(platform, code),
                      "duration_s": round(self._rnd.uniform(12, 95), 1),
                      "thumbnail": _thumbnail_data_uri(sum(map(ord, code)))}
-            fields = {k: v for k, v in found.items() if not job.get(k)}
-        self._update_job(job_id, previewed=True, **fields)
+            # Checked and written under one lock: a job that started meanwhile has its probe's values (its file
+            # size is computed from its duration), which a preview must never overwrite.
+            job.update({k: v for k, v in found.items() if not job.get(k)}, previewed=True)
+            snapshot = _deep(job)
+        self._emit("job", snapshot)
 
     def _run_job(self, job_id: str) -> None:
         def canceled() -> bool:
