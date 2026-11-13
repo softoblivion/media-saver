@@ -404,7 +404,13 @@ function patch(el, j) {
   if (pending && (j.status === 'queued' || j.status === 'probing' || !stage)) stage = 'Fetching preview';
   set(el, '.jc-stage', stage);
   const meta = [];
-  if (j.status === 'downloading' || j.status === 'processing') {
+  // Stalled: the running tool showed no activity for a while; it is stopped when stalled_s reaches the limit.
+  const stalled = ACTIVE.has(j.status) && j.stalled_s != null;
+  el.classList.toggle('is-stalled', stalled);
+  if (stalled) {
+    meta.push(`No progress for ${eta(j.stalled_s)}`);
+    if (j.stall_limit_s) meta.push(`stops at ${eta(j.stall_limit_s)}`);
+  } else if (j.status === 'downloading' || j.status === 'processing') {
     if (j.speed_bps) meta.push(speed(j.speed_bps));
     if (j.eta_s != null) meta.push(`≈ ${eta(j.eta_s)}`);
     if (!meta.length) meta.push(`${Math.round(p * 100)}%`);

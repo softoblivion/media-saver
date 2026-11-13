@@ -313,6 +313,18 @@ class JobTests(FakeBase):
         self.assertEqual(error["code"], "login_required")
         self.assertTrue(error["can_login"])
 
+    def test_stall_shortcode_shows_the_stalled_state_then_times_out(self):
+        with mock.patch("app.fake_engine.time.sleep", lambda s: None):
+            self.engine.enqueue("https://www.instagram.com/reel/DCSTALLx7Qa/")
+            self.assertTrue(self.wait_for(lambda: self.engine.get_state()["jobs"][0]["status"] == "error", 20))
+        with self.lock:
+            stalled = [p for t, p in self.events if t == "job" and p.get("stalled_s") is not None]
+        self.assertTrue(stalled)
+        self.assertEqual({p["stall_limit_s"] for p in stalled}, {300})
+        job = self.engine.get_state()["jobs"][0]
+        self.assertEqual(job["error"]["code"], "timeout")
+        self.assertIsNone(job["stalled_s"])
+
     def test_clear_finished_filters_by_platform(self):
         with mock.patch("app.fake_engine.time.sleep", lambda s: None):
             self.engine.enqueue(f"{IG} {YT}")

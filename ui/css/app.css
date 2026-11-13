@@ -893,6 +893,10 @@ body:not(.is-ready) #app {
 .jcard[data-status="queued"] .jc-fill { background: rgba(255, 255, 255, 0.2); }
 .jcard[data-status="queued"] .jc-fill::after { content: none; }
 .jcard[data-status="error"] .jc-status { display: none; }
+/* Stalled: no activity for 30 s or more; the bar stops its sheen and turns amber, the meta counts toward the limit. */
+.jcard.is-stalled .jc-fill { background: var(--amber); box-shadow: none; }
+.jcard.is-stalled .jc-fill::after { content: none; }
+.jcard.is-stalled .jc-meta { color: var(--amber-ink); }
 
 .jc-line {
   display: flex;

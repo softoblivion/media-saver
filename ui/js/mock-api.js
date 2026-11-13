@@ -556,7 +556,7 @@ export function createMock({ params, emit }) {
       width: null, height: null, fps: null, vcodec: null, acodec: null, filesize: null, filepath: null,
       already_existed: false, transcoded: false,
       attempt: { engine: 'yt-dlp', auth: 'anonymous' },
-      error: null, created_at: now(), finished_at: null,
+      error: null, created_at: now(), finished_at: null, stalled_s: null, stall_limit_s: null,
       _n: jobCounter++,
       ...extra,
     };
@@ -658,8 +658,11 @@ export function createMock({ params, emit }) {
     const tt = j.platform === 'tiktok';
     const mp3 = j.format === 'mp3';
     const code = j.shortcode || '';
-    const wantsLogin = ig && (/LOGIN/i.test(code) || n % 7 === 3);
-    const ageGate = yt && (/AGE/i.test(code) || n % 9 === 5);
+    // A shortcode with "STALL" gets no data after 40 % of its video: the card shows the stall, counting toward the
+    // download stage's limit (ENGINE §5: 300 s; the mock counts 10 s per tick), then the job ends with `timeout`.
+    const stalls = /STALL/i.test(code);
+    const wantsLogin = ig && !stalls && (/LOGIN/i.test(code) || n % 7 === 3);
+    const ageGate = yt && !stalls && (/AGE/i.test(code) || n % 9 === 5);
     const isPrivate = /PRIV/i.test(code);
     const existed = n % 7 === 1 && settings.skip_existing;
     const tall = !isWide(j);
@@ -731,6 +734,15 @@ export function createMock({ params, emit }) {
         got = Math.min(vSize, got + bps * 0.25 * speed * (yt && !tall ? 3 : 1));
         const p = 0.08 + 0.7 * (got / vSize);
         setJob({ status: 'downloading', stage_text: 'Downloading video', progress: p, speed_bps: Math.round(bps), eta_s: Math.ceil((vSize - got + aSize) / bps / speed) });
+        if (stalls && got / vSize > 0.4) {
+          for (let s = 30; s < 300; s += 10) {
+            if (!setJob({ speed_bps: null, eta_s: null, stalled_s: s, stall_limit_s: 300 })) return;
+            await wait(1000 / speed);
+          }
+          setJob({ status: 'error', stage_text: 'Failed', stalled_s: null, stall_limit_s: null, finished_at: now(),
+            error: { code: 'timeout', message: 'No data arrived for 5 minutes, so the download was stopped. Try again.', can_login: false, log_path: logPath(j) } });
+          return pump();
+        }
       }
       j._size = vSize;
     }
@@ -842,6 +854,7 @@ export function createMock({ params, emit }) {
     jobCounter = 10;
     ['DCrun1aaBb2', 'DCrun2ccDd4', 'DCrun3eeFf6'].forEach((c, i) => newJob(`https://www.instagram.com/reel/${c}`, c, 'instagram', 'reel', { created_at: now() - 3 + i }));
     newJob('https://www.instagram.com/reel/DCqueueA1b2', 'DCqueueA1b2', 'instagram', 'reel', { created_at: now() - 0.5, format: 'mp3' });
+    newJob('https://www.instagram.com/reel/DCSTALLx7Qa', 'DCSTALLx7Qa', 'instagram', 'reel', { created_at: now() - 0.1 });
     ['M7lc1UVf-VE', 'aqz-KE-bpKQ'].forEach((c, i) => newJob(`https://www.youtube.com/watch?v=${c}`, c, 'youtube', 'video', { created_at: now() - 2 + i }));
     newJob('https://www.youtube.com/shorts/Ks-_Mh1QhMc', 'Ks-_Mh1QhMc', 'youtube', 'shorts', { created_at: now() - 0.2 });
 

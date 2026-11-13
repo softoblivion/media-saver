@@ -399,6 +399,7 @@ class FakeEngine:
             "filesize": None, "filepath": None, "already_existed": False, "transcoded": False,
             "attempt": {"engine": "yt-dlp", "auth": "anonymous"}, "error": None,
             "created_at": self._next_created_at(), "finished_at": None,
+            "stalled_s": None, "stall_limit_s": None,
         }
         self._jobs[job_id] = job
         self._order.append(job_id)
@@ -518,9 +519,12 @@ class FakeEngine:
         else:     # the mp4 size scales a 1080p base by picture area
             total = int(12_345_678 * (width * height) / (1080 * 1920))
         steps = 24
+        stalls = "stall" in code.lower()   # demo of the stalled state: no data, then the per-stage limit
         for i in range(steps):
             if canceled():
                 return self._finish_canceled(job_id)
+            if stalls and i == steps // 2:
+                return self._run_stall(job_id, canceled)
             frac = (i + 1) / steps
             self._update_job(
                 job_id, status="downloading", stage_text="Downloading audio" if mp3 else "Downloading video",
@@ -543,10 +547,30 @@ class FakeEngine:
             speed_bps=None, eta_s=None,
         )
 
+    def _run_stall(self, job_id: str, canceled) -> None:
+        """A download that gets no data: `stalled_s` counts up (10 s a tick, fast) to the 300 s download limit, then
+        the job ends with code `timeout`, as the real engine's stall limit."""
+        limit = 300
+        for idle in range(30, limit, 10):
+            if canceled():
+                return self._finish_canceled(job_id)
+            self._update_job(job_id, stalled_s=idle, stall_limit_s=limit, speed_bps=None, eta_s=None)
+            time.sleep(0.1)
+        self._update_job(
+            job_id, status="error", stage_text="Error", finished_at=time.time(), stalled_s=None, stall_limit_s=None,
+            error={
+                "code": "timeout",
+                "message": "No data arrived for 5 minutes, so the download was stopped. Try again.",
+                "can_login": False,
+                "log_path": str(self.paths.logs_dir / f"{job_id}.log"),
+            },
+        )
+
     def _finish_canceled(self, job_id: str) -> None:
         self._cancel.discard(job_id)
         self._update_job(
             job_id, status="canceled", stage_text="Canceled", speed_bps=None, eta_s=None, finished_at=time.time(),
+            stalled_s=None, stall_limit_s=None,
             error={"code": "canceled", "message": "Canceled", "can_login": False, "log_path": None},
         )
 
@@ -563,7 +587,8 @@ class FakeEngine:
             job = self._jobs.get(job_id)
             if job is None or job["status"] not in ("error", "canceled"):
                 return False
-            job.update(status="queued", stage_text="Queued", progress=0.0, error=None, finished_at=None)
+            job.update(status="queued", stage_text="Queued", progress=0.0, error=None, finished_at=None,
+                       stalled_s=None, stall_limit_s=None)
             # as the real engine: the retried job moves to the top of the order and starts next; created_at stays
             self._order.remove(job_id)
             self._order.append(job_id)
