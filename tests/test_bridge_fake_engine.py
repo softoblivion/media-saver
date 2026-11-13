@@ -197,6 +197,9 @@ class JobTests(FakeBase):
     def test_preview_arrives_while_the_job_is_queued(self):
         self.engine.set_settings({"concurrency": 1})
         first = self.engine.enqueue(YT)["added"][0]  # occupies the single slot
+        # Before the second job is added: the topmost (newest) queued job would otherwise take the slot.
+        self.assertTrue(self.wait_for(lambda: any(
+            j["id"] == first["id"] and j["status"] != "queued" for j in self.engine.get_state()["jobs"])))
         second = self.engine.enqueue(IG)["added"][0]
         self.assertTrue(self.wait_for(lambda: any(
             t == "job" and p["id"] == second["id"] and p["previewed"] for t, p in list(self.events))))
@@ -247,7 +250,11 @@ class JobTests(FakeBase):
 
     def test_set_job_format_only_while_queued(self):
         self.engine.set_settings({"concurrency": 1})
-        self.engine.enqueue(YT)
+        first = self.engine.enqueue(YT)["added"][0]["id"]
+        # The topmost (newest) queued job starts first: the first job must hold the one slot before the second is
+        # added, or the second starts and is no longer queued.
+        self.assertTrue(self.wait_for(lambda: any(
+            j["id"] == first and j["status"] != "queued" for j in self.engine.get_state()["jobs"])))
         queued = self.engine.enqueue(IG)["added"][0]
         changed = self.engine.set_job_format(queued["id"], "mp3")
         self.assertEqual(changed["format"], "mp3")
