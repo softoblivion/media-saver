@@ -1147,7 +1147,8 @@ class Downloader:
         self._concurrency = 2
         self._batch_done = 0
         self._batch_failed = 0
-        self._history_lock = threading.Lock()
+        self._history_lock = threading.Lock()   # held while a history snapshot is taken and written
+        self._history_final = False             # the shutdown save is done: no later save overwrites it
         # preview fetches in flight: job id -> {"cancel": Event, "running": bool}; "running" turns true when the
         # fetch holds the gate and its subprocess starts (a download that starts then lets it finish)
         self._previews: dict[str, dict[str, Any]] = {}
@@ -1395,18 +1396,24 @@ class Downloader:
                         self._last_created = max(self._last_created, float(job.created_at))
 
     def save_history(self, interrupted: bool = False) -> None:
-        with self._lock:
-            items = []
-            for j in self._order:
-                job = self._jobs[j]
-                d = job.to_history()
-                if interrupted and job.status in ACTIVE:
-                    d["status"] = "canceled"
-                    d["stage_text"] = "Interrupted when the app closed"
-                items.append(d)
-        finished = [d for d in items if d["status"] in FINISHED][-HISTORY_LIMIT:]
-        active = [d for d in items if d["status"] not in FINISHED]
+        # The snapshot is taken while holding the file, so a save that waited for an earlier one writes the newer
+        # state; the shutdown save (`interrupted`) is the last one, and a background save running late skips.
         with self._history_lock:
+            if self._history_final:
+                return
+            with self._lock:
+                items = []
+                for j in self._order:
+                    job = self._jobs[j]
+                    d = job.to_history()
+                    if interrupted and job.status in ACTIVE:
+                        d["status"] = "canceled"
+                        d["stage_text"] = "Interrupted when the app closed"
+                    items.append(d)
+            if interrupted:
+                self._history_final = True
+            finished = [d for d in items if d["status"] in FINISHED][-HISTORY_LIMIT:]
+            active = [d for d in items if d["status"] not in FINISHED]
             try:
                 atomic_write_json(self.paths.history_file, {"version": HISTORY_VERSION, "jobs": finished + active})
             except OSError as exc:

@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import time
 import unittest
 
@@ -118,6 +119,29 @@ class HistoryTest(unittest.TestCase):
         jobs = {j["id"]: j for j in dl.jobs()}
         self.assertEqual((jobs["c0000001"]["kind"], jobs["c0000001"]["format"]), ("shorts", "mp4"))
         self.assertEqual((jobs["c0000002"]["platform"], jobs["c0000002"]["kind"]), ("instagram", "reel"))
+
+    def test_a_waiting_save_writes_the_state_it_finds_when_it_gets_the_file(self):
+        dl = self.make()
+        job = dl.get(dl.add("https://www.instagram.com/reel/AAA", "AAA", "instagram", "reel", "mp4")["id"])
+        with dl._history_lock:  # an earlier save is still writing
+            saver = threading.Thread(target=dl.save_history)
+            saver.start()
+            time.sleep(0.3)  # the saver now waits for the file
+            with dl._lock:
+                job.status, job.filepath = "done", "C:\\x\\a.mp4"
+        saver.join(5)
+        with open(self.paths.history_file, encoding="utf-8") as fh:
+            item = json.load(fh)["jobs"][0]
+        self.assertEqual(item["status"], "done")
+
+    def test_no_save_after_the_shutdown_save(self):
+        dl = self.make()
+        dl.add("https://www.instagram.com/reel/AAA", "AAA", "instagram", "reel", "mp4")
+        dl.save_history(interrupted=True)
+        dl.save_history()  # a background save started before the shutdown, running late
+        with open(self.paths.history_file, encoding="utf-8") as fh:
+            item = json.load(fh)["jobs"][0]
+        self.assertEqual((item["status"], item["stage_text"]), ("canceled", "Interrupted when the app closed"))
 
     def test_retry_is_saved(self):
         dl = self.make()
