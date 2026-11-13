@@ -11,7 +11,19 @@ Everything about using the app. Installation and the first steps are in the [REA
    and the quality for the current platform.
 4. Press **Download**. Each card shows a preview as soon as the site answers, then progress, speed
    and ETA. A queued card can still switch between MP4 and MP3.
-5. Finished cards open the file or reveal it in Explorer.
+5. Finished cards open the file or reveal it in Explorer. When the file was moved or deleted, the notice offers
+   **Download again**.
+
+While the list has failed items, the queue header shows a **Retry failed** button (the circular arrow left of
+**Clear finished**): it starts every failed item of the current platform again. A video that is already in the
+queue is not added twice.
+
+A download that receives no data shows *No progress for …* on its card with the time it is allowed to wait. A
+download is stopped after 5 minutes without data, a conversion after 10 minutes without progress; the card then
+shows the reason and **Retry**. A slow download that keeps receiving data is never stopped.
+
+Closing the app stops running and queued downloads. On the next start a notice lists how many were interrupted and
+offers **Resume**; nothing starts until it is pressed. The offer lasts until the app is closed again.
 
 If Instagram refuses a reel without an account, the card offers **Sign in to Instagram**. After sign-in, the
 failed jobs retry automatically. YouTube, TikTok and X videos that require a signed-in viewer (age-restricted,
