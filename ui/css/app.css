@@ -471,6 +471,34 @@ body:not(.is-ready) #app {
   gap: 8px;
 }
 
+/* Resume row: the first row of the queue column while the last app close left interrupted downloads of
+   this mode; a card's material, the kit toast's info disc, Resume as its one action and a close glyph.
+   It pushes the cards down; a click on it outside Resume closes it (js/queue.js). */
+.q-resume {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  margin-bottom: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--r-18);
+  --lite-tint: rgba(18, 20, 40, 0.34);
+  font: var(--t-body);
+  letter-spacing: var(--tr-body);
+  cursor: pointer;
+}
+
+.q-resume[hidden] { display: none; }
+
+.q-resume-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-1);
+}
+
+.q-resume .btn,
+.q-resume .icon-btn { flex: none; }
+
 .q-head {
   position: absolute;
   z-index: 5;
@@ -610,6 +638,12 @@ body:not(.is-ready) #app {
 .fm-item:hover,
 .fm-item:focus-visible { background: var(--fill-3); outline: none; }
 
+/* Below a wide queue the counts go under the title, so three counts of three digits keep their room beside the
+   labelled header buttons. */
+@container (max-width: 719px) {
+  .q-title-wrap { flex-direction: column; gap: 2px; }
+}
+
 @container (max-width: 640px) {
   /* Narrow queue: the header buttons keep their icons only (layout: the labels would not fit). */
   .q-actions .btn > span { display: none; }
@@ -637,12 +671,6 @@ body:not(.is-ready) #app {
 }
 
 .jc-thumb {
-/* Below a wide queue the counts go under the title, so three counts of three digits keep their room beside the
-   labelled header buttons. */
-@container (max-width: 719px) {
-  .q-title-wrap { flex-direction: column; gap: 2px; }
-}
-
   position: relative;
   flex: 0 0 54px;
   height: 96px;

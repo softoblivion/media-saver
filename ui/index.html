@@ -89,6 +89,14 @@
 
       <section id="queue" class="queue" aria-label="Download queue">
         <div id="q-scroll" class="q-scroll">
+          <!-- Resume row: downloads the last app close interrupted, above the first card (js/queue.js). -->
+          <div id="q-resume" class="q-resume glass-lite" role="status" hidden>
+            <span class="toast-ic" aria-hidden="true"><span class="ic-slot" data-icon="info"></span></span>
+            <span class="q-resume-text"></span>
+            <button type="button" class="btn btn-s btn-tinted q-resume-go">Resume</button>
+            <button type="button" class="icon-btn icon-btn-s q-resume-close" aria-label="Close" title="Close"><span class="ic-slot" data-icon="x"></span></button>
+            <span class="lg-rim" aria-hidden="true"></span>
+          </div>
           <div id="q-list" class="q-list" role="list"></div>
           <div id="q-empty" class="q-empty" hidden></div>
         </div>

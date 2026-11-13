@@ -155,24 +155,12 @@ function toastAction(a) {
   };
 }
 
-/** Jobs the last app close interrupted: one notice on start offers to queue them again; nothing starts
- *  until its button is pressed. */
-function offerResume(jobs) {
-  const n = jobs.filter((j) => j.interrupted).length;
-  if (!n) return;
-  initWindowEdges();
-  const text = n === 1 ? '1 download was interrupted when the app closed' : `${n} downloads were interrupted when the app closed`;
-  toast('info', text, {
-    sticky: true,
-    action: { label: 'Resume', run: () => call('resume_interrupted').catch((err) => toast('error', err.message)) },
-  });
-}
-
 async function boot() {
   initScene();
   initLight();
   initToasts();
   initTitlebar();
+  initWindowEdges();
 
   let state;
   try {
@@ -200,7 +188,6 @@ async function boot() {
   initSound(state);
 
   on('toast', (t) => t && toast(t.level || 'info', t.text, toastAction(t.action)));
-  offerResume(state.jobs || []);
   on('window', (w) => {
     if (!w) return;
     setFocused(!!w.focused);

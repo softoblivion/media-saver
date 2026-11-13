@@ -81,6 +81,7 @@ export function initQueue(state) {
   head.querySelectorAll('.q-actions > .btn, .q-actions > .split').forEach((b) => gel(b));
   document.getElementById('btn-clear').addEventListener('click', clearFinished);
   document.getElementById('btn-retry-failed').addEventListener('click', retryFailed);
+  initResume();
   initFolder(state.settings || {});
   renderEmpty();
 
@@ -555,6 +556,7 @@ function renderHead() {
     if (isEmpty) springAnimate(empty, [{ opacity: 0, transform: 'scale(.94)' }, { opacity: 1, transform: 'none' }], SPRINGS.smooth);
   }
   scroller.classList.toggle('is-empty', isEmpty);
+  renderResume();
   // Recent thumbnails of this mode drift into the background scene.
   const thumbs = mine.filter((j) => j.thumbnail).sort((a, b) => b.created_at - a.created_at).slice(0, 4).map((j) => j.thumbnail);
   setGhosts(thumbs);
@@ -646,6 +648,58 @@ async function retryFailed() {
     if (!n) toast('info', 'Nothing to retry: the same videos are in the queue');
   } catch (err) {
     toast('error', err.message);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Resume row: the downloads the last app close interrupted (Job.interrupted, still finished) among the cards
+// of the shown mode, as a row of the list above the first card. Resume queues exactly those cards again and
+// closes the row; the close control or a click anywhere else on the row closes it for this mode.
+
+let resumeRow;
+const resumeClosed = new Set();   // modes whose row was closed
+
+function initResume() {
+  resumeRow = document.getElementById('q-resume');
+  gel(resumeRow.querySelector('.q-resume-go'));
+  resumeRow.addEventListener('click', (e) => {
+    if (e.target.closest('.q-resume-go')) resumeShown();
+    else closeResume();
+  });
+}
+
+function interruptedShown() {
+  return Array.from(list.children)
+    .map((c) => jobs.get(c.dataset.id))
+    .filter((j) => j && shown(j) && j.interrupted && (j.status === 'error' || j.status === 'canceled'));
+}
+
+function renderResume() {
+  const n = resumeClosed.has(getMode()) ? 0 : interruptedShown().length;
+  if (n) {
+    const text = n === 1 ? '1 download was interrupted when the app closed' : `${n} downloads were interrupted when the app closed`;
+    set(resumeRow, '.q-resume-text', text);
+  }
+  if (resumeRow.hidden !== !n) resumeRow.hidden = !n;
+}
+
+function closeResume() {
+  resumeClosed.add(getMode());
+  renderResume();
+}
+
+/** Queue the interrupted cards of this mode again, the bottom one first: each retry puts its job on top, so
+ *  they keep their order. */
+async function resumeShown() {
+  const picked = interruptedShown().reverse();
+  closeResume();
+  for (const j of picked) {
+    try {
+      await call('retry', j.id);
+    } catch (err) {
+      toast('error', err.message);
+      return;
+    }
   }
 }
 
