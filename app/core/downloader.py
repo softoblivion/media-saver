@@ -239,11 +239,22 @@ class BinaryGate:
         self._users = 0
         self._writer = False
 
-    def acquire_shared(self, cancel: threading.Event | None = None) -> bool:
+    def acquire_shared(self, cancel: threading.Event | None = None,
+                       on_wait: Callable[[], None] | None = None) -> bool:
+        """False when `cancel` is set while waiting. `on_wait` runs once, outside the lock, when the call has to
+        wait for a replacement."""
         with self._cond:
             while self._writer:
                 if cancel is not None and cancel.is_set():
                     return False
+                if on_wait is not None:
+                    callback, on_wait = on_wait, None
+                    self._cond.release()
+                    try:
+                        callback()
+                    finally:
+                        self._cond.acquire()
+                    continue
                 self._cond.wait(0.2)
             self._users += 1
             return True
@@ -1770,8 +1781,18 @@ class Downloader:
 
     def _run_tool(self, job: Job, argv: list[str], logs: list[str], *, label: str, timeout: float,
                   on_stdout=None, on_stderr=None, capture_stdout=True, gated: bool = True) -> ProcessResult:
-        if gated and not self.gate.acquire_shared(job.cancel_event):
-            raise JobCanceled()
+        if gated:
+            waiting: dict[str, str] = {}
+
+            def on_wait() -> None:  # the updater replaces the binaries: say so until this job may go on
+                with self._lock:
+                    waiting["stage"] = job.stage_text
+                self._set(job, stage_text="Waiting for engine update", speed_bps=None, eta_s=None)
+
+            if not self.gate.acquire_shared(job.cancel_event, on_wait=on_wait):
+                raise JobCanceled()
+            if waiting:
+                self._set(job, stage_text=waiting["stage"])
         try:
             res = self.runner.run(argv, cwd=self.paths.job_cache(job.id), on_stdout=on_stdout,
                                   on_stderr=on_stderr, capture_stdout=capture_stdout,
